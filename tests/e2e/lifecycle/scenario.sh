@@ -35,9 +35,9 @@ systemctl is-active --quiet buugoo || fail "服务未运行"
 [ "$(stat -c %U /var/lib/buugoo/buugoo.db)" = buugoo ] || fail "数据库文件应归 buugoo 用户所有"
 ps -o user= -C buugoo | grep -qx buugoo || fail "服务不应以 root 运行"
 expect_version v0.0.1
-# 写入一条消息作为数据标记（未配置模型时回复会失败，但用户消息会保存）。
-curl -s -X POST -H 'Content-Type: application/json' -d '{"content":"生命周期测试标记"}' http://127.0.0.1:8080/api/v1/chat >/dev/null || true
-curl -fsS http://127.0.0.1:8080/api/v1/messages | grep -q 生命周期测试标记 || fail "写入数据失败"
+# 新建一段带标题的对话作为数据标记（未配置模型也可以写入）。
+curl -fsS -X POST -H 'Content-Type: application/json' -d '{"title":"生命周期测试标记"}' http://127.0.0.1:8080/api/v1/conversations >/dev/null || fail "新建对话失败"
+curl -fsS http://127.0.0.1:8080/api/v1/conversations | grep -q 生命周期测试标记 || fail "写入数据失败"
 pass "数据已写入"
 CONFIG_SUM="$(sha256sum "$CONFIG")"
 
@@ -67,7 +67,7 @@ buugoo update -y --mirror "$MIRROR"
 expect_version v0.0.2
 ls /var/lib/buugoo/backups/*.db >/dev/null || fail "更新前应自动备份数据库"
 [ -x /usr/local/bin/buugoo.prev ] || fail "应保留上一个版本"
-curl -fsS http://127.0.0.1:8080/api/v1/messages | grep -q 生命周期测试标记 || fail "更新后数据丢失"
+curl -fsS http://127.0.0.1:8080/api/v1/conversations | grep -q 生命周期测试标记 || fail "更新后数据丢失"
 pass "更新后数据完好"
 grep -q '"version": "v0.0.2"' /etc/buugoo/install.json || fail "安装清单应记录新版本"
 
@@ -75,7 +75,7 @@ step "6. 更新到有问题的 v0.0.3，应自动回滚"
 if buugoo update --version v0.0.3 -y --mirror "$MIRROR"; then fail "v0.0.3 迁移必定失败，更新应返回错误"; fi
 expect_version v0.0.2
 systemctl is-active --quiet buugoo || fail "回滚后服务应恢复运行"
-curl -fsS http://127.0.0.1:8080/api/v1/messages | grep -q 生命周期测试标记 || fail "自动回滚后数据丢失"
+curl -fsS http://127.0.0.1:8080/api/v1/conversations | grep -q 生命周期测试标记 || fail "自动回滚后数据丢失"
 pass "自动回滚成功"
 
 step "7. 手动回滚到上一个版本"
@@ -105,7 +105,7 @@ step "10. 重新安装，沿用原有数据"
 bash "$INSTALL" -y --service --mirror "$MIRROR"
 expect_version v0.0.2
 [ "$(sha256sum "$CONFIG")" = "$CONFIG_SUM" ] || fail "重新安装不应覆盖配置"
-curl -fsS http://127.0.0.1:8080/api/v1/messages | grep -q 生命周期测试标记 || fail "重新安装后数据丢失"
+curl -fsS http://127.0.0.1:8080/api/v1/conversations | grep -q 生命周期测试标记 || fail "重新安装后数据丢失"
 pass "重新安装后数据完好"
 
 step "11. --purge 非交互模式必须加 -y"
