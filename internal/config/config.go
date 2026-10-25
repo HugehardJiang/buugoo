@@ -271,6 +271,7 @@ func Default() *Config {
 			HistoryMessages:  20,
 			MaxContextTokens: 6000,
 		},
+		Quota: QuotaConfig{ExemptAdmins: true},
 		Scheduler: SchedulerConfig{
 			Enabled:           true,
 			ConsolidationSpec: "0 4 * * *",

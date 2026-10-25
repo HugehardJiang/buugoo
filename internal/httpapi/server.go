@@ -1,0 +1,289 @@
+// Package httpapi 提供 Buugoo 的 HTTP API（/api/v1）与内嵌的 Web 界面。
+package httpapi
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
+	"golang.org/x/time/rate"
+
+	"github.com/HugehardJiang/buugoo/internal/auth"
+	"github.com/HugehardJiang/buugoo/internal/buildinfo"
+	"github.com/HugehardJiang/buugoo/internal/chat"
+	"github.com/HugehardJiang/buugoo/internal/config"
+	"github.com/HugehardJiang/buugoo/internal/llm"
+	"github.com/HugehardJiang/buugoo/internal/memory"
+	"github.com/HugehardJiang/buugoo/internal/quota"
+	"github.com/HugehardJiang/buugoo/internal/store"
+)
+
+// Deps 是 HTTP 层的依赖。
+type Deps struct {
+	Config      *config.Config
+	Store       store.Store
+	Auth        *auth.Service
+	Chat        *chat.Service
+	Memories    *memory.Manager
+	Quota       *quota.Limiter
+	PersonaName string
+	Logger      *slog.Logger
+	// LLMReady 报告聊天与向量模型是否已配置 API Key（用于前端提示）。
+	LLMReady func() (chatReady, embeddingReady bool)
+}
+
+type server struct {
+	Deps
+	log *slog.Logger
+}
+
+const ctxUserKey = "buugoo.user"
+
+// New 创建 HTTP 处理器。
+func New(d Deps) http.Handler {
+	if d.Logger == nil {
+		d.Logger = slog.Default()
+	}
+	s := &server{Deps: d, log: d.Logger.With("component", "http")}
+
+	e := echo.New()
+	e.HideBanner = true
+	e.HidePort = true
+	// 信任来自本机与内网的反向代理（宝塔/Nginx）设置的 X-Forwarded-For。
+	e.IPExtractor = echo.ExtractIPFromXFFHeader()
+	e.HTTPErrorHandler = s.errorHandler
+
+	e.Use(middleware.RecoverWithConfig(middleware.RecoverConfig{
+		LogErrorFunc: func(c echo.Context, err error, stack []byte) error {
+			s.log.Error("panic", "err", err, "path", c.Request().URL.Path, "stack", string(stack))
+			return err
+		},
+	}))
+	e.Use(middleware.RequestID())
+	e.Use(s.requestLogger())
+	e.Use(middleware.SecureWithConfig(middleware.SecureConfig{
+		XSSProtection:      "0",
+		ContentTypeNosniff: "nosniff",
+		XFrameOptions:      "DENY",
+		ReferrerPolicy:     "same-origin",
+	}))
+	if origins := d.Config.Server.CORSOrigins; len(origins) > 0 {
+		e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+			AllowOrigins: origins,
+			AllowHeaders: []string{echo.HeaderAuthorization, echo.HeaderContentType},
+			AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodDelete, http.MethodOptions},
+		}))
+	}
+
+	e.GET("/healthz", s.healthz)
+
+	api := e.Group("/api/v1", middleware.BodyLimit("1M"))
+	api.GET("/meta", s.meta)
+
+	// 登录与注册按 IP 限速，防止暴力破解。
+	authLimiter := middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
+		Store: middleware.NewRateLimiterMemoryStoreWithConfig(middleware.RateLimiterMemoryStoreConfig{
+			Rate: rate.Every(6 * time.Second), Burst: 10, ExpiresIn: 10 * time.Minute,
+		}),
+		DenyHandler: func(c echo.Context, _ string, _ error) error {
+			return &apiError{Status: http.StatusTooManyRequests, Code: "rate_limited", Message: "尝试次数过多，请稍后再试"}
+		},
+	})
+	api.POST("/auth/login", s.login, authLimiter)
+	api.POST("/auth/register", s.register, authLimiter)
+
+	priv := api.Group("", s.requireUser)
+	priv.POST("/auth/logout-all", s.logoutAll)
+	priv.POST("/auth/password", s.changePassword)
+	priv.GET("/me", s.me)
+	priv.GET("/conversations", s.listConversations)
+	priv.GET("/messages", s.listMessages)
+	priv.POST("/chat", s.chat)
+	priv.GET("/memories", s.listMemories)
+	priv.GET("/memories/:id", s.getMemory)
+	priv.DELETE("/memories/:id", s.deleteMemory)
+	priv.GET("/debug/prompt", s.debugPrompt)
+
+	admin := priv.Group("/admin", s.requireAdmin)
+	admin.GET("/users", s.adminUsers)
+	admin.GET("/invites", s.adminListInvites)
+	admin.POST("/invites", s.adminCreateInvite)
+	admin.DELETE("/invites/:id", s.adminDeleteInvite)
+
+	// 未匹配的 /api 路径返回 JSON 404，其余交给前端。
+	api.Any("/*", func(echo.Context) error { return echo.ErrNotFound })
+	s.mountWeb(e)
+	return e
+}
+
+func (s *server) requestLogger() echo.MiddlewareFunc {
+	return middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
+		LogStatus: true, LogURI: true, LogMethod: true, LogLatency: true, LogRemoteIP: true,
+		LogRequestID: true, LogError: true, HandleError: true,
+		Skipper: func(c echo.Context) bool {
+			p := c.Request().URL.Path
+			return p == "/healthz" || strings.HasPrefix(p, "/assets/")
+		},
+		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
+			attrs := []any{"method", v.Method, "uri", v.URI, "status", v.Status,
+				"latency", v.Latency.Round(time.Millisecond), "ip", v.RemoteIP, "request_id", v.RequestID}
+			if u, ok := c.Get(ctxUserKey).(*store.User); ok {
+				attrs = append(attrs, "user_id", u.ID)
+			}
+			if v.Error != nil {
+				attrs = append(attrs, "err", v.Error)
+			}
+			level := slog.LevelInfo
+			if v.Status >= 500 {
+				level = slog.LevelError
+			}
+			s.log.Log(c.Request().Context(), level, "request", attrs...)
+			return nil
+		},
+	})
+}
+
+func (s *server) healthz(c echo.Context) error {
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
+	defer cancel()
+	status, code := "ok", http.StatusOK
+	if err := s.Store.Ping(ctx); err != nil {
+		status, code = "db_unavailable", http.StatusServiceUnavailable
+	}
+	return c.JSON(code, map[string]string{"status": status, "version": buildinfo.Version})
+}
+
+func (s *server) meta(c echo.Context) error {
+	chatReady, embReady := true, true
+	if s.LLMReady != nil {
+		chatReady, embReady = s.LLMReady()
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"name":              s.PersonaName,
+		"version":           buildinfo.Version,
+		"mode":              s.Config.Mode,
+		"password_required": s.Auth.PasswordRequired(),
+		"registration":      s.Auth.Registration(),
+		"llm_ready":         chatReady,
+		"embedding_ready":   embReady,
+	})
+}
+
+// requireUser 校验 Authorization: Bearer <token>，并把用户放入上下文。
+func (s *server) requireUser(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		token := ""
+		if h := c.Request().Header.Get(echo.HeaderAuthorization); h != "" {
+			t, ok := strings.CutPrefix(h, "Bearer ")
+			if !ok {
+				return auth.ErrUnauthorized
+			}
+			token = strings.TrimSpace(t)
+		}
+		u, err := s.Auth.Authenticate(c.Request().Context(), token)
+		if err != nil {
+			return err
+		}
+		c.Set(ctxUserKey, u)
+		return next(c)
+	}
+}
+
+func (s *server) requireAdmin(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		if !currentUser(c).IsAdmin {
+			return auth.ErrForbidden
+		}
+		return next(c)
+	}
+}
+
+func currentUser(c echo.Context) *store.User {
+	u, _ := c.Get(ctxUserKey).(*store.User)
+	return u
+}
+
+// apiError 是返回给客户端的错误。
+type apiError struct {
+	Status  int    `json:"-"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Detail  any    `json:"detail,omitempty"`
+}
+
+func (e *apiError) Error() string { return e.Message }
+
+func badRequest(msg string) error {
+	return &apiError{Status: http.StatusBadRequest, Code: "bad_request", Message: msg}
+}
+
+// toAPIError 把领域错误映射为 HTTP 错误。未知错误统一返回 500，详细信息只写日志。
+func toAPIError(err error) *apiError {
+	var ae *apiError
+	var he *echo.HTTPError
+	var ve *auth.ValidationError
+	var qe *quota.ExceededError
+	var le *llm.APIError
+	switch {
+	case errors.As(err, &ae):
+		return ae
+	case errors.As(err, &ve):
+		return &apiError{Status: http.StatusBadRequest, Code: "invalid_input", Message: ve.Msg}
+	case errors.As(err, &qe):
+		return &apiError{Status: http.StatusTooManyRequests, Code: "quota_exceeded", Message: qe.Error(),
+			Detail: map[string]any{"kind": qe.Kind, "limit": qe.Limit, "used": qe.Used, "reset_at": qe.Reset}}
+	case errors.Is(err, auth.ErrUnauthorized):
+		return &apiError{Status: http.StatusUnauthorized, Code: "unauthorized", Message: auth.ErrUnauthorized.Error()}
+	case errors.Is(err, auth.ErrInvalidCredentials):
+		return &apiError{Status: http.StatusUnauthorized, Code: "invalid_credentials", Message: err.Error()}
+	case errors.Is(err, auth.ErrForbidden):
+		return &apiError{Status: http.StatusForbidden, Code: "forbidden", Message: err.Error()}
+	case errors.Is(err, auth.ErrRegistrationClosed), errors.Is(err, auth.ErrNotSupported):
+		return &apiError{Status: http.StatusForbidden, Code: "not_allowed", Message: err.Error()}
+	case errors.Is(err, auth.ErrInviteRequired), errors.Is(err, store.ErrInviteInvalid):
+		return &apiError{Status: http.StatusBadRequest, Code: "invalid_invite", Message: err.Error()}
+	case errors.Is(err, auth.ErrUsernameTaken):
+		return &apiError{Status: http.StatusConflict, Code: "username_taken", Message: err.Error()}
+	case errors.Is(err, chat.ErrEmptyMessage), errors.Is(err, chat.ErrMessageTooLong):
+		return &apiError{Status: http.StatusBadRequest, Code: "invalid_message", Message: err.Error()}
+	case errors.Is(err, llm.ErrNotConfigured):
+		return &apiError{Status: http.StatusServiceUnavailable, Code: "llm_not_configured",
+			Message: "模型未配置：请在配置文件中填写 llm.chat.api_key 后重启服务"}
+	case errors.As(err, &le):
+		return &apiError{Status: http.StatusBadGateway, Code: "llm_error", Message: "生成回复失败：" + le.Error()}
+	case errors.Is(err, store.ErrNotFound):
+		return &apiError{Status: http.StatusNotFound, Code: "not_found", Message: "记录不存在"}
+	case errors.As(err, &he):
+		msg := http.StatusText(he.Code)
+		if m, ok := he.Message.(string); ok && m != "" {
+			msg = m
+		}
+		return &apiError{Status: he.Code, Code: strings.ToLower(strings.ReplaceAll(http.StatusText(he.Code), " ", "_")), Message: msg}
+	case errors.Is(err, context.Canceled):
+		return &apiError{Status: 499, Code: "canceled", Message: "请求已取消"}
+	default:
+		return &apiError{Status: http.StatusInternalServerError, Code: "internal", Message: "服务器内部错误"}
+	}
+}
+
+// errorHandler 把错误写为 JSON 响应。错误本身由请求日志中间件记录。
+func (s *server) errorHandler(err error, c echo.Context) {
+	if c.Response().Committed {
+		return
+	}
+	ae := toAPIError(err)
+	var werr error
+	if c.Request().Method == http.MethodHead {
+		werr = c.NoContent(ae.Status)
+	} else {
+		werr = c.JSON(ae.Status, map[string]any{"error": ae})
+	}
+	if werr != nil {
+		s.log.Error("写入错误响应失败", "err", werr)
+	}
+}

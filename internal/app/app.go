@@ -1,0 +1,191 @@
+// Package app 组装 Buugoo 的全部组件并管理服务生命周期。
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"time"
+
+	"github.com/HugehardJiang/buugoo/internal/auth"
+	"github.com/HugehardJiang/buugoo/internal/buildinfo"
+	"github.com/HugehardJiang/buugoo/internal/chat"
+	"github.com/HugehardJiang/buugoo/internal/config"
+	"github.com/HugehardJiang/buugoo/internal/httpapi"
+	"github.com/HugehardJiang/buugoo/internal/llm"
+	"github.com/HugehardJiang/buugoo/internal/llm/provider"
+	"github.com/HugehardJiang/buugoo/internal/memory"
+	"github.com/HugehardJiang/buugoo/internal/persona"
+	"github.com/HugehardJiang/buugoo/internal/prompt"
+	"github.com/HugehardJiang/buugoo/internal/quota"
+	"github.com/HugehardJiang/buugoo/internal/store/gormstore"
+	"github.com/HugehardJiang/buugoo/internal/vector/memstore"
+)
+
+// App 持有所有组件。
+type App struct {
+	Config  *config.Config
+	Log     *slog.Logger
+	DB      *gormstore.DB
+	Auth    *auth.Service
+	Chat    *chat.Service
+	Writer  *memory.Writer
+	Handler http.Handler
+
+	// UpdateCheck 在服务启动后于后台执行（检查新版本），可为空。
+	UpdateCheck func(ctx context.Context)
+	// OnStart 在后台组件启动后、HTTP 服务开始监听前调用（注册定时任务等），可为空。
+	OnStart func(ctx context.Context, a *App) error
+}
+
+// New 打开数据库、执行迁移并组装所有组件。
+func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*App, error) {
+	db, err := gormstore.Open(cfg.Database, log)
+	if err != nil {
+		return nil, err
+	}
+	a, err := build(ctx, cfg, log, db)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return a, nil
+}
+
+func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormstore.DB) (*App, error) {
+	if err := db.Migrate(ctx); err != nil {
+		return nil, err
+	}
+	p, err := persona.Load(cfg.Persona.File)
+	if err != nil {
+		return nil, err
+	}
+	chatLLM, err := provider.NewChat(cfg.LLM.Chat)
+	if err != nil {
+		return nil, err
+	}
+	utilLLM, err := provider.NewChat(cfg.LLM.Utility)
+	if err != nil {
+		return nil, err
+	}
+	emb, err := provider.NewEmbedding(cfg.LLM.Embedding)
+	if err != nil {
+		return nil, err
+	}
+	authSvc, err := auth.NewService(ctx, cfg, db)
+	if err != nil {
+		return nil, err
+	}
+
+	loc := cfg.Location()
+	limiter := quota.New(cfg.Quota, db.Usage(), loc)
+	vs := memstore.New(db.Memories().LoadEmbeddings, cfg.Memory.Cache, log)
+	retriever := memory.NewRetriever(db.Memories(), vs, emb, cfg.Memory.Retrieval, cfg.Memory.Write.AccessBoost)
+	writer := memory.NewWriter(db.Memories(), vs, emb, memory.NewLLMExtractor(utilLLM), cfg.Memory.Write, log,
+		func(ctx context.Context, userID uint64, u llm.Usage) {
+			if err := limiter.Record(ctx, userID, 0, u.PromptTokens, u.CompletionTokens); err != nil {
+				log.Error("记录后台用量失败", "user_id", userID, "err", err)
+			}
+		})
+	chatSvc := chat.New(chat.Deps{
+		Store: db, Chat: chatLLM, Retriever: retriever, Writer: writer,
+		Builder: prompt.NewBuilder(p, cfg.Chat.MaxContextTokens), Quota: limiter,
+		Config: cfg.Chat, Location: loc, Logger: log,
+	})
+	handler := httpapi.New(httpapi.Deps{
+		Config: cfg, Store: db, Auth: authSvc, Chat: chatSvc, Memories: memory.NewManager(db.Memories(), vs),
+		Quota: limiter, PersonaName: p.Name, Logger: log,
+		LLMReady: func() (bool, bool) { return cfg.LLM.Chat.APIKey != "", cfg.LLM.Embedding.APIKey != "" },
+	})
+	return &App{Config: cfg, Log: log, DB: db, Auth: authSvc, Chat: chatSvc, Writer: writer, Handler: handler}, nil
+}
+
+// Run 启动后台组件与 HTTP 服务，阻塞直到 ctx 取消，然后优雅关闭。
+func (a *App) Run(ctx context.Context) error {
+	cfg := a.Config
+	a.warnings()
+
+	bgCtx, cancelBg := context.WithCancel(ctx)
+	defer cancelBg()
+	a.Writer.Start(bgCtx)
+	if a.OnStart != nil {
+		if err := a.OnStart(bgCtx, a); err != nil {
+			return err
+		}
+	}
+	if a.UpdateCheck != nil {
+		go a.UpdateCheck(bgCtx)
+	}
+
+	ln, err := net.Listen("tcp", cfg.Server.Listen)
+	if err != nil {
+		return fmt.Errorf("监听 %s: %w", cfg.Server.Listen, err)
+	}
+	srv := &http.Server{
+		Handler:           a.Handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       cfg.Server.ReadTimeout,
+		WriteTimeout:      cfg.Server.WriteTimeout,
+		IdleTimeout:       2 * time.Minute,
+	}
+	a.Log.Info("布谷已启动", "version", buildinfo.Version, "mode", cfg.Mode, "listen", ln.Addr().String(),
+		"database", cfg.Database.Driver, "config", cfg.Path())
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Serve(ln) }()
+
+	var serveErr error
+	select {
+	case <-ctx.Done():
+	case serveErr = <-errCh:
+	}
+
+	a.Log.Info("正在停止服务…")
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	var errs []error
+	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+		errs = append(errs, fmt.Errorf("HTTP 服务: %w", serveErr))
+	}
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		errs = append(errs, fmt.Errorf("关闭 HTTP 服务: %w", err))
+	}
+	cancelBg()
+	if err := a.Writer.Close(shutdownCtx); err != nil {
+		errs = append(errs, err)
+	}
+	a.Log.Info("服务已停止")
+	return errors.Join(errs...)
+}
+
+// Close 关闭数据库连接。
+func (a *App) Close() error { return a.DB.Close() }
+
+func (a *App) warnings() {
+	cfg := a.Config
+	if cfg.LLM.Chat.APIKey == "" {
+		a.Log.Warn("未配置聊天模型 API Key（llm.chat.api_key），聊天将无法使用")
+	}
+	if cfg.LLM.Embedding.APIKey == "" {
+		a.Log.Warn("未配置向量模型 API Key（llm.embedding.api_key），记忆检索与写入将无法使用")
+	}
+	if cfg.Mode == config.ModeSingle && cfg.Auth.AccessPassword == "" && !isLoopback(cfg.Server.Listen) {
+		a.Log.Warn("服务对外监听但未设置访问密码，任何能访问该地址的人都可以和布谷聊天并查看记忆！请设置 auth.access_password",
+			"listen", cfg.Server.Listen)
+	}
+}
+
+func isLoopback(listen string) bool {
+	host, _, err := net.SplitHostPort(listen)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}

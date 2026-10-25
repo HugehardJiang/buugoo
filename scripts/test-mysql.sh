@@ -24,4 +24,5 @@ for _ in $(seq 1 60); do
 done
 
 export BUUGOO_TEST_MYSQL_DSN="root:${PASS}@tcp(127.0.0.1:${PORT})/buugoo_test"
-go test -count=1 "$@" ./internal/store/... ./internal/app/...
+# 多个包共用同一个测试库，必须串行执行。
+go test -p 1 -count=1 "$@" ./internal/store/... ./internal/app/...
