@@ -253,6 +253,10 @@ func (s *server) meta(c echo.Context) error {
 		"registration":      s.Auth.Registration(),
 		"embedding_ready":   s.Models.EmbeddingReady(c.Request().Context()),
 		"uploads":           s.uploadLimits(),
+		// reminders 为 true 时显示「定时任务」入口（提醒或主动关心至少开了一个）。
+		"reminders": s.Config.Proactive.Reminders || s.Config.Proactive.Care,
+		// channels 为 true 时显示「聊天软件」入口。
+		"channels": s.Channels != nil && len(s.Channels.Enabled()) > 0,
 	})
 }
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 设计系统 Icons 组的线性图标：24px 网格、1.8 描边、圆角端点、无填充，颜色继承 currentColor。
-defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' | 'trash' | 'chevron' | 'clip' | 'file' | 'search' | 'code' | 'globe' | 'x' | 'brain' | 'folder' | 'image' | 'check' | 'sparkle' | 'download'; size?: number }>()
+defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' | 'trash' | 'chevron' | 'clip' | 'file' | 'search' | 'code' | 'globe' | 'x' | 'brain' | 'folder' | 'image' | 'check' | 'sparkle' | 'download' | 'clock' | 'link'; size?: number }>()
 </script>
 
 <template>
@@ -22,6 +22,14 @@ defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' |
     <template v-else-if="name === 'book'">
       <path d="M2 4h6a4 4 0 0 1 4 4v13a4 4 0 0 0-4-4H2z" />
       <path d="M22 4h-6a4 4 0 0 0-4 4v13a4 4 0 0 1 4-4h6z" />
+    </template>
+    <template v-else-if="name === 'clock'">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </template>
+    <template v-else-if="name === 'link'">
+      <path d="M10 14a4 4 0 0 0 5.7 0l3.6-3.6a4 4 0 0 0-5.7-5.7L12 6.3" />
+      <path d="M14 10a4 4 0 0 0-5.7 0l-3.6 3.6a4 4 0 0 0 5.7 5.7l1.6-1.6" />
     </template>
     <template v-else-if="name === 'plus'">
       <path d="M12 5v14M5 12h14" />

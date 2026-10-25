@@ -24,6 +24,8 @@ export interface Meta {
   embedding_ready: boolean
   // any_file：能运行代码时，表格、压缩包等读不出文字的文件也可以上传
   uploads: { max_file_bytes: number; max_files: number; any_file?: boolean } | null
+  reminders?: boolean
+  channels?: boolean
 }
 
 export interface Attachment {

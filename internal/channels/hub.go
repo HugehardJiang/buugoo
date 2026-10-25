@@ -281,7 +281,7 @@ func (h *Hub) process(ctx context.Context, in Inbound) {
 		return
 	case "/unbind", "解绑", "解除绑定":
 		if in.Owner != 0 {
-			h.say(ctx, c, in.PeerID, "这是你自己扫码连接的微信，要断开的话去网页「设置 → 聊天软件」里点「断开」")
+			h.say(ctx, c, in.PeerID, "这是你自己扫码连接的微信，要断开的话去网页「聊天软件」页里点「断开」")
 			return
 		}
 		_ = h.store.Bindings().Delete(ctx, u.ID, b.ID)
@@ -298,7 +298,7 @@ func (h *Hub) unbound(ctx context.Context, c Channel, in Inbound, text string) {
 	if m := codePattern.FindStringSubmatch(text); m != nil {
 		userID, ok := h.useCode(m[1])
 		if !ok {
-			h.say(ctx, c, in.PeerID, "这个绑定码不对或者过期了，在网页「设置 → 聊天软件」里重新生成一个吧")
+			h.say(ctx, c, in.PeerID, "这个绑定码不对或者过期了，在网页「聊天软件」页里重新生成一个吧")
 			return
 		}
 		b := &store.ChannelBinding{UserID: userID, Channel: in.Channel, PeerID: in.PeerID, PeerName: in.PeerName}
@@ -320,7 +320,7 @@ func (h *Hub) unbound(ctx context.Context, c Channel, in Inbound, text string) {
 	}
 	h.helped[key] = time.Now()
 	h.mu.Unlock()
-	h.say(ctx, c, in.PeerID, fmt.Sprintf("你好呀，我是%s\n先在网页「设置 → 聊天软件」里生成一个绑定码，再把那 6 位数字发给我，就能在这里聊天啦", h.botName()))
+	h.say(ctx, c, in.PeerID, fmt.Sprintf("你好呀，我是%s\n先在网页「聊天软件」页里生成一个绑定码，再把那 6 位数字发给我，就能在这里聊天啦", h.botName()))
 }
 
 func (h *Hub) botName() string {

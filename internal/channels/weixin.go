@@ -173,7 +173,7 @@ func (w *WeixinChannel) Status() Status {
 	if n := len(w.accounts); n > 0 {
 		st.Account = fmt.Sprintf("%d 个微信已连接", n)
 	} else {
-		st.Detail = "还没有用户连接微信。用户在「设置 → 聊天软件」里扫码连接自己的微信"
+		st.Detail = "还没有用户连接微信。用户在「聊天软件」页里扫码连接自己的微信"
 	}
 	return st
 }

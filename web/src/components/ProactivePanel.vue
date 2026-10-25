@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 设置 → 提醒与定时任务：是否允许布谷主动找自己聊天；提醒（到点提醒一句）与定时任务（到点去做一件事，再把结果发过来），
+// 定时任务页：是否允许布谷主动找自己聊天；提醒（到点提醒一句）与定时任务（到点去做一件事，再把结果发过来），
 // 可以新建、修改、暂停、删除。
 import { computed, onMounted, reactive, ref } from 'vue'
 import { api, ApiError, type Reminder, type ReminderInput, type Repeat } from '../api'
@@ -163,7 +163,6 @@ async function remove(r: Reminder) {
 
 <template>
   <section id="proactive" class="panel panel--inset">
-    <h2>提醒与定时任务</h2>
     <div v-if="care" class="row">
       <div class="row__text">
         <p class="row__title">允许{{ name }}主动找我</p>

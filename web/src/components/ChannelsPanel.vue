@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// 设置 → 聊天软件：微信扫码连接自己的微信；QQ / Telegram 生成绑定码，在聊天软件里私聊发给布谷就绑好了。
+// 聊天软件页：微信扫码连接自己的微信；QQ / Telegram 生成绑定码，在聊天软件里私聊发给布谷就绑好了。
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { api, ApiError, type Binding, type ChannelInfo, type WeixinUser } from '../api'
+import { refreshChannels } from '../channelState'
 import { shortWhen } from '../format'
 import { session } from '../session'
 import { toast } from '../toast'
@@ -25,15 +26,15 @@ const codeBindings = computed(() => bindings.value.filter((b) => b.channel !== '
 const login = computed(() => weixin.value?.login ?? null)
 const scanning = computed(() => !weixin.value?.account && !!login.value && (login.value.status === 'wait' || login.value.status === 'scaned'))
 
+const loaded = ref(false)
+
 async function load() {
-  try {
-    const r = await api.channels()
-    chans.value = r.channels
-    bindings.value = r.bindings
-    weixin.value = r.weixin
-  } catch {
-    // 读取失败时不显示这个面板。
-  }
+  const r = await refreshChannels()
+  loaded.value = true
+  if (!r) return
+  chans.value = r.channels
+  bindings.value = r.bindings
+  weixin.value = r.weixin
 }
 
 async function newCode() {
@@ -49,8 +50,8 @@ async function newCode() {
 async function unbind(b: Binding) {
   try {
     await api.unbind(b.id)
-    bindings.value = bindings.value.filter((x) => x.id !== b.id)
     toast(`已解绑${b.label}`)
+    await load()
   } catch (e) {
     toast(e instanceof ApiError ? e.message : '解绑失败')
   }
@@ -96,8 +97,8 @@ onBeforeUnmount(() => clearInterval(timer))
 </script>
 
 <template>
-  <section v-if="chans.length" id="channels" class="panel panel--inset">
-    <h2>聊天软件</h2>
+  <p v-if="loaded && !chans.length" class="form-flash">管理员还没有开启聊天软件接入。</p>
+  <section v-else-if="chans.length" id="channels" class="panel panel--inset">
     <p class="muted intro">
       在{{ chans.map((c) => c.label).join('、') }}里也能找{{ name }}聊天，网页上聊过的事{{ name }}都记得，聊天记录在网页的对话列表里也能看到。
       提醒和定时任务也会发到那里。

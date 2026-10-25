@@ -81,7 +81,7 @@ onBeforeUnmount(() => clearInterval(timer))
   <section class="panel panel--inset">
     <h2>聊天软件</h2>
     <p class="muted intro">
-      让用户在微信、QQ、Telegram 里也能找布谷聊天，只处理私聊。微信由每个用户在「设置 → 聊天软件」里扫码连接自己的微信；
+      让用户在微信、QQ、Telegram 里也能找布谷聊天，只处理私聊。微信由每个用户在「聊天软件」页里扫码连接自己的微信；
       QQ、Telegram 由用户生成绑定码发给机器人。绑定后和网页共用同一份记忆和心情。在「系统设置 → 聊天软件」中开启，修改后需要重启服务。
     </p>
     <p v-if="error" class="form-flash form-flash--error">{{ error }}</p>
