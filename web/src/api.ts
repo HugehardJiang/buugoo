@@ -44,6 +44,8 @@ export interface FileItem extends Attachment {
 
 export interface Usage {
   used_bytes: number
+  // 其中运行代码保存在对话工作目录里的文件（删除对话时一起删除）
+  workspace_bytes: number
   quota_bytes: number // 0 表示不限
   full: boolean
 }

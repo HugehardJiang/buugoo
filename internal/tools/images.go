@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -52,16 +53,25 @@ func wrapCode(code string) (script, boundary string) {
 	return script, boundary
 }
 
-// newStdout 返回标准输出的缓冲区：除了文字输出，还要装下附在末尾的图片。
-func newStdout() *limitedBuffer {
-	return &limitedBuffer{n: maxOutputBytes + maxImagesTotal*4/3 + 64<<10}
+// newStdout 返回标准输出的缓冲区：除了文字输出，还要装下附在末尾的图片与工作目录。
+func newStdout(workspaceMax int) *limitedBuffer {
+	return &limitedBuffer{n: maxOutputBytes + (maxImagesTotal+workspaceMax)*4/3 + 64<<10}
 }
 
-// splitImages 从标准输出末尾取出图片，返回剩下的文字输出（不超过 maxOutputBytes）。
-func splitImages(out *limitedBuffer, boundary string) (string, []Image, int) {
+// runTail 是代码运行结束后附在标准输出末尾的内容。
+type runTail struct {
+	Images  []Image
+	Skipped int
+	// Workspace 是沙箱中工作目录有变化时打包的 tar.gz，为空表示没有变化。
+	Workspace []byte
+	// WorkspaceErr 说明工作目录没能交回的原因（例如超过大小上限）。
+	WorkspaceErr string
+}
+
+// splitTail 从标准输出末尾取出图片与工作目录，返回剩下的文字输出（不超过 maxOutputBytes）。
+func splitTail(out *limitedBuffer, boundary string) (string, runTail) {
 	raw := out.buf.Bytes()
-	var images []Image
-	skipped := 0
+	var t runTail
 	marker := []byte("\n" + boundary + "\n")
 	if i := bytes.LastIndex(raw, marker); i >= 0 {
 		var payload struct {
@@ -69,17 +79,34 @@ func splitImages(out *limitedBuffer, boundary string) (string, []Image, int) {
 				Name string `json:"name"`
 				Data string `json:"data"`
 			} `json:"images"`
-			Skipped int `json:"skipped"`
+			Skipped   int `json:"skipped"`
+			Workspace *struct {
+				Data  string `json:"data"`
+				Error string `json:"error"`
+				Size  int    `json:"size"`
+			} `json:"workspace"`
 		}
 		if json.Unmarshal(raw[i+len(marker):], &payload) == nil {
-			skipped = payload.Skipped
+			t.Skipped = payload.Skipped
 			for _, img := range payload.Images {
 				data, err := base64.StdEncoding.DecodeString(img.Data)
-				if err != nil || len(data) == 0 || len(data) > maxImageBytes || len(images) >= maxImages {
-					skipped++
+				if err != nil || len(data) == 0 || len(data) > maxImageBytes || len(t.Images) >= maxImages {
+					t.Skipped++
 					continue
 				}
-				images = append(images, Image{Name: filepath.Base(img.Name), Data: data})
+				t.Images = append(t.Images, Image{Name: filepath.Base(img.Name), Data: data})
+			}
+			if w := payload.Workspace; w != nil {
+				switch {
+				case w.Error == "too_large":
+					t.WorkspaceErr = fmt.Sprintf("工作目录打包后有 %d MB，超过上限，这次的改动没有保存", w.Size>>20)
+				case w.Error != "":
+					t.WorkspaceErr = "保存工作目录失败：" + w.Error
+				default:
+					if data, err := base64.StdEncoding.DecodeString(w.Data); err == nil {
+						t.Workspace = data
+					}
+				}
 			}
 		}
 		raw = raw[:i]
@@ -92,7 +119,7 @@ func splitImages(out *limitedBuffer, boundary string) (string, []Image, int) {
 	if cut {
 		text += "\n…（输出过长，已截断）"
 	}
-	return text, images, skipped
+	return text, t
 }
 
 var (

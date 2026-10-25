@@ -132,7 +132,7 @@ type fakeTools struct {
 	images []tools.Image
 }
 
-func (f fakeTools) For(context.Context, *store.User, *models.Resolved) *tools.Set {
+func (f fakeTools) For(context.Context, *store.User, *store.Conversation, *models.Resolved, []store.Attachment) *tools.Set {
 	return tools.New(tools.Options{Python: fakeRunner{f.out, f.images}})
 }
 
@@ -141,7 +141,7 @@ type fakeRunner struct {
 	images []tools.Image
 }
 
-func (r fakeRunner) Run(context.Context, string) (tools.ExecResult, error) {
+func (r fakeRunner) Run(context.Context, string, tools.RunEnv) (tools.ExecResult, error) {
 	return tools.ExecResult{Stdout: r.out, Images: r.images}, nil
 }
 func (fakeRunner) Sandboxed() bool { return true }

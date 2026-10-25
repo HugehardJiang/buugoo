@@ -2,12 +2,14 @@ package app
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/models"
 	"github.com/HugehardJiang/buugoo/internal/store"
 	"github.com/HugehardJiang/buugoo/internal/tools"
+	"github.com/HugehardJiang/buugoo/internal/uploads"
 )
 
 // toolProvider 按模型与用户决定一轮对话可用的工具：
@@ -21,6 +23,9 @@ type toolProvider struct {
 	docker *tools.Docker
 	local  *tools.Local
 	direct *tools.Direct
+	// files 与 attachments 用于准备对话的文件环境（运行代码时的 input/ 与工作目录），可以为空。
+	files       *uploads.Service
+	attachments store.AttachmentRepo
 }
 
 func newToolProvider(cfg *config.Config, log *slog.Logger) *toolProvider {
@@ -111,14 +116,46 @@ func (p *toolProvider) search(model *models.Resolved) (tools.Searcher, tools.Fet
 	return searcher, fetcher
 }
 
+// workspace 准备这段对话运行代码的文件环境：上传过的文件（没有删除的）放进 input/，
+// 工作目录保存在 <workspace_dir>/<用户>/<对话>，计入用户的文件空间，用满后不再保存改动。
+func (p *toolProvider) workspace(ctx context.Context, u *store.User, conv *store.Conversation, pending []store.Attachment) (*tools.DirWorkspace, []string) {
+	if p.files == nil || conv == nil || conv.ID == 0 {
+		return nil, nil
+	}
+	dir := p.files.WorkspaceDir(u.ID, conv.ID)
+	if dir == "" {
+		return nil, nil
+	}
+	ws := &tools.DirWorkspace{Dir: dir, Staging: p.files.StagingDir(), Max: p.cfg.Tools.Python.WorkspaceMB << 20,
+		CanSave: func(ctx context.Context) error {
+			usage, err := p.files.Usage(ctx, u.ID)
+			if err == nil && usage.Full() {
+				err = errors.New("文件空间已经用满")
+			}
+			return err
+		}}
+	if list, err := p.attachments.ListByConversation(ctx, u.ID, conv.ID); err == nil {
+		list = append(list, pending...)
+		for i := range list {
+			if list[i].DeletedAt == nil {
+				ws.Inputs = append(ws.Inputs, tools.InputFile{Name: list[i].Filename, Path: p.files.Path(&list[i])})
+			}
+		}
+	}
+	return ws, tools.InputNames(ws.Inputs)
+}
+
 // For 实现 chat.ToolProvider。
-func (p *toolProvider) For(ctx context.Context, u *store.User, model *models.Resolved) *tools.Set {
+func (p *toolProvider) For(ctx context.Context, u *store.User, conv *store.Conversation, model *models.Resolved, pending []store.Attachment) *tools.Set {
 	opts := tools.Options{}
 	opts.Search, opts.Fetch = p.search(model)
 	if r := p.python(ctx, u); r != nil {
 		opts.Python = r
 		opts.Packages = p.cfg.Tools.Python.Packages
 		opts.CJKFont = tools.HasCJKFont()
+		if ws, inputs := p.workspace(ctx, u, conv, pending); ws != nil {
+			opts.Workspace, opts.Inputs, opts.Saved = ws, inputs, tools.ListWorkspace(ws.Dir, 30)
+		}
 		// 安装库需要联网：single 模式或管理员的对话才可以。
 		if p.cfg.Tools.Python.AllowInstall && (p.cfg.Mode == config.ModeSingle || u.IsAdmin) {
 			if in, ok := r.(tools.Installer); ok {

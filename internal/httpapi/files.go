@@ -14,13 +14,14 @@ import (
 const maxDeleteIDs = 500
 
 type usageDTO struct {
-	UsedBytes  int64 `json:"used_bytes"`
-	QuotaBytes int64 `json:"quota_bytes"` // 0 表示不限
-	Full       bool  `json:"full"`
+	UsedBytes      int64 `json:"used_bytes"`
+	WorkspaceBytes int64 `json:"workspace_bytes"` // 其中运行代码保存在对话工作目录里的部分
+	QuotaBytes     int64 `json:"quota_bytes"`     // 0 表示不限
+	Full           bool  `json:"full"`
 }
 
 func toUsage(u uploads.Usage) usageDTO {
-	return usageDTO{UsedBytes: u.UsedBytes, QuotaBytes: u.QuotaBytes, Full: u.Full()}
+	return usageDTO{UsedBytes: u.UsedBytes, WorkspaceBytes: u.WorkspaceBytes, QuotaBytes: u.QuotaBytes, Full: u.Full()}
 }
 
 type fileDTO struct {

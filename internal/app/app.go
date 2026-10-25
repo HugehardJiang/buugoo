@@ -115,7 +115,11 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 		cfg.Uploads.Dir = filepath.Join(cfg.DataDir, "uploads")
 	}
 	uploadSvc := uploads.New(db.Attachments(), cfg.Uploads, log)
+	if cfg.Tools.Python.WorkspaceMB > 0 {
+		uploadSvc.SetWorkspaceRoot(cfg.Tools.Python.WorkspaceDir)
+	}
 	toolsProv := newToolProvider(cfg, log)
+	toolsProv.files, toolsProv.attachments = uploadSvc, db.Attachments()
 	emo := emotion.New(db.Emotions(), cfg.Emotion, loc, log)
 	writer.OnAppraisal(func(ctx context.Context, job memory.WriteJob, a emotion.Appraisal) {
 		if err := emo.Appraise(ctx, job.UserID, a); err != nil {

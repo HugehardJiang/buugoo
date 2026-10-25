@@ -122,6 +122,8 @@ var meta = map[string]struct {
 	"tools.python.index_url":       {"pip 软件源", "留空为官方 PyPI；国内建议 https://pypi.tuna.tsinghua.edu.cn/simple", nil},
 	"tools.python.lib_dir":         {"库目录", "留空为 <数据目录>/pylib，所有人共用", nil},
 	"tools.python.lib_max_mb":      {"库目录上限（MB）", "超过后不再安装新库", nil},
+	"tools.python.workspace_dir":   {"对话工作目录位置", "留空为 <数据目录>/workspaces", nil},
+	"tools.python.workspace_mb":    {"每段对话工作目录上限（MB）", "代码保存的文件下次运行还在，计入用户的文件空间；0 表示不保留", nil},
 	"tools.python.install_timeout": {"安装时间上限", "", nil},
 
 	"emotion.enabled":        {"启用情绪系统", "", nil},

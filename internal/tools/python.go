@@ -37,16 +37,30 @@ type ExecResult struct {
 	Images []Image
 	// ImagesSkipped 是因为数量或大小超出上限而没有收集的图片数。
 	ImagesSkipped int
+	// Workspace 是沙箱中工作目录有变化时打包交回的 tar.gz（本机运行时直接写在工作目录里，为空）。
+	Workspace []byte
+	// WorkspaceErr 说明工作目录的改动为什么没有交回。
+	WorkspaceErr string
+}
+
+// RunEnv 是一次运行的文件环境。零值表示没有对话文件、不保留文件。
+type RunEnv struct {
+	// Workspace 是这段对话的工作目录（服务器上的路径），代码保存在当前目录的文件下次运行还在。
+	Workspace string
+	// Input 是本对话上传的文件复制到的目录，运行时以只读的 input/ 出现在当前目录。
+	Input string
+	// WorkspaceMax 是工作目录（打包压缩后）的大小上限，字节。
+	WorkspaceMax int
 }
 
 // Runner 运行 Python 代码。
 type Runner interface {
-	Run(ctx context.Context, code string) (ExecResult, error)
+	Run(ctx context.Context, code string, env RunEnv) (ExecResult, error)
 	// Sandboxed 报告代码是否在隔离环境中运行（断网、只读、看不到服务器文件）。
 	Sandboxed() bool
 }
 
-func pythonHandler(r Runner) handler {
+func pythonHandler(r Runner, ws Workspace) handler {
 	return func(ctx context.Context, args json.RawMessage) Result {
 		var in struct {
 			Code string `json:"code"`
@@ -61,12 +75,27 @@ func pythonHandler(r Runner) handler {
 			res.Output, res.Summary = "代码太长", "代码太长"
 			return res
 		}
-		out, err := r.Run(ctx, in.Code)
+		var env RunEnv
+		if ws != nil {
+			e, cleanup, err := ws.Prepare(ctx)
+			if err != nil {
+				res.Output, res.Summary = "准备运行环境失败："+err.Error(), "无法运行"
+				return res
+			}
+			defer cleanup()
+			env = e
+		}
+		out, err := r.Run(ctx, in.Code, env)
 		if err != nil {
 			res.Output, res.Summary = "无法运行代码："+err.Error(), "无法运行"
 			return res
 		}
 		res.Images = out.Images
+		if out.Workspace != nil && ws != nil {
+			if err := ws.Save(ctx, out.Workspace); err != nil {
+				out.WorkspaceErr = "这次保存的文件没有保留下来：" + err.Error()
+			}
+		}
 		var b strings.Builder
 		switch {
 		case out.TimedOut:
@@ -98,6 +127,9 @@ func pythonHandler(r Runner) handler {
 		if out.ImagesSkipped > 0 {
 			fmt.Fprintf(&b, "另有 %d 张图片超出数量或大小上限，没有显示（最多 %d 张，每张不超过 %d MB）。\n",
 				out.ImagesSkipped, maxImages, maxImageBytes>>20)
+		}
+		if out.WorkspaceErr != "" {
+			b.WriteString(out.WorkspaceErr + "\n")
 		}
 		if out.Stdout == "" && out.Stderr == "" && len(out.Images) == 0 {
 			b.WriteString("（没有输出，记得用 print 打印结果）")
@@ -264,7 +296,7 @@ func (d *Docker) Install(ctx context.Context, pkgs []string) (string, error) {
 const containerLib = "/opt/pylib"
 
 // Run 实现 Runner。
-func (d *Docker) Run(ctx context.Context, code string) (ExecResult, error) {
+func (d *Docker) Run(ctx context.Context, code string, env RunEnv) (ExecResult, error) {
 	var rnd [6]byte
 	_, _ = rand.Read(rnd[:])
 	name := "buugoo-py-" + hex.EncodeToString(rnd[:])
@@ -273,8 +305,24 @@ func (d *Docker) Run(ctx context.Context, code string) (ExecResult, error) {
 		"--network", "none", "--read-only", "--tmpfs", "/tmp:rw,size=64m,mode=1777",
 		"--memory", mem, "--memory-swap", mem, "--cpus", "1", "--pids-limit", "64",
 		"--user", "65534:65534", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-		"--workdir", "/tmp", "-e", "HOME=/tmp", "-e", "PYTHONIOENCODING=utf-8"}
+		"-e", "HOME=/tmp", "-e", "PYTHONIOENCODING=utf-8"}
 	args = append(args, threadEnv("-e")...)
+	// 工作目录是有大小上限的内存盘：上次保存的文件只读挂载进来复制一份，结束后有变化再打包交回，
+	// 代码无法直接写服务器的磁盘。
+	wd := "/tmp"
+	if env.Workspace != "" {
+		wd = "/work"
+		size := env.WorkspaceMax>>20 + 32
+		args = append(args, "--tmpfs", fmt.Sprintf("/work:rw,size=%dm,mode=1777", size),
+			"-e", "BUUGOO_WS_SYNC=1", "-e", "BUUGOO_WS_MAX="+strconv.Itoa(env.WorkspaceMax))
+		if info, err := os.Stat(env.Workspace); err == nil && info.IsDir() {
+			args = append(args, "-v", env.Workspace+":/ws_src:ro", "-e", "BUUGOO_WS_SRC=/ws_src")
+		}
+	}
+	if env.Input != "" {
+		args = append(args, "-v", env.Input+":"+wd+"/input:ro")
+	}
+	args = append(args, "--workdir", wd)
 	args = append(args, d.fontArgs()...)
 	if d.lib.ready() {
 		// 第三方库只读挂载；通过 PYTHONUSERBASE 让解释器找到它们（因此不能用 -I）。
@@ -287,11 +335,13 @@ func (d *Docker) Run(ctx context.Context, code string) (ExecResult, error) {
 	cmd := exec.CommandContext(runCtx, d.bin, args...)
 	script, boundary := wrapCode(code)
 	cmd.Stdin = strings.NewReader(script)
-	stdout, stderr := newStdout(), &limitedBuffer{n: maxOutputBytes}
+	stdout, stderr := newStdout(env.WorkspaceMax), &limitedBuffer{n: maxOutputBytes}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	err := cmd.Run()
 	res := ExecResult{Stderr: stderr.String()}
-	res.Stdout, res.Images, res.ImagesSkipped = splitImages(stdout, boundary)
+	var t runTail
+	res.Stdout, t = splitTail(stdout, boundary)
+	res.Images, res.ImagesSkipped, res.Workspace, res.WorkspaceErr = t.Images, t.Skipped, t.Workspace, t.WorkspaceErr
 	if runCtx.Err() != nil {
 		// 结束 docker 客户端进程不会停止容器，需要显式 kill。
 		killCtx, kc := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -373,12 +423,27 @@ func (l *Local) Available() bool {
 }
 
 // Run 实现 Runner。
-func (l *Local) Run(ctx context.Context, code string) (ExecResult, error) {
+func (l *Local) Run(ctx context.Context, code string, env RunEnv) (ExecResult, error) {
 	dir, err := os.MkdirTemp("", "buugoo-py-")
 	if err != nil {
 		return ExecResult{}, err
 	}
 	defer os.RemoveAll(dir)
+	// 本机运行不在沙箱里：直接在这段对话的工作目录中运行，input/ 是指向上传文件的链接。
+	wd := dir
+	if env.Workspace != "" {
+		if err := os.MkdirAll(env.Workspace, 0o755); err != nil {
+			return ExecResult{}, err
+		}
+		wd = env.Workspace
+	}
+	if env.Input != "" {
+		link := filepath.Join(wd, "input")
+		_ = os.RemoveAll(link)
+		if err := os.Symlink(env.Input, link); err == nil {
+			defer os.Remove(link)
+		}
+	}
 	runCtx, cancel := context.WithTimeout(ctx, l.timeout)
 	defer cancel()
 	var cmd *exec.Cmd
@@ -391,17 +456,19 @@ func (l *Local) Run(ctx context.Context, code string) (ExecResult, error) {
 			l.memoryMB*1024, int(l.timeout.Seconds())+1)
 		cmd = exec.CommandContext(runCtx, "/bin/sh", "-c", limits, l.python)
 	}
-	cmd.Dir = dir
+	cmd.Dir = wd
 	// matplotlib 的字体缓存放在库目录，不用每次运行都重新扫描字体。
 	cmd.Env = append(l.env(dir), "MPLCONFIGDIR="+filepath.Join(l.lib.dir, mplCacheDir))
 	script, boundary := wrapCode(code)
 	cmd.Stdin = strings.NewReader(script)
-	stdout, stderr := newStdout(), &limitedBuffer{n: maxOutputBytes}
+	stdout, stderr := newStdout(0), &limitedBuffer{n: maxOutputBytes}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	cmd.WaitDelay = 2 * time.Second
 	err = cmd.Run()
 	res := ExecResult{Stderr: stderr.String()}
-	res.Stdout, res.Images, res.ImagesSkipped = splitImages(stdout, boundary)
+	var t runTail
+	res.Stdout, t = splitTail(stdout, boundary)
+	res.Images, res.ImagesSkipped = t.Images, t.Skipped
 	if runCtx.Err() != nil {
 		if ctx.Err() != nil {
 			return res, ctx.Err()

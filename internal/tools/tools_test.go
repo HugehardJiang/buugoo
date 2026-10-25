@@ -1,8 +1,12 @@
 package tools
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -85,8 +89,8 @@ func TestSearchAndFetch(t *testing.T) {
 
 type fakeRunner struct{ res ExecResult }
 
-func (f fakeRunner) Run(context.Context, string) (ExecResult, error) { return f.res, nil }
-func (fakeRunner) Sandboxed() bool                                   { return true }
+func (f fakeRunner) Run(context.Context, string, RunEnv) (ExecResult, error) { return f.res, nil }
+func (fakeRunner) Sandboxed() bool                                           { return true }
 
 func TestPythonHandler(t *testing.T) {
 	ctx := context.Background()
@@ -108,19 +112,19 @@ func TestLocalRunner(t *testing.T) {
 	}
 	l := NewLocal(config.PythonConfig{Python: "python3", Timeout: 3 * time.Second, MemoryMB: 256, LibDir: t.TempDir()}, nil)
 	ctx := context.Background()
-	res, err := l.Run(ctx, "import os\nprint(sum(range(101)), os.getcwd().startswith(os.environ['HOME']))")
+	res, err := l.Run(ctx, "import os\nprint(sum(range(101)), os.getcwd().startswith(os.environ['HOME']))", RunEnv{})
 	if err != nil || res.Stdout != "5050 True\n" || res.ExitCode != 0 {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
-	res, err = l.Run(ctx, "import time\ntime.sleep(10)")
+	res, err = l.Run(ctx, "import time\ntime.sleep(10)", RunEnv{})
 	if err != nil || !res.TimedOut {
 		t.Fatalf("应超时: %+v %v", res, err)
 	}
-	res, _ = l.Run(ctx, "raise SystemExit(3)")
+	res, _ = l.Run(ctx, "raise SystemExit(3)", RunEnv{})
 	if res.ExitCode != 3 {
 		t.Fatalf("exit=%d", res.ExitCode)
 	}
-	res, _ = l.Run(ctx, "print('x'*200000)")
+	res, _ = l.Run(ctx, "print('x'*200000)", RunEnv{})
 	if !strings.HasSuffix(res.Stdout, "已截断）") {
 		t.Fatal("输出应截断")
 	}
@@ -136,12 +140,12 @@ func TestDockerRunner(t *testing.T) {
 	if !d.Available(ctx) {
 		t.Fatal("Docker 不可用")
 	}
-	res, err := d.Run(ctx, "import os, socket\nprint(os.getuid())\ntry:\n    socket.create_connection(('1.1.1.1', 80), 2)\n    print('net')\nexcept OSError:\n    print('nonet')\ntry:\n    open('/x','w')\nexcept OSError:\n    print('ro')")
+	res, err := d.Run(ctx, "import os, socket\nprint(os.getuid())\ntry:\n    socket.create_connection(('1.1.1.1', 80), 2)\n    print('net')\nexcept OSError:\n    print('nonet')\ntry:\n    open('/x','w')\nexcept OSError:\n    print('ro')", RunEnv{})
 	if err != nil || res.Stdout != "65534\nnonet\nro\n" {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 	d.timeout = 3 * time.Second
-	res, err = d.Run(ctx, "while True: pass")
+	res, err = d.Run(ctx, "while True: pass", RunEnv{})
 	if err != nil || !res.TimedOut {
 		t.Fatalf("应超时: %+v %v", res, err)
 	}
@@ -215,7 +219,7 @@ func TestDockerInstall(t *testing.T) {
 	if out, err := d.Install(ctx, []string{"tabulate"}); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	res, err := d.Run(ctx, "import tabulate\nprint(tabulate.tabulate([[1, 2]]).count('1'))\ntry:\n    open(tabulate.__file__, 'a')\nexcept OSError:\n    print('ro')")
+	res, err := d.Run(ctx, "import tabulate\nprint(tabulate.tabulate([[1, 2]]).count('1'))\ntry:\n    open(tabulate.__file__, 'a')\nexcept OSError:\n    print('ro')", RunEnv{})
 	if err != nil || res.Stdout != "1\nro\n" {
 		t.Fatalf("运行时应能 import 且库目录只读: %+v %v", res, err)
 	}
@@ -234,7 +238,7 @@ func TestLocalRunnerImages(t *testing.T) {
 	}
 	l := NewLocal(config.PythonConfig{Python: "python3", Timeout: 5 * time.Second, MemoryMB: 256, LibDir: t.TempDir()}, nil)
 	ctx := context.Background()
-	res, err := l.Run(ctx, tinyPNG+"open('chart.png','wb').write(png)\nimport os\nos.makedirs('out', exist_ok=True)\nopen('out/b.png','wb').write(png)\nopen('notes.txt','w').write('x')\nprint('ok')")
+	res, err := l.Run(ctx, tinyPNG+"open('chart.png','wb').write(png)\nimport os\nos.makedirs('out', exist_ok=True)\nopen('out/b.png','wb').write(png)\nopen('notes.txt','w').write('x')\nprint('ok')", RunEnv{})
 	if err != nil || res.Stdout != "ok\n" || len(res.Images) != 2 || res.Images[0].Name != "chart.png" || res.Images[1].Name != "b.png" {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
@@ -242,22 +246,22 @@ func TestLocalRunnerImages(t *testing.T) {
 		t.Fatal("图片内容不对")
 	}
 	// 超出数量上限的图片不收集。
-	res, _ = l.Run(ctx, tinyPNG+"for i in range(8):\n    open(f'{i}.png','wb').write(png)")
+	res, _ = l.Run(ctx, tinyPNG+"for i in range(8):\n    open(f'{i}.png','wb').write(png)", RunEnv{})
 	if len(res.Images) != maxImages || res.ImagesSkipped != 2 {
 		t.Fatalf("images=%d skipped=%d", len(res.Images), res.ImagesSkipped)
 	}
 	// 出错时错误信息只指向用户代码，并且仍然带上已经生成的图片。
-	res, _ = l.Run(ctx, tinyPNG+"open('a.png','wb').write(png)\nx = 1\n1/0")
+	res, _ = l.Run(ctx, tinyPNG+"open('a.png','wb').write(png)\nx = 1\n1/0", RunEnv{})
 	if res.ExitCode != 1 || len(res.Images) != 1 || !strings.Contains(res.Stderr, `File "<code>", line 7`) ||
 		!strings.Contains(res.Stderr, "1/0") || strings.Contains(res.Stderr, "<stdin>") {
 		t.Fatalf("res=%+v", res)
 	}
 	// 用户代码伪造的分隔符不影响输出。
-	res, _ = l.Run(ctx, "print('\\n--buugoo-images-0\\n{}')\nimport sys\nsys.exit(0)")
+	res, _ = l.Run(ctx, "print('\\n--buugoo-images-0\\n{}')\nimport sys\nsys.exit(0)", RunEnv{})
 	if res.ExitCode != 0 || !strings.Contains(res.Stdout, "--buugoo-images-0") || len(res.Images) != 0 {
 		t.Fatalf("res=%+v", res)
 	}
-	res, _ = l.Run(ctx, "if __name__ == '__main__':\n    print('main')")
+	res, _ = l.Run(ctx, "if __name__ == '__main__':\n    print('main')", RunEnv{})
 	if res.Stdout != "main\n" {
 		t.Fatalf("res=%+v", res)
 	}
@@ -290,13 +294,13 @@ func TestDockerPlot(t *testing.T) {
 		t.Fatalf("应建好字体缓存: %v", err)
 	}
 	start := time.Now()
-	res, err := d.Run(ctx, "import matplotlib.pyplot as plt\nplt.plot([1, 3, 2])\nplt.title('Test')\nplt.show()\nfig2 = plt.figure()\nplt.bar(['a', 'b'], [1, 2])\nprint('done')")
+	res, err := d.Run(ctx, "import matplotlib.pyplot as plt\nplt.plot([1, 3, 2])\nplt.title('Test')\nplt.show()\nfig2 = plt.figure()\nplt.bar(['a', 'b'], [1, 2])\nprint('done')", RunEnv{})
 	if err != nil || res.ExitCode != 0 || res.Stdout != "done\n" || len(res.Images) != 2 || res.Stderr != "" {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 	t.Logf("画图用时 %s，图片 %d 字节", time.Since(start).Round(time.Millisecond), len(res.Images[0].Data))
 	// 保存了文件时只收集文件，不再重复收集图表。
-	res, err = d.Run(ctx, "import matplotlib.pyplot as plt\nplt.plot([1, 2])\nplt.savefig('line.png')")
+	res, err = d.Run(ctx, "import matplotlib.pyplot as plt\nplt.plot([1, 2])\nplt.savefig('line.png')", RunEnv{})
 	if err != nil || len(res.Images) != 1 || res.Images[0].Name != "line.png" {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
@@ -365,5 +369,116 @@ func TestDirectFetch(t *testing.T) {
 	r := New(Options{Fetch: NewDirect()}).Run(context.Background(), llm.ToolCall{Name: NameFetch, Arguments: `{"url":"` + srv.URL + `"}`})
 	if r.OK || !strings.Contains(r.Output, "内网") {
 		t.Fatalf("应拒绝本机地址: %+v", r)
+	}
+}
+
+func newTestWorkspace(t *testing.T, max int) *DirWorkspace {
+	t.Helper()
+	root := t.TempDir()
+	_ = os.Chmod(root, 0o755)
+	src := filepath.Join(root, "uploads", "data.csv")
+	_ = os.MkdirAll(filepath.Dir(src), 0o750)
+	if err := os.WriteFile(src, []byte("a,b\n1,2\n3,4\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	return &DirWorkspace{Dir: filepath.Join(root, "ws", "1", "7"), Staging: filepath.Join(root, "ws", ".staging"), Max: max,
+		Inputs: []InputFile{{Name: "data.csv", Path: src}, {Name: "data.csv", Path: src}}}
+}
+
+// 运行代码能读到对话里上传的文件，写在当前目录的文件下次运行还在。
+func testWorkspaceRunner(t *testing.T, r Runner, ws *DirWorkspace) {
+	t.Helper()
+	ctx := context.Background()
+	set := New(Options{Python: r, Workspace: ws, Inputs: InputNames(ws.Inputs)})
+	if !strings.Contains(set.Defs()[0].Description, "input/ 目录（只读）：data.csv、data (2).csv") {
+		t.Fatalf("description: %s", set.Defs()[0].Description)
+	}
+	run := func(code string) Result {
+		t.Helper()
+		b, _ := json.Marshal(map[string]string{"code": code})
+		return set.Run(ctx, llm.ToolCall{Name: NamePython, Arguments: string(b)})
+	}
+	if r := run("import csv, os\nrows = list(csv.reader(open('input/data.csv')))\nprint(len(rows), sorted(os.listdir('input')))\nos.makedirs('out', exist_ok=True)\nopen('out/sum.txt','w').write('10')\nopen('note.txt','w').write('hi')"); !r.OK || !strings.Contains(r.Output, "3 ['data (2).csv', 'data.csv']") {
+		t.Fatalf("run1: %+v", r)
+	}
+	if r := run("print(open('out/sum.txt').read(), open('note.txt').read())\ntry:\n    open('input/data.csv','a')\nexcept OSError:\n    print('ro')"); !r.OK || !strings.Contains(r.Output, "10 hi") {
+		t.Fatalf("run2: %+v", r)
+	}
+	if got := ListWorkspace(ws.Dir, 10); strings.Join(got, ",") != "note.txt,out/" {
+		t.Fatalf("list: %v", got)
+	}
+	if entries, _ := os.ReadDir(ws.Staging); len(entries) != 0 {
+		t.Fatalf("临时目录应清理: %v", entries)
+	}
+}
+
+func TestLocalWorkspace(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("没有 python3")
+	}
+	ws := newTestWorkspace(t, 1<<20)
+	testWorkspaceRunner(t, NewLocal(config.PythonConfig{Python: "python3", Timeout: 5 * time.Second, MemoryMB: 256, LibDir: t.TempDir()}, nil), ws)
+}
+
+func TestDockerWorkspace(t *testing.T) {
+	if os.Getenv("BUUGOO_TEST_DOCKER") == "" {
+		t.Skip("设置 BUUGOO_TEST_DOCKER=1 运行")
+	}
+	d := NewDocker(config.PythonConfig{Docker: "docker", Image: "python:3.12-slim", Timeout: 20 * time.Second, MemoryMB: 256}, nil)
+	ws := newTestWorkspace(t, 1<<20)
+	testWorkspaceRunner(t, d, ws)
+	// 超过大小上限的改动不保存，原来的文件还在。
+	set := New(Options{Python: d, Workspace: ws})
+	r := set.Run(context.Background(), llm.ToolCall{Name: NamePython, Arguments: `{"code":"import os\nopen('big.bin','wb').write(os.urandom(3<<20))\nprint('done')"}`})
+	if !strings.Contains(r.Output, "超过上限") {
+		t.Fatalf("应提示超过上限: %+v", r)
+	}
+	if _, err := os.Stat(filepath.Join(ws.Dir, "big.bin")); !os.IsNotExist(err) {
+		t.Fatal("超限的文件不应保存")
+	}
+	if _, err := os.Stat(filepath.Join(ws.Dir, "note.txt")); err != nil {
+		t.Fatal("原来的文件应保留")
+	}
+	// 空间用满时不保存。
+	ws.CanSave = func(context.Context) error { return fmt.Errorf("文件空间已经用满") }
+	r = set.Run(context.Background(), llm.ToolCall{Name: NamePython, Arguments: `{"code":"open('x.txt','w').write('x')"}`})
+	if !strings.Contains(r.Output, "用满") {
+		t.Fatalf("%+v", r)
+	}
+}
+
+func TestUntarRejectsUnsafe(t *testing.T) {
+	mk := func(entries ...tar.Header) []byte {
+		var buf bytes.Buffer
+		gz := gzip.NewWriter(&buf)
+		tw := tar.NewWriter(gz)
+		for _, h := range entries {
+			h := h
+			if h.Typeflag == tar.TypeReg {
+				h.Size = 2
+			}
+			_ = tw.WriteHeader(&h)
+			if h.Typeflag == tar.TypeReg {
+				_, _ = tw.Write([]byte("ok"))
+			}
+		}
+		_ = tw.Close()
+		_ = gz.Close()
+		return buf.Bytes()
+	}
+	for _, name := range []string{"../evil", "/etc/x", "a/../../evil"} {
+		if err := untar(mk(tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o644}), t.TempDir(), 1<<20); err == nil {
+			t.Errorf("%s 应拒绝", name)
+		}
+	}
+	dir := t.TempDir()
+	if err := untar(mk(tar.Header{Name: "link", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd"}, tar.Header{Name: "a/b.txt", Typeflag: tar.TypeReg, Mode: 0o755}), dir, 1<<20); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "link")); !os.IsNotExist(err) {
+		t.Fatal("链接应忽略")
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "a", "b.txt")); string(b) != "ok" {
+		t.Fatal("普通文件应解压")
 	}
 }

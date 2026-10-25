@@ -291,6 +291,10 @@ type PythonConfig struct {
 	LibDir string `koanf:"lib_dir"`
 	// LibMaxMB 是第三方库目录的大小上限，超过后不再安装新库。
 	LibMaxMB int `koanf:"lib_max_mb"`
+	// WorkspaceDir 是每段对话运行代码的工作目录所在位置，留空为 <data_dir>/workspaces。
+	WorkspaceDir string `koanf:"workspace_dir"`
+	// WorkspaceMB 是每段对话工作目录（压缩后）的大小上限，0 表示不保留文件（每次运行都是空目录）。
+	WorkspaceMB int `koanf:"workspace_mb"`
 	// InstallTimeout 是一次安装的时间上限。
 	InstallTimeout time.Duration `koanf:"install_timeout"`
 }
@@ -441,7 +445,7 @@ func Default() *Config {
 			Runner: PythonDocker, Image: "python:3.12-slim", Docker: "docker", Python: "python3",
 			Timeout: 30 * time.Second, MemoryMB: 256,
 			Packages:     []string{"numpy", "scipy", "sympy", "pandas", "mpmath", "matplotlib"},
-			AllowInstall: true, LibMaxMB: 2048, InstallTimeout: 5 * time.Minute,
+			AllowInstall: true, LibMaxMB: 2048, InstallTimeout: 5 * time.Minute, WorkspaceMB: 50,
 		}, Search: SearchConfig{Provider: SearchAuto, DirectFetch: true}},
 		Quota: QuotaConfig{ExemptAdmins: true},
 		Scheduler: SchedulerConfig{
@@ -581,6 +585,9 @@ func (c *Config) applyDerived() {
 	if c.Database.Driver == DriverSQLite && c.Database.DSN == "" && c.DataDir != "" {
 		c.Database.DSN = filepath.Join(c.DataDir, "buugoo.db")
 	}
+	if c.Tools.Python.WorkspaceDir == "" && c.DataDir != "" {
+		c.Tools.Python.WorkspaceDir = filepath.Join(c.DataDir, "workspaces")
+	}
 	if c.Tools.Python.LibDir == "" && c.DataDir != "" {
 		c.Tools.Python.LibDir = filepath.Join(c.DataDir, "pylib")
 	}
@@ -682,7 +689,7 @@ func (c *Config) Validate() error {
 	default:
 		errs = append(errs, fmt.Errorf("tools.python.runner %q 无效（可选 docker、local、off）", c.Tools.Python.Runner))
 	}
-	if c.Tools.Python.Timeout <= 0 || c.Tools.Python.MemoryMB <= 0 || c.Tools.Python.InstallTimeout <= 0 || c.Tools.Python.LibMaxMB < 0 {
+	if c.Tools.Python.Timeout <= 0 || c.Tools.Python.MemoryMB <= 0 || c.Tools.Python.InstallTimeout <= 0 || c.Tools.Python.LibMaxMB < 0 || c.Tools.Python.WorkspaceMB < 0 || c.Tools.Python.WorkspaceMB > 1024 {
 		errs = append(errs, errors.New("tools.python.timeout、memory_mb、install_timeout 必须大于 0，lib_max_mb 不能小于 0"))
 	}
 	for _, p := range c.Tools.Python.Packages {

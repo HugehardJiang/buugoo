@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -52,7 +53,40 @@ type Service struct {
 	cfg  config.UploadsConfig
 	log  *slog.Logger
 	now  func() time.Time
+	// workspaces 是运行代码的对话工作目录所在位置（为空表示不保留工作目录），其中的文件计入用户的文件空间。
+	workspaces string
 }
+
+// SetWorkspaceRoot 设置对话工作目录的位置。
+func (s *Service) SetWorkspaceRoot(dir string) { s.workspaces = dir }
+
+// WorkspaceDir 返回一段对话的工作目录，没有设置位置时返回空。
+func (s *Service) WorkspaceDir(userID, conversationID uint64) string {
+	if s.workspaces == "" {
+		return ""
+	}
+	return filepath.Join(s.workspaces, strconv.FormatUint(userID, 10), strconv.FormatUint(conversationID, 10))
+}
+
+// StagingDir 返回复制上传文件供运行代码使用的临时目录所在位置。
+func (s *Service) StagingDir() string {
+	if s.workspaces == "" {
+		return ""
+	}
+	return filepath.Join(s.workspaces, ".staging")
+}
+
+// RemoveWorkspace 删除一段对话的工作目录（删除对话时）。
+func (s *Service) RemoveWorkspace(userID, conversationID uint64) {
+	if dir := s.WorkspaceDir(userID, conversationID); dir != "" {
+		if err := os.RemoveAll(dir); err != nil {
+			s.log.Warn("删除对话工作目录失败", "dir", dir, "err", err)
+		}
+	}
+}
+
+// Path 返回附件文件在服务器上的位置。
+func (s *Service) Path(a *store.Attachment) string { return s.abs(a.Path) }
 
 // New 创建上传服务。
 func New(repo store.AttachmentRepo, cfg config.UploadsConfig, log *slog.Logger) *Service {
@@ -182,7 +216,10 @@ func mb(n int64) string {
 
 // Usage 是用户文件空间的用量。
 type Usage struct {
+	// UsedBytes 包括上传的文件、代码生成的图片与运行代码保存在对话工作目录里的文件。
 	UsedBytes int64
+	// WorkspaceBytes 是其中对话工作目录占用的部分。
+	WorkspaceBytes int64
 	// QuotaBytes 为 0 表示不限。
 	QuotaBytes int64
 }
@@ -196,7 +233,24 @@ func (s *Service) Usage(ctx context.Context, userID uint64) (Usage, error) {
 	if err != nil {
 		return Usage{}, err
 	}
-	return Usage{UsedBytes: used, QuotaBytes: int64(s.cfg.UserQuotaMB) << 20}, nil
+	var ws int64
+	if s.workspaces != "" {
+		ws = dirSize(filepath.Join(s.workspaces, strconv.FormatUint(userID, 10)))
+	}
+	return Usage{UsedBytes: used + ws, WorkspaceBytes: ws, QuotaBytes: int64(s.cfg.UserQuotaMB) << 20}, nil
+}
+
+func dirSize(dir string) int64 {
+	var total int64
+	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			if info, err := d.Info(); err == nil {
+				total += info.Size()
+			}
+		}
+		return nil
+	})
+	return total
 }
 
 // Delete 删除用户的文件（文件管理）：删掉磁盘上的文件、不再计入用量；已经发送过的保留记录，

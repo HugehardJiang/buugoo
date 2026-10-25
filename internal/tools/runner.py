@@ -1,6 +1,9 @@
 # 包装用户代码：运行结束后收集代码生成的图片（保存到工作目录的图片文件，或没有保存的 matplotlib 图表），
-# 以 BOUNDARY 分隔附在标准输出末尾交给布谷。由 Go 填入 BOUNDARY 与 CODE。
-import base64 as _b64, json as _json, linecache as _lc, os as _os, sys as _sys, time as _time, traceback as _tb, warnings as _warn
+# 以及（沙箱中）这段对话工作目录的变化，以 BOUNDARY 分隔附在标准输出末尾交给布谷。由 Go 填入 BOUNDARY 与 CODE。
+#
+# 沙箱中的工作目录是有大小上限的内存盘：开始时从 BUUGOO_WS_SRC（上次保存的文件，只读）复制进来，
+# 结束时如果有变化，把整个目录打包交回，由布谷保存到这段对话的工作目录。input/ 是本对话上传的文件（只读）。
+import base64 as _b64, io as _io, json as _json, linecache as _lc, os as _os, shutil as _shutil, sys as _sys, tarfile as _tar, time as _time, traceback as _tb, warnings as _warn
 
 _BOUNDARY = "{{BOUNDARY}}"
 _SRC = _b64.b64decode("{{CODE}}").decode("utf-8")
@@ -37,10 +40,59 @@ def _setup():
     return wd
 
 
+def _skip(name):
+    return name.startswith(".") or name == "input"
+
+
+def _restore(wd):
+    src = _os.environ.pop("BUUGOO_WS_SRC", "")
+    if not src or not _os.path.isdir(src):
+        return
+    for name in _os.listdir(src):
+        if _skip(name):
+            continue
+        s, d = _os.path.join(src, name), _os.path.join(wd, name)
+        try:
+            if _os.path.isdir(s) and not _os.path.islink(s):
+                _shutil.copytree(s, d, symlinks=False, copy_function=_shutil.copy2)
+            elif _os.path.isfile(s) and not _os.path.islink(s):
+                _shutil.copy2(s, d)
+        except OSError:
+            pass
+
+
+def _manifest(wd):
+    out = []
+    for root, dirs, names in _os.walk(wd):
+        if root == wd:
+            dirs[:] = [d for d in dirs if not _skip(d)]
+            names = [n for n in names if not _skip(n)]
+        for n in names:
+            p = _os.path.join(root, n)
+            try:
+                st = _os.lstat(p)
+            except OSError:
+                continue
+            out.append((_os.path.relpath(p, wd), st.st_size, int(st.st_mtime_ns)))
+        for d in dirs:
+            out.append((_os.path.relpath(_os.path.join(root, d), wd) + "/", 0, 0))
+    out.sort()
+    return out
+
+
+def _pack(wd):
+    buf = _io.BytesIO()
+    with _tar.open(fileobj=buf, mode="w:gz") as t:
+        for name in sorted(_os.listdir(wd)):
+            if not _skip(name):
+                t.add(_os.path.join(wd, name), arcname=name, filter=lambda ti: ti if (ti.isfile() or ti.isdir()) else None)
+    return buf.getvalue()
+
+
 def _files(wd, since):
     found = []
     for root, dirs, names in _os.walk(wd):
-        dirs[:] = [d for d in dirs if not d.startswith(".")] if root == wd else []
+        dirs[:] = [d for d in dirs if not _skip(d)] if root == wd else []
         for n in names:
             p = _os.path.join(root, n)
             if n.startswith(".") or _os.path.splitext(n)[1].lower() not in _EXTS or _os.path.islink(p):
@@ -78,7 +130,16 @@ def _figures():
     return out
 
 
-def _collect(fd, wd, since):
+def _collect(fd, wd, since, before):
+    ws = None
+    if _os.environ.get("BUUGOO_WS_SYNC") == "1":
+        try:
+            if _manifest(wd) != before:
+                data = _pack(wd)
+                limit = int(_os.environ.get("BUUGOO_WS_MAX", "0"))
+                ws = {"error": "too_large", "size": len(data)} if limit and len(data) > limit else {"data": _b64.b64encode(data).decode()}
+        except Exception as e:
+            ws = {"error": str(e)[:200]}
     try:
         imgs = _files(wd, since)
         if not imgs:
@@ -92,9 +153,9 @@ def _collect(fd, wd, since):
             continue
         total += len(data)
         items.append({"name": name, "data": _b64.b64encode(data).decode()})
-    if not items and not skipped:
+    if not items and not skipped and ws is None:
         return
-    payload = _json.dumps({"images": items, "skipped": skipped}).encode()
+    payload = _json.dumps({"images": items, "skipped": skipped, "workspace": ws}).encode()
     for s in (_sys.stdout, _sys.stderr):
         try:
             s.flush()
@@ -111,6 +172,8 @@ def _collect(fd, wd, since):
 
 def _main():
     wd = _setup()
+    _restore(wd)
+    before = _manifest(wd) if _os.environ.get("BUUGOO_WS_SYNC") == "1" else None
     fd = _os.dup(1)
     since = _time.time()
     _lc.cache["<code>"] = (len(_SRC), None, _SRC.splitlines(True), "<code>")
@@ -124,7 +187,7 @@ def _main():
         # 去掉包装代码自己的那一层，让错误信息只指向用户代码。
         _tb.print_exception(type(e), e, e.__traceback__.tb_next)
         status = 1
-    _collect(fd, wd, since)
+    _collect(fd, wd, since, before)
     _sys.exit(status)
 
 

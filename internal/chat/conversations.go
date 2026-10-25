@@ -105,11 +105,12 @@ func (s *Service) DeleteConversation(ctx context.Context, u *store.User, id uint
 	if err := s.store.Conversations().Delete(ctx, u.ID, id); err != nil {
 		return err
 	}
-	// 对话中的附件随对话一起删除。
+	// 对话中的附件与运行代码的工作目录随对话一起删除。
 	if s.uploads != nil {
 		if err := s.uploads.Remove(ctx, atts); err != nil {
 			s.log.Error("删除对话附件失败", "user_id", u.ID, "conversation_id", id, "err", err)
 		}
+		s.uploads.RemoveWorkspace(u.ID, id)
 	}
 	return nil
 }

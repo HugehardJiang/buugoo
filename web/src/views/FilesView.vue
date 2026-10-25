@@ -190,6 +190,9 @@ onMounted(() => load())
             </button>
           </div>
           <div v-if="usage.quota_bytes" class="workspace-progress usage__bar"><i :style="{ width: percent + '%' }" /></div>
+          <p v-if="usage.workspace_bytes" class="caption usage__ws">
+            其中 {{ formatSize(usage.workspace_bytes) }} 是{{ name }}运行代码时在对话里保存的文件，删除对应的对话就会清掉
+          </p>
           <Transition name="fade">
             <p v-if="usage.full" class="usage__note usage__note--full">
               空间已经用满，现在不能上传文件，{{ name }}运行代码画的图也不会保存。删除一些不需要的文件就能恢复。
@@ -329,6 +332,7 @@ onMounted(() => load())
 .is-warn .usage__bar i { background: var(--color-warning); }
 .is-full .usage__bar i { background: var(--color-danger); }
 .is-full { border-color: rgba(181, 51, 51, .3); }
+.usage__ws { margin: -4px 0 0; }
 .usage__note { margin: 10px 0 0; font-size: 13px; line-height: 1.6; }
 .is-warn .usage__note { color: var(--color-warning); }
 .usage__note--full { color: var(--color-danger); }

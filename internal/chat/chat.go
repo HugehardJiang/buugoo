@@ -94,7 +94,8 @@ type ModelResolver interface {
 
 // ToolProvider 为一轮对话提供工具。返回 nil 表示没有工具。
 type ToolProvider interface {
-	For(ctx context.Context, u *store.User, model *models.Resolved) *tools.Set
+	// pending 是本轮随消息发送、还没有关联到对话的附件（运行代码时也要能读到）。
+	For(ctx context.Context, u *store.User, conv *store.Conversation, model *models.Resolved, pending []store.Attachment) *tools.Set
 }
 
 // EmotionProvider 提供布谷当前的心情（情绪系统）。
@@ -273,7 +274,7 @@ func (s *Service) Preview(ctx context.Context, u *store.User, convID uint64, con
 	model, _ := s.models.Resolve(ctx, modelUser(u), conv.ModelID)
 	in := turnInput{content: content, model: model}
 	if model != nil {
-		in.toolHints = toolHints(s.toolSet(ctx, u, model))
+		in.toolHints = toolHints(s.toolSet(ctx, u, conv, model, nil))
 	}
 	if s.emotion != nil {
 		in.emotion, _ = s.emotion.Peek(ctx, u.ID)
@@ -285,11 +286,11 @@ func (s *Service) Preview(ctx context.Context, u *store.User, convID uint64, con
 	return p.prompt, nil
 }
 
-func (s *Service) toolSet(ctx context.Context, u *store.User, model *models.Resolved) *tools.Set {
+func (s *Service) toolSet(ctx context.Context, u *store.User, conv *store.Conversation, model *models.Resolved, pending []store.Attachment) *tools.Set {
 	if s.tools == nil || model == nil || !model.Tools {
 		return nil
 	}
-	return s.tools.For(ctx, u, model)
+	return s.tools.For(ctx, u, conv, model, pending)
 }
 
 // Send 处理一轮对话。
@@ -319,7 +320,7 @@ func (s *Service) Send(ctx context.Context, u *store.User, in SendInput, sink Si
 	if err := s.describeImages(ctx, u, model, atts); err != nil {
 		return nil, err
 	}
-	toolset := s.toolSet(ctx, u, model)
+	toolset := s.toolSet(ctx, u, conv, model, atts)
 	var mood string
 	if s.emotion != nil {
 		// 情绪更新失败不影响聊天。

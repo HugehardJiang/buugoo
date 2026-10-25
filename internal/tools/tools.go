@@ -62,6 +62,10 @@ type Options struct {
 	Installer Installer
 	// CJKFont 表示运行代码的环境有中文字体，图表中可以写中文。
 	CJKFont bool
+	// Workspace 是这段对话的文件环境，为空时每次运行都是全新的空目录。
+	Workspace Workspace
+	// Inputs 是 input/ 中的文件名，Saved 是工作目录里已经保存的文件（写进工具说明）。
+	Inputs, Saved []string
 }
 
 // New 按选项组装工具集。
@@ -94,6 +98,16 @@ func New(o Options) *Set {
 		if o.Installer != nil {
 			libs += "；缺少别的库时先用 install_package 安装"
 		}
+		files := ""
+		if o.Workspace != nil {
+			files = "。当前目录是这段对话专属的工作目录，保存在这里的文件之后的运行还能用"
+			if len(o.Saved) > 0 {
+				files += "（现在有：" + strings.Join(o.Saved, "、") + "）"
+			}
+			if len(o.Inputs) > 0 {
+				files += "；用户在这段对话里发的文件在 input/ 目录（只读）：" + strings.Join(o.Inputs, "、")
+			}
+		}
 		// 画图：保存到当前目录的图片或没有关闭的 matplotlib 图表会直接显示给用户。
 		plot := "需要画图时用 matplotlib 画好即可（不用 plt.show），或用 savefig 保存为 png/jpg 到当前目录，图片会自动显示给用户，一次最多 6 张"
 		if o.CJKFont {
@@ -104,11 +118,11 @@ func New(o Options) *Set {
 		s.add(llm.Tool{
 			Name: NamePython,
 			Description: "运行一段 Python 3 代码并返回标准输出与错误输出。用于需要准确结果的计算、换算、日期推算、统计与数据处理；" +
-				"不要心算。用 print 输出结果。运行时没有网络；" + libs + "。" + plot + "。单次运行有时间与内存限制。",
+				"不要心算。用 print 输出结果。运行时没有网络；" + libs + files + "。" + plot + "。单次运行有时间与内存限制。",
 			Parameters: object(map[string]any{
 				"code": map[string]any{"type": "string", "description": "完整的 Python 代码"},
 			}, "code"),
-		}, pythonHandler(o.Python))
+		}, pythonHandler(o.Python, o.Workspace))
 		if o.Installer != nil {
 			s.add(llm.Tool{
 				Name: NameInstall,
