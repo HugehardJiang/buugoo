@@ -5,6 +5,7 @@ import {
   api,
   ApiError,
   sendChat,
+  type Attachment,
   type Conversation,
   type Message,
   type ModelView,
@@ -12,8 +13,10 @@ import {
   type UsedMemory,
 } from '../api'
 import Icon from '../Icon.vue'
+import AttachmentList from '../components/AttachmentList.vue'
 import Modal from '../components/Modal.vue'
-import { dayKey, dayLabel, renderMarkdown, shortWhen, timeOf } from '../format'
+import ToolSteps from '../components/ToolSteps.vue'
+import { dayKey, dayLabel, formatSize, renderMarkdown, shortWhen, timeOf } from '../format'
 import { memoriesUnlocked } from '../memoryLock'
 import { session } from '../session'
 import { toast } from '../toast'
@@ -21,6 +24,18 @@ import { toast } from '../toast'
 interface Item extends Message {
   memories?: UsedMemory[]
   streaming?: boolean
+  error?: string
+}
+
+// Pending 是输入框中待发送的文件：选择后立即上传，发送消息时带上已上传的 ID。
+interface Pending {
+  key: number
+  name: string
+  size: number
+  isImage: boolean
+  preview?: string
+  status: 'uploading' | 'done' | 'error'
+  att?: Attachment
   error?: string
 }
 
@@ -48,6 +63,14 @@ const renaming = ref(false)
 const renameText = ref('')
 const deleting = ref(false)
 let controller: AbortController | null = null
+const pending = ref<Pending[]>([])
+const fileInput = ref<HTMLInputElement | null>(null)
+const dragging = ref(false)
+let pendingSeq = 0
+const accept = 'image/jpeg,image/png,image/gif,image/webp,.pdf,.docx,.txt,.md,.markdown,.csv,.tsv,.json,.yaml,.yml,.xml,.html,.log,.py,.js,.ts,.go,.java,.c,.cpp,.h,.rs,.sh,.sql'
+const uploading = computed(() => pending.value.some((p) => p.status === 'uploading'))
+const readyFiles = computed(() => pending.value.filter((p) => p.status === 'done'))
+const canSend = computed(() => !!current.value && !uploading.value && (!!input.value.trim() || readyFiles.value.length > 0))
 
 const name = computed(() => session.meta?.name ?? '布谷')
 const isAdmin = computed(() => !!session.user?.is_admin)
@@ -61,6 +84,14 @@ const activeModel = computed(() => {
 })
 const thinkingOptions = computed<{ v: Thinking; l: string }[]>(() => {
   switch (activeModel.value?.thinking_style) {
+    case 'deepseek':
+      // DeepSeek 只有 low / high / max 三档强度。
+      return [
+        { v: 'off', l: '关' },
+        { v: 'low', l: '低' },
+        { v: 'medium', l: '高' },
+        { v: 'high', l: '最高' },
+      ]
     case 'model_switch':
       return [
         { v: 'off', l: '不思考' },
@@ -246,18 +277,87 @@ function autoGrow() {
   el.style.height = `${Math.min(el.scrollHeight, 180)}px`
 }
 
+function maxFiles() {
+  return session.meta?.uploads?.max_files ?? 8
+}
+
+async function addFiles(files: FileList | File[]) {
+  const limits = session.meta?.uploads
+  if (!limits) {
+    toast('当前服务不支持上传文件')
+    return
+  }
+  for (const file of Array.from(files)) {
+    if (pending.value.length >= maxFiles()) {
+      toast(`一条消息最多带 ${maxFiles()} 个文件`)
+      break
+    }
+    if (file.size > limits.max_file_bytes) {
+      toast(`「${file.name}」太大了，单个文件不能超过 ${formatSize(limits.max_file_bytes)}`)
+      continue
+    }
+    const isImage = file.type.startsWith('image/')
+    pending.value.push({
+      key: ++pendingSeq, name: file.name || '粘贴的图片', size: file.size, isImage, status: 'uploading',
+      preview: isImage ? URL.createObjectURL(file) : undefined,
+    })
+    // 取回数组中的响应式代理，之后的修改才会更新界面。
+    const p = pending.value[pending.value.length - 1]
+    try {
+      p.att = await api.uploadFile(file)
+      p.status = 'done'
+    } catch (e) {
+      p.status = 'error'
+      p.error = errText(e, '上传失败')
+      toast(`「${p.name}」${p.error}`)
+    }
+  }
+}
+
+function removePending(p: Pending) {
+  pending.value = pending.value.filter((x) => x.key !== p.key)
+  if (p.preview) URL.revokeObjectURL(p.preview)
+  // 已上传但没发送的文件顺手删掉（不删也会在 24 小时后自动清理）。
+  if (p.att) api.deleteUpload(p.att.id).catch(() => {})
+}
+
+function onPickFiles(e: Event) {
+  const el = e.target as HTMLInputElement
+  if (el.files?.length) addFiles(el.files)
+  el.value = ''
+}
+
+function onPaste(e: ClipboardEvent) {
+  const files = e.clipboardData?.files
+  if (files && files.length) {
+    e.preventDefault()
+    addFiles(files)
+  }
+}
+
+function onDrop(e: DragEvent) {
+  dragging.value = false
+  if (e.dataTransfer?.files.length) addFiles(e.dataTransfer.files)
+}
+
 async function send() {
   const content = input.value.trim()
-  if (!content || sending.value || !current.value) return
+  if (!canSend.value || sending.value || !current.value) return
   const convId = current.value.id
+  const files = readyFiles.value
+  const attachments = files.map((p) => p.att!)
+  const sentPending = pending.value
   sending.value = true
   input.value = ''
+  pending.value = []
   await nextTick()
   autoGrow()
 
   const now = new Date().toISOString()
-  const userItem: Item = { id: -Date.now(), role: 'user', content, status: 'complete', created_at: now }
-  const reply: Item = { id: -Date.now() - 1, role: 'assistant', content: '', reasoning: '', status: 'complete', created_at: now, streaming: true }
+  const userItem: Item = { id: -Date.now(), role: 'user', content, attachments, status: 'complete', created_at: now }
+  const reply: Item = {
+    id: -Date.now() - 1, role: 'assistant', content: '', reasoning: '', tools: [], status: 'complete', created_at: now, streaming: true,
+  }
   items.value.push(userItem, reply)
   const r = items.value[items.value.length - 1]
   await scrollToBottom(true)
@@ -267,11 +367,20 @@ async function send() {
     const final = await sendChat(
       convId,
       content,
+      attachments.map((a) => a.id),
       {
         onStart: (d) => {
-          Object.assign(items.value[items.value.length - 2], d.user_message)
+          Object.assign(items.value[items.value.length - 2], d.user_message, { attachments })
           r.id = d.assistant_message_id
           replaceConv(d.conversation)
+          for (const p of sentPending) if (p.preview) URL.revokeObjectURL(p.preview)
+        },
+        onTool: (ev) => {
+          const list = r.tools ?? (r.tools = [])
+          const i = list.findIndex((x) => x.id === ev.id)
+          if (i >= 0) list[i] = ev
+          else list.push(ev)
+          scrollToBottom()
         },
         onMemories: (m) => (r.memories = m),
         onReasoning: (t) => {
@@ -292,7 +401,7 @@ async function send() {
       },
       controller.signal,
     )
-    Object.assign(r, { ...final, memories: r.memories })
+    Object.assign(r, { ...final, memories: r.memories, tools: final.tools ?? r.tools })
   } catch (e) {
     if ((e as Error).name === 'AbortError') {
       r.status = 'interrupted'
@@ -303,6 +412,7 @@ async function send() {
       if (r.id < 0) {
         items.value.splice(items.value.length - 2, 1)
         input.value = content
+        pending.value = sentPending
       }
     }
   } finally {
@@ -432,9 +542,15 @@ onMounted(loadInitial)
                 </button>
                 <div v-if="openThinking.has(row.item.id)" class="thinking__body">{{ row.item.reasoning }}</div>
               </div>
+              <ToolSteps v-if="row.item.tools?.length" :steps="row.item.tools" />
+              <AttachmentList v-if="row.item.attachments?.length" :items="row.item.attachments" align="end" />
               <div v-if="row.item.role === 'assistant'" class="md body" v-html="renderMarkdown(row.item.content)" />
-              <div v-else class="bubble">{{ row.item.content }}</div>
-              <span v-if="row.item.streaming && !row.item.content && !row.item.reasoning" class="typing" aria-label="正在回复"><i /><i /><i /></span>
+              <div v-else-if="row.item.content" class="bubble">{{ row.item.content }}</div>
+              <span
+                v-if="row.item.streaming && !row.item.content && !row.item.reasoning && !row.item.tools?.some((t) => t.status === 'running')"
+                class="typing"
+                aria-label="正在回复"
+              ><i /><i /><i /></span>
               <div class="meta">
                 <span>{{ timeOf(row.item.created_at) }}</span>
                 <span v-if="row.item.role === 'assistant' && row.item.model && !row.item.streaming">· {{ row.item.model }}</span>
@@ -460,8 +576,36 @@ onMounted(loadInitial)
         </div>
       </div>
 
-      <form class="composer" @submit.prevent="send">
+      <form
+        class="composer"
+        :class="{ 'is-dragging': dragging }"
+        @submit.prevent="send"
+        @dragover.prevent="dragging = true"
+        @dragleave.self="dragging = false"
+        @drop.prevent="onDrop"
+      >
+        <div v-if="pending.length" class="pending">
+          <div v-for="p in pending" :key="p.key" class="pending__item" :class="`is-${p.status}`" :title="p.error || p.name">
+            <img v-if="p.preview" :src="p.preview" :alt="p.name" class="pending__thumb" />
+            <span v-else class="pending__file"><Icon name="file" :size="16" /><span>{{ p.name }}</span></span>
+            <span v-if="p.status === 'uploading'" class="pending__state">上传中</span>
+            <span v-else-if="p.status === 'error'" class="pending__state">失败</span>
+            <button type="button" class="pending__remove" :aria-label="`移除 ${p.name}`" @click="removePending(p)"><Icon name="x" :size="12" /></button>
+          </div>
+        </div>
         <div class="composer__box">
+          <button
+            v-if="session.meta?.uploads"
+            type="button"
+            class="icon-btn attach-btn"
+            aria-label="添加图片或文件"
+            title="添加图片或文件（也可以粘贴或拖进来）"
+            :disabled="sending"
+            @click="fileInput?.click()"
+          >
+            <Icon name="clip" />
+          </button>
+          <input ref="fileInput" type="file" multiple :accept="accept" hidden @change="onPickFiles" />
           <textarea
             ref="textarea"
             v-model="input"
@@ -472,9 +616,10 @@ onMounted(loadInitial)
             maxlength="4000"
             @input="autoGrow"
             @keydown="onKeydown"
+            @paste="onPaste"
           />
           <button v-if="sending" type="button" class="btn" @click="stop">停止</button>
-          <button v-else class="btn btn-primary" :disabled="!input.trim() || !current">发送</button>
+          <button v-else class="btn btn-primary" :disabled="!canSend">发送</button>
         </div>
         <div class="composer__tools">
           <select
@@ -564,6 +709,7 @@ onMounted(loadInitial)
 .day::before, .day::after { content: ''; flex: 1; height: 1px; background: var(--color-divider); }
 .msg { display: flex; flex-direction: column; margin: 8px 0 18px; }
 .msg.user { align-items: flex-end; }
+.msg.user :deep(.att-list) { margin-bottom: 6px; }
 .bubble {
   max-width: min(560px, 86%); padding: 10px 14px; border-radius: var(--radius-lg); background: var(--color-canvas-soft);
   color: var(--color-ink); font-size: 16px; line-height: 1.65; white-space: pre-wrap; word-break: break-word;
@@ -599,6 +745,26 @@ onMounted(loadInitial)
 .composer__box { display: flex; align-items: flex-end; gap: 8px; max-width: 760px; margin: 0 auto; }
 .composer .textarea { min-height: 42px; max-height: 180px; resize: none; font-size: 15px; }
 .composer .btn { flex-shrink: 0; min-height: 42px; }
+.composer.is-dragging .composer__box { outline: 2px dashed var(--color-accent); outline-offset: 6px; border-radius: var(--radius-md); }
+.attach-btn { width: 42px; height: 42px; flex-basis: 42px; }
+.pending { display: flex; flex-wrap: wrap; gap: 8px; max-width: 760px; margin: 0 auto 8px; }
+.pending__item {
+  position: relative; display: flex; align-items: center; height: 56px; min-width: 56px; max-width: 220px;
+  border: 1px solid var(--color-divider); border-radius: var(--radius-md); background: var(--color-surface); overflow: hidden;
+}
+.pending__item.is-error { border-color: rgba(181, 51, 51, .4); }
+.pending__thumb { width: 56px; height: 56px; object-fit: cover; }
+.pending__file { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 0 28px 0 10px; color: var(--color-text-secondary); font-size: 13px; }
+.pending__file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pending__state {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: 1px 4px; background: rgba(20, 20, 19, .55); color: #fff;
+  font-size: 11px; text-align: center;
+}
+.is-error .pending__state { background: var(--color-danger); }
+.pending__remove {
+  position: absolute; top: 3px; right: 3px; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center;
+  border-radius: 50%; background: rgba(20, 20, 19, .55); color: #fff;
+}
 .composer__tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; max-width: 760px; margin: 8px auto 0; }
 .model-select { width: auto; max-width: 260px; min-height: 34px; padding: 5px 8px; font-size: 13px; }
 .thinking-switch { padding: 3px; }

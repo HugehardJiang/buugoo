@@ -25,6 +25,8 @@ const blank = (): ModelInput => ({
   api_key: '',
   model: '',
   thinking_style: 'none',
+  vision: false,
+  tools: true,
   thinking_model: '',
   temperature: 0.8,
   max_tokens: 0,
@@ -34,17 +36,18 @@ const form = reactive<ModelInput>(blank())
 
 // 常见服务的预设，选中后自动填写地址、模型名与思考方式，仍可修改。
 const presets: { label: string; v: Partial<ModelInput> }[] = [
-  { label: 'DeepSeek', v: { name: 'DeepSeek', base_url: 'https://api.deepseek.com/v1', model: 'deepseek-chat', thinking_style: 'model_switch', thinking_model: 'deepseek-reasoner' } },
-  { label: '阿里云百炼', v: { name: '通义千问', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', thinking_style: 'enable_thinking', thinking_model: '' } },
-  { label: '硅基流动', v: { name: '硅基流动', base_url: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen3-32B', thinking_style: 'enable_thinking', thinking_model: '' } },
-  { label: 'OpenAI', v: { name: 'OpenAI', base_url: 'https://api.openai.com/v1', model: 'gpt-5-mini', thinking_style: 'reasoning_effort', thinking_model: '' } },
+  { label: 'DeepSeek', v: { name: 'DeepSeek', base_url: 'https://api.deepseek.com/v1', model: 'deepseek-flash', thinking_style: 'deepseek', thinking_model: '', vision: true, tools: true } },
+  { label: '阿里云百炼', v: { name: '通义千问', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', thinking_style: 'enable_thinking', thinking_model: '', vision: false, tools: true } },
+  { label: '硅基流动', v: { name: '硅基流动', base_url: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen3-32B', thinking_style: 'enable_thinking', thinking_model: '', vision: false, tools: true } },
+  { label: 'OpenAI', v: { name: 'OpenAI', base_url: 'https://api.openai.com/v1', model: 'gpt-5-mini', thinking_style: 'reasoning_effort', thinking_model: '', vision: true, tools: true } },
 ]
 
 const styles: { v: ThinkingStyle; l: string; hint: string }[] = [
   { v: 'none', l: '不支持思考', hint: '对话中不显示思考等级。' },
+  { v: 'deepseek', l: 'DeepSeek', hint: 'thinking 开关 + reasoning_effort，对话中可选关 / 低 / 高 / 最高。' },
   { v: 'reasoning_effort', l: 'reasoning_effort 参数', hint: 'OpenAI o 系列 / GPT-5 等，低、中、高对应 low / medium / high。' },
   { v: 'enable_thinking', l: 'enable_thinking 参数', hint: '通义千问 Qwen3、硅基流动等，等级对应不同的思考预算。' },
-  { v: 'model_switch', l: '换用推理模型', hint: '如 DeepSeek：开启思考时改用推理模型（deepseek-reasoner），只有开和关。' },
+  { v: 'model_switch', l: '换用推理模型', hint: '开启思考时改用另一个推理模型，只有开和关。' },
 ]
 const styleHint = computed(() => styles.find((s) => s.v === form.thinking_style)?.hint ?? '')
 
@@ -73,6 +76,7 @@ function openForm(m: ModelView | null) {
     Object.assign(form, {
       name: m.name, base_url: m.base_url, model: m.model, thinking_style: m.thinking_style,
       thinking_model: m.thinking_model, temperature: m.temperature, max_tokens: m.max_tokens, public: m.scope === 'public',
+      vision: m.vision, tools: m.tools,
     })
   }
   testResult.value = null
@@ -194,7 +198,7 @@ defineExpose({ load })
           <span v-if="scopeLabel(m)" class="badge-pill">{{ scopeLabel(m) }}</span>
         </div>
         <p class="caption">
-          {{ m.model }}<template v-if="m.thinking_style !== 'none'"> · 可调思考</template> · {{ m.base_url }} · Key {{ m.key_mask || '未填写' }}
+          {{ m.model }}<template v-if="m.thinking_style !== 'none'"> · 可调思考</template><template v-if="m.vision"> · 能看图</template><template v-if="m.tools"> · 可用工具</template> · {{ m.base_url }} · Key {{ m.key_mask || '未填写' }}
         </p>
         <p v-if="rowTest[m.id]" class="caption test-line">{{ rowTest[m.id] }}</p>
       </div>
@@ -273,6 +277,14 @@ defineExpose({ load })
             <p class="field__hint">0 表示使用服务的默认值。</p>
           </div>
         </div>
+        <label class="check-row">
+          <input v-model="form.vision" type="checkbox" />
+          <span>能看图（多模态）：图片直接交给这个模型；不勾选时，图片会先由其他能看图的模型转述成文字</span>
+        </label>
+        <label class="check-row">
+          <input v-model="form.tools" type="checkbox" />
+          <span>支持工具调用：可以自己决定运行 Python 代码做计算；DeepSeek 模型还能联网搜索和读取网页</span>
+        </label>
         <label v-if="isMulti && isAdmin && !editing" class="check-row">
           <input v-model="form.public" type="checkbox" />
           <span>公共模型：所有用户都能使用，计入每日限额</span>

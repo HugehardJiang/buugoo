@@ -21,10 +21,29 @@ export interface Meta {
   password_required: boolean
   registration: 'open' | 'invite' | 'closed'
   embedding_ready: boolean
+  uploads: { max_file_bytes: number; max_files: number } | null
+}
+
+export interface Attachment {
+  id: number
+  kind: 'image' | 'document'
+  filename: string
+  mime: string
+  size: number
+}
+
+export interface ToolEvent {
+  id: string
+  name: string
+  label: string
+  status: 'running' | 'done' | 'error'
+  input?: string
+  summary?: string
+  detail?: string
 }
 
 export type Thinking = 'off' | 'low' | 'medium' | 'high'
-export type ThinkingStyle = 'none' | 'reasoning_effort' | 'enable_thinking' | 'model_switch'
+export type ThinkingStyle = 'none' | 'deepseek' | 'reasoning_effort' | 'enable_thinking' | 'model_switch'
 
 export interface Conversation {
   id: number
@@ -44,6 +63,8 @@ export interface ModelView {
   thinking_model: string
   temperature: number
   max_tokens: number
+  vision: boolean
+  tools: boolean
   scope: 'builtin' | 'public' | 'personal'
   is_default: boolean
   key_mask: string
@@ -59,6 +80,8 @@ export interface ModelInput {
   thinking_model: string
   temperature: number
   max_tokens: number
+  vision: boolean
+  tools: boolean
   public: boolean
 }
 
@@ -111,6 +134,8 @@ export interface Message {
   content: string
   reasoning?: string
   model?: string
+  attachments?: Attachment[]
+  tools?: ToolEvent[]
   status: 'complete' | 'interrupted' | 'error'
   created_at: string
 }
@@ -229,7 +254,32 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return (await resp.json()) as T
 }
 
+// uploadFile 上传一个文件（聊天附件）。
+async function uploadFile(file: File, signal?: AbortSignal): Promise<Attachment> {
+  const form = new FormData()
+  form.append('file', file, file.name)
+  let resp: Response
+  try {
+    resp = await fetch('/api/v1/uploads', { method: 'POST', headers: headers(false), body: form, signal })
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') throw e
+    throw new ApiError(0, 'network', '上传失败，请检查网络')
+  }
+  if (!resp.ok) throw await toError(resp)
+  return (await resp.json()) as Attachment
+}
+
+// fetchUpload 读取附件内容（需要登录令牌，不能直接用 <img src>）。
+async function fetchUpload(id: number): Promise<Blob> {
+  const resp = await fetch(`/api/v1/uploads/${id}`, { headers: headers(false) })
+  if (!resp.ok) throw await toError(resp)
+  return resp.blob()
+}
+
 export const api = {
+  uploadFile,
+  fetchUpload,
+  deleteUpload: (id: number) => request<void>('DELETE', `/uploads/${id}`),
   meta: () => request<Meta>('GET', '/meta'),
   login: (username: string, password: string) =>
     request<Session>('POST', '/auth/login', { username, password }),
@@ -291,12 +341,14 @@ export interface ChatHandlers {
   onMemories?: (memories: UsedMemory[]) => void
   onReasoning?: (text: string) => void
   onDelta: (text: string) => void
+  onTool?: (ev: ToolEvent) => void
 }
 
 // sendChat 发送消息并解析 SSE 事件流。正常结束时返回最终的助手消息。
 export async function sendChat(
   conversationId: number,
   content: string,
+  attachmentIds: number[],
   h: ChatHandlers,
   signal?: AbortSignal,
 ): Promise<Message> {
@@ -305,7 +357,7 @@ export async function sendChat(
     resp = await fetch('/api/v1/chat', {
       method: 'POST',
       headers: headers(true),
-      body: JSON.stringify({ conversation_id: conversationId, content, stream: true }),
+      body: JSON.stringify({ conversation_id: conversationId, content, attachment_ids: attachmentIds, stream: true }),
       signal,
     })
   } catch (e) {
@@ -345,6 +397,9 @@ export async function sendChat(
           break
         case 'reasoning':
           h.onReasoning?.(payload.text)
+          break
+        case 'tool':
+          h.onTool?.(payload)
           break
         case 'delta':
           h.onDelta(payload.text)

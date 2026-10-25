@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	"github.com/HugehardJiang/buugoo/internal/auth"
@@ -107,6 +108,9 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 				log.Error("记录后台用量失败", "user_id", job.UserID, "err", err)
 			}
 		})
+	if cfg.Uploads.Dir == "" {
+		cfg.Uploads.Dir = filepath.Join(cfg.DataDir, "uploads")
+	}
 	uploadSvc := uploads.New(db.Attachments(), cfg.Uploads, log)
 	toolsProv := newToolProvider(cfg, log)
 	chatSvc := chat.New(chat.Deps{

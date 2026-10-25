@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 设计系统 Icons 组的线性图标：24px 网格、1.8 描边、圆角端点、无填充，颜色继承 currentColor。
-defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' | 'trash' | 'chevron'; size?: number }>()
+defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' | 'trash' | 'chevron' | 'clip' | 'file' | 'search' | 'code' | 'globe' | 'x'; size?: number }>()
 </script>
 
 <template>
@@ -36,6 +36,27 @@ defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' |
     <template v-else-if="name === 'trash'">
       <path d="M4 7h16M10 11v6M14 11v6" />
       <path d="M6 7l1 13h10l1-13M9 7V4h6v3" />
+    </template>
+    <template v-else-if="name === 'clip'">
+      <path d="M21 11.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9" />
+    </template>
+    <template v-else-if="name === 'file'">
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5M9 13h6M9 17h4" />
+    </template>
+    <template v-else-if="name === 'search'">
+      <circle cx="11" cy="11" r="7" />
+      <path d="M20 20l-4-4" />
+    </template>
+    <template v-else-if="name === 'code'">
+      <path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 6l-3 12" />
+    </template>
+    <template v-else-if="name === 'globe'">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+    </template>
+    <template v-else-if="name === 'x'">
+      <path d="M6 6l12 12M18 6L6 18" />
     </template>
     <template v-else-if="name === 'chevron'">
       <path d="M9 6l6 6-6 6" />

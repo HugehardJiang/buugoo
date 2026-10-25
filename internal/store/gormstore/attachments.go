@@ -49,16 +49,19 @@ func (r attachmentRepo) Attach(ctx context.Context, userID uint64, ids []uint64,
 	if len(ids) == 0 {
 		return nil
 	}
-	res := r.db.WithContext(ctx).Model(&store.Attachment{}).
-		Where("user_id = ? AND id IN ? AND message_id IS NULL", userID, ids).
-		Updates(map[string]any{"conversation_id": conversationID, "message_id": messageID})
-	if res.Error != nil {
-		return mapErr(res.Error)
-	}
-	if int(res.RowsAffected) != len(ids) {
-		return store.ErrNotFound
-	}
-	return nil
+	// 全部符合条件才关联，避免部分附件被关联到消息上。
+	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		res := tx.Model(&store.Attachment{}).
+			Where("user_id = ? AND id IN ? AND message_id IS NULL", userID, ids).
+			Updates(map[string]any{"conversation_id": conversationID, "message_id": messageID})
+		if res.Error != nil {
+			return res.Error
+		}
+		if int(res.RowsAffected) != len(ids) {
+			return store.ErrNotFound
+		}
+		return nil
+	}))
 }
 
 func (r attachmentRepo) ListByMessages(ctx context.Context, userID uint64, messageIDs []uint64) ([]store.Attachment, error) {

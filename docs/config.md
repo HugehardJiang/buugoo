@@ -47,3 +47,32 @@ Docker 用 `.env`）。
 | --- | --- |
 | `security.encryption_key` | 64 位十六进制（32 字节）。加密网页中保存的模型 API Key（AES-256-GCM）。留空时自动生成 `<data_dir>/secret.key`。丢失后已保存的 Key 无法解密，需要在网页中重新填写。可用环境变量 `BUUGOO_SECURITY__ENCRYPTION_KEY` 提供。 |
 | `security.allow_private_model_urls` | 默认 `false`。multi 模式下普通用户添加的模型只能连接公网地址，防止借模型地址探测服务器内网（SSRF）；这类连接不走 HTTP 代理。管理员与 single 模式不受限制。 |
+
+## 文件上传
+
+| 配置 | 默认 | 说明 |
+| --- | --- | --- |
+| `uploads.dir` | `<data_dir>/uploads` | 上传文件的存放目录，按用户分目录。请与数据库一起备份。 |
+| `uploads.max_file_mb` | 20 | 单个文件上限 |
+| `uploads.max_files` | 8 | 一条消息最多附带的文件数 |
+| `uploads.user_quota_mb` | 500 | 每个用户的上传总量上限，0 不限。删除对话时其中的文件一并删除 |
+| `uploads.doc_chars` | 20000 | 一个文档最多放进对话的字数，超出部分截断 |
+
+图片按文件内容识别（JPG、PNG、GIF、WebP）。文档支持 PDF（扫描件提取不到文字，请截图后作为图片发送）、
+Word `.docx`、以及 UTF-8 / GBK 编码的纯文本文件。上传后 24 小时内没有发送的文件会被自动清理。
+
+如果前面有 Nginx（宝塔），请把 `client_max_body_size` 调到不小于 `max_file_mb`，例如 `client_max_body_size 25m;`。
+
+## 工具
+
+| 配置 | 默认 | 说明 |
+| --- | --- | --- |
+| `tools.python.runner` | `docker` | `docker`：一次性容器（断网、只读、非 root、限资源），所有用户可用；`local`：本机 python3，multi 模式下仅管理员；`off`：关闭 |
+| `tools.python.image` | `python:3.12-slim` | docker 方式使用的镜像，可换成装好 numpy 等库的镜像 |
+| `tools.python.docker` | `docker` | docker 命令 |
+| `tools.python.python` | `python3` | local 方式使用的解释器 |
+| `tools.python.timeout` | `30s` | 单次运行时间上限 |
+| `tools.python.memory_mb` | 256 | 单次运行内存上限 |
+
+联网搜索与读取网页使用 DeepSeek 的 Search / Fetch 接口（各 5 元 / 千次），只在当前对话的模型是 DeepSeek（`api.deepseek.com`）
+时提供，费用记在该模型的 Key 上。模型需要勾选「支持工具调用」（配置文件中为 `llm.chat.tools`）。

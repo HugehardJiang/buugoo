@@ -14,8 +14,12 @@
 
 - **聊天**：可以开多段对话，各自独立，按日期分隔，流式输出。Web 界面和终端界面（`buugoo chat`）都可以用。
 - **选模型、调思考**：在网页里添加任何 OpenAI 兼容的模型（DeepSeek、通义千问、硅基流动、OpenAI、Ollama…），
-  每段对话可以单独选模型和思考等级（关 / 低 / 中 / 高），思考过程可以展开查看。
+  每段对话可以单独选模型和思考等级（关 / 低 / 中 / 高；DeepSeek 为关 / 低 / 高 / 最高），思考过程可以展开查看。
   多用户版本中每个人都可以添加自己的 API Key，用自己的 Key 聊天不占每日限额。
+- **发图片和文件**：点回形针、粘贴或拖进输入框。图片交给能看图的模型（如 `deepseek-flash`）；模型不能看图时，
+  先请能看图的模型转述成文字。PDF、Word（.docx）、TXT、Markdown、CSV、代码等文档会提取文字放进对话。
+- **联网与算数**：布谷会自己判断什么时候需要联网搜索、读取网页（当前模型是 DeepSeek 时，用它的 Key 调用
+  DeepSeek 的搜索与抓取接口），以及什么时候写一段 Python 代码运行来得到准确结果。过程会显示在回复上方，可以展开查看。
 - **记忆**：自动记下值得记住的事，打重要性分；回复时自然地想起相关的事。记忆在所有对话间共享。
   记忆本默认是合上的——朋友不会把心里的小本子摊开给你看；想看时可以在设置里翻开，查看、搜索、删除，删除会立即清除内容。
 - **稳定的人格**：人格档案写在独立的 YAML 文件里，对话中无法被改动。
@@ -48,13 +52,28 @@ buugoo chat
 
 - 网页中添加的模型 API Key 用 AES-256-GCM 加密后存进数据库，密钥是配置中的 `security.encryption_key`
   （`buugoo init` 自动生成；没有时自动生成 `<数据目录>/secret.key`）。**请和数据库一起备份**，丢失后需要重新填写 Key。
-- 思考等级有三种接法，添加模型时选择：`reasoning_effort`（OpenAI 等）、`enable_thinking`（通义千问 Qwen3、硅基流动等）、
-  「换用推理模型」（DeepSeek：开启思考时改用 `deepseek-reasoner`，只有开和关）。
+- 思考等级的接法在添加模型时选择：`deepseek`（`thinking` 开关 + `reasoning_effort` low / high / max）、
+  `reasoning_effort`（OpenAI 等）、`enable_thinking`（通义千问 Qwen3、硅基流动等）、「换用推理模型」（只有开和关）。
+- DeepSeek 已停用 `deepseek-chat` / `deepseek-reasoner`，升级后会自动改用 `deepseek-flash`（配置文件中的模型会在日志里提醒你同步修改）。
+- 添加模型时可以勾选「能看图」和「支持工具调用」。
 - 向量模型全站只有一个，只有管理员能改。换了向量模型后，在网页上点「重新计算」即可（命令行也可以用 `buugoo reembed`）。
 - 记忆提取跟随当前对话所用的模型。
 - 多用户版本：管理员添加的「公共模型」所有人可用、计入每日限额；用户自己添加的模型只有自己能看到、不计限额。
   出于安全考虑，普通用户的模型地址只能是公网地址（不能连服务器内网或本机），如确需连接局域网模型，
   设置 `security.allow_private_model_urls: true`。
+
+### 运行代码的安全
+
+模型写的 Python 代码默认在**一次性的 Docker 容器**里运行：断网、只读、以 nobody 用户运行、去掉所有权限、
+限制内存（256 MB）、CPU、进程数和时间（30 秒），看不到服务器上的任何文件。这种方式下所有用户都可以用。
+
+- 服务器需要装好 Docker，并且布谷的服务用户能使用 `docker` 命令。用安装脚本注册的服务以 `buugoo` 用户运行，
+  需要执行 `sudo usermod -aG docker buugoo && sudo systemctl restart buugoo`。**注意：能使用 Docker 等同于拥有 root 权限**，
+  请确认你接受这一点。第一次启动时会自动拉取 `python:3.12-slim` 镜像（只有标准库）。
+- 不想装 Docker：在配置中设置 `tools.python.runner: local`，直接用本机 `python3` 运行，只限制时间和内存，
+  代码能访问网络和服务用户能读到的文件——**只适合自己用**，多用户版本中这种方式只有管理员可用。
+- 不需要运行代码：设置 `tools.python.runner: off`。
+- 用 Docker 方式部署布谷本身时，容器里没有 Docker，运行代码功能默认不可用。
 
 ## 配置
 
@@ -75,6 +94,12 @@ llm:                         # 也可以在网页「设置」里添加，网页�
   embedding: { base_url: https://api.siliconflow.cn/v1, api_key: "", model: BAAI/bge-m3 }
 security:
   encryption_key: ""         # 加密网页中保存的 API Key，init 自动生成
+uploads:
+  max_file_mb: 20            # 单个文件上限
+  user_quota_mb: 500         # 每人上传总量上限，0 不限
+tools:
+  python:
+    runner: docker           # docker | local | off
 quota:
   daily_messages: 0          # 每个用户每天的消息数上限，0 不限
   daily_tokens: 0

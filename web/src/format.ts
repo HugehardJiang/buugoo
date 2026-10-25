@@ -51,3 +51,10 @@ export function shortWhen(iso: string | null): string {
   if (d.getFullYear() === today.getFullYear()) return `${d.getMonth() + 1}/${d.getDate()}`
   return `${d.getFullYear()}/${d.getMonth() + 1}`
 }
+
+// formatSize 把字节数格式化为 KB / MB。
+export function formatSize(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
