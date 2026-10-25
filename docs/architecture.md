@@ -21,7 +21,9 @@ cmd/buugoo            入口
 internal/cli          子命令（cobra）
 internal/app          组装所有组件、管理生命周期
 internal/httpapi      HTTP 层（Echo）：路由、鉴权中间件、SSE、错误映射、内嵌前端
-internal/chat         一轮对话的编排
+internal/chat         一轮对话的编排、多段对话的管理
+internal/models       模型管理：网页中添加的聊天模型、默认模型解析、全站向量模型
+internal/secret       API Key 加密（AES-256-GCM）
 internal/memory       记忆：提取、打分、检索、写入、管理、第二阶段接口
 internal/prompt       提示词组装
 internal/persona      人格档案
@@ -51,14 +53,15 @@ internal/config, paths, logx, buildinfo, timefmt  基础设施
 | 时间 | 数据库统一存 UTC；"每天"按配置的 timezone 计算 | 避免 MySQL 与 SQLite 时区语义不同 |
 | 向量 | 不依赖数据库的向量功能，float32 存 BLOB，内存中暴力计算 | MySQL 社区版不支持向量距离；见 vector-store.md |
 | 记忆写入 | 回复完成后异步进行 | 不拖慢回复；失败只记日志 |
-| 对话形态 | 每个用户一条连续对话，表结构保留多会话 | 更像和朋友聊天；以后可扩展 |
+| 对话形态 | 多段对话，各自有模型与思考等级；记忆属于用户，在所有对话间共享 | 换话题时开新对话，朋友仍记得你 |
+| 模型配置 | 网页中添加，Key 加密入库；配置文件中的模型作为「配置文件」模型 | 不用改配置文件、重启服务 |
 | 前端 | Vue 3 + Vite，构建产物 go:embed | 单文件部署；未构建时显示提示页 |
 | 视觉 | 设计系统「布谷 BUUGOO」 | 见 design.md |
 
 ## 一轮对话
 
 1. 检查每日限额。
-2. 读取主对话的最近消息，检索相关记忆（检索失败时降级为不使用记忆）。
+2. 解析本对话使用的模型（未选择时用默认模型；用户自带 Key 的模型不计限额），读取该对话的最近消息，检索相关记忆（检索失败时降级为不使用记忆）。
 3. 组装提示词。
 4. 保存用户消息与助手消息占位，打开模型的流式连接（失败直接返回错误，不开始推送）。
 5. 通过 SSE 推送 `start`、`memories`、`delta`……`done`。

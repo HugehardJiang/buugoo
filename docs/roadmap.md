@@ -24,4 +24,4 @@
 
 - `llm.ChatProvider`：Anthropic 实现（`internal/llm/anthropic` 已预留）。
 - `vector.Store`：专门的向量数据库实现。
-- 多会话：`conversations` 表已支持，`ConversationRepo.Primary` 之外增加列表与切换即可。
+- ~~多会话~~：v0.2 已支持。

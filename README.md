@@ -12,9 +12,12 @@
 
 ## 现在能做什么
 
-- **聊天**：一条连续的对话，按日期分隔，流式输出。Web 界面和终端界面（`buugoo chat`）都可以用。
-- **记忆**：自动记下值得记住的事，打重要性分；回复时想起相关的记忆，并告诉你它想起了什么。
-  记忆页可以查看、搜索、删除，删除会立即清除内容。
+- **聊天**：可以开多段对话，各自独立，按日期分隔，流式输出。Web 界面和终端界面（`buugoo chat`）都可以用。
+- **选模型、调思考**：在网页里添加任何 OpenAI 兼容的模型（DeepSeek、通义千问、硅基流动、OpenAI、Ollama…），
+  每段对话可以单独选模型和思考等级（关 / 低 / 中 / 高），思考过程可以展开查看。
+  多用户版本中每个人都可以添加自己的 API Key，用自己的 Key 聊天不占每日限额。
+- **记忆**：自动记下值得记住的事，打重要性分；回复时自然地想起相关的事。记忆在所有对话间共享。
+  记忆本默认是合上的——朋友不会把心里的小本子摊开给你看；想看时可以在设置里翻开，查看、搜索、删除，删除会立即清除内容。
 - **稳定的人格**：人格档案写在独立的 YAML 文件里，对话中无法被改动。
 - **两种部署**：自部署单用户（默认，SQLite，零配置），或官网多用户（MySQL、邀请码注册、每日用量限额）。
 - **一键安装、更新、卸载**：SHA256 校验，更新前自动备份数据库，失败自动回滚。
@@ -27,20 +30,31 @@
 # 1. 安装（Linux / macOS）
 curl -fsSL https://github.com/HugehardJiang/buugoo/releases/latest/download/install.sh | bash
 
-# 2. 填写模型 API Key（配置文件位置见安装结果）
-#    llm.chat.api_key       DeepSeek：https://platform.deepseek.com
-#    llm.embedding.api_key  硅基流动：https://cloud.siliconflow.cn
-nano ~/.config/buugoo/config.yaml
-
-# 3. 启动，然后打开 http://127.0.0.1:8080
+# 2. 启动，然后打开 http://127.0.0.1:8080
 buugoo serve
+
+# 3. 在网页「设置 → 模型」添加聊天模型，在「设置 → 向量模型」填写向量模型的 Key
+#    DeepSeek：https://platform.deepseek.com    硅基流动：https://cloud.siliconflow.cn
+#    （也可以直接写进配置文件 llm.chat / llm.embedding，配置文件位置见安装结果）
 
 # 也可以在另一个终端里聊天
 buugoo chat
 ```
 
-聊天模型默认用 DeepSeek，向量模型默认用硅基流动的 `BAAI/bge-m3`。任何 OpenAI 兼容服务都可以替换，
+聊天模型推荐 DeepSeek，向量模型默认用硅基流动的 `BAAI/bge-m3`。任何 OpenAI 兼容服务都可以替换，
 例如阿里云百炼的 `text-embedding-v3`（见[配置说明](docs/config.md)）。
+
+### 模型与思考等级
+
+- 网页中添加的模型 API Key 用 AES-256-GCM 加密后存进数据库，密钥是配置中的 `security.encryption_key`
+  （`buugoo init` 自动生成；没有时自动生成 `<数据目录>/secret.key`）。**请和数据库一起备份**，丢失后需要重新填写 Key。
+- 思考等级有三种接法，添加模型时选择：`reasoning_effort`（OpenAI 等）、`enable_thinking`（通义千问 Qwen3、硅基流动等）、
+  「换用推理模型」（DeepSeek：开启思考时改用 `deepseek-reasoner`，只有开和关）。
+- 向量模型全站只有一个，只有管理员能改。换了向量模型后，在网页上点「重新计算」即可（命令行也可以用 `buugoo reembed`）。
+- 记忆提取跟随当前对话所用的模型。
+- 多用户版本：管理员添加的「公共模型」所有人可用、计入每日限额；用户自己添加的模型只有自己能看到、不计限额。
+  出于安全考虑，普通用户的模型地址只能是公网地址（不能连服务器内网或本机），如确需连接局域网模型，
+  设置 `security.allow_private_model_urls: true`。
 
 ## 配置
 
@@ -56,9 +70,11 @@ auth:
 database:
   driver: sqlite             # sqlite | mysql
   dsn: ""
-llm:
+llm:                         # 也可以在网页「设置」里添加，网页设置优先
   chat:      { base_url: https://api.deepseek.com/v1,   api_key: "", model: deepseek-chat }
   embedding: { base_url: https://api.siliconflow.cn/v1, api_key: "", model: BAAI/bge-m3 }
+security:
+  encryption_key: ""         # 加密网页中保存的 API Key，init 自动生成
 quota:
   daily_messages: 0          # 每个用户每天的消息数上限，0 不限
   daily_tokens: 0
