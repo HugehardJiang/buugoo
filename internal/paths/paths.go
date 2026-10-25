@@ -122,6 +122,10 @@ type Manifest struct {
 	Mirror      string `json:"mirror,omitempty"`
 	InstalledAt string `json:"installed_at"`
 	UpdatedAt   string `json:"updated_at,omitempty"`
+	// PrevVersion 是上一次更新前的版本（对应二进制 <binary>.prev），供 buugoo update --rollback 使用。
+	PrevVersion string `json:"prev_version,omitempty"`
+	// LastBackup 是最近一次更新前的数据库备份路径。
+	LastBackup string `json:"last_backup,omitempty"`
 
 	path string
 }

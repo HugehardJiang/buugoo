@@ -38,6 +38,3 @@ func newServeCmd(g *globalOpts) *cobra.Command {
 	cmd.Flags().StringVar(&listen, "listen", "", "覆盖配置中的监听地址，例如 0.0.0.0:8080")
 	return cmd
 }
-
-// setupBackground 挂接定时任务与更新检查（见 scheduler / selfupdate）。
-func setupBackground(a *app.App) {}
