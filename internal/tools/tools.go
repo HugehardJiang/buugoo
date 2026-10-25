@@ -1,4 +1,4 @@
-// Package tools 实现聊天中模型可以调用的工具：联网搜索、读取网页（DeepSeek Search / Fetch 接口）
+// Package tools 实现聊天中模型可以调用的工具：联网搜索、读取网页（DeepSeek、博查、Tavily 或直接读取）
 // 与运行 Python 代码（Docker 沙箱或本机解释器）。
 package tools
 
@@ -50,8 +50,10 @@ type Set struct {
 
 // Options 决定提供哪些工具。
 type Options struct {
-	// DeepSeek 不为空时提供联网搜索与读取网页。
-	DeepSeek *DeepSeek
+	// Search 不为空时提供联网搜索。
+	Search Searcher
+	// Fetch 不为空时提供读取网页。
+	Fetch Fetcher
 	// Python 不为空时提供运行 Python。
 	Python Runner
 	// Packages 是已经预装的第三方库（写进工具说明）。
@@ -65,23 +67,24 @@ type Options struct {
 // New 按选项组装工具集。
 func New(o Options) *Set {
 	s := &Set{handlers: map[string]handler{}}
-	if o.DeepSeek != nil {
+	if o.Search != nil {
 		s.add(llm.Tool{
-			Name: NameSearch,
-			Description: "联网搜索实时信息（新闻、天气、价格、近期事件、你不确定的事实）。返回标题、链接、日期与摘要。" +
-				"支持 site:、\"精确短语\"、after:2025-01-01 等语法。",
+			Name:        NameSearch,
+			Description: "联网搜索实时信息（新闻、天气、价格、近期事件、你不确定的事实）。返回标题、链接、日期与摘要。",
 			Parameters: object(map[string]any{
 				"query": map[string]any{"type": "string", "description": "搜索词，1～128 个字"},
 				"count": map[string]any{"type": "integer", "description": "返回条数，默认 5，最多 10"},
 			}, "query"),
-		}, o.DeepSeek.search)
+		}, searchHandler(o.Search))
+	}
+	if o.Fetch != nil {
 		s.add(llm.Tool{
 			Name:        NameFetch,
-			Description: "读取一个网页的正文（Markdown）。用于查看搜索结果或用户给出的链接的详细内容。",
+			Description: "读取一个网页的正文。用于查看搜索结果或用户给出的链接的详细内容。",
 			Parameters: object(map[string]any{
 				"url": map[string]any{"type": "string", "description": "http(s) 网址"},
 			}, "url"),
-		}, o.DeepSeek.fetch)
+		}, fetchHandler(o.Fetch))
 	}
 	if o.Python != nil {
 		libs := "只有标准库"

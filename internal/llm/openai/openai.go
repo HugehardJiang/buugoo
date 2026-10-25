@@ -10,15 +10,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/netip"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/llm"
+	"github.com/HugehardJiang/buugoo/internal/netguard"
 )
 
 const maxRetries = 2
@@ -44,33 +42,8 @@ var sharedTransport = &http.Transport{
 var ErrPrivateAddress = errors.New("出于安全考虑，自行添加的模型不能连接内网或本机地址")
 
 // publicTransport 只允许连接公网地址，用于多用户模式下普通用户自行添加的模型，
-// 防止借模型地址访问服务器内网（SSRF）。它不走代理：经代理时无法校验最终地址。
-var publicTransport = &http.Transport{
-	DialContext:           (&net.Dialer{Timeout: 30 * time.Second, Control: denyPrivate}).DialContext,
-	ResponseHeaderTimeout: 180 * time.Second,
-	IdleConnTimeout:       90 * time.Second,
-	MaxIdleConnsPerHost:   10,
-}
-
-// cgnat 是运营商级 NAT 地址段（100.64.0.0/10），也视为内网。
-var cgnat = netip.MustParsePrefix("100.64.0.0/10")
-
-// denyPrivate 在建立连接前检查解析后的 IP，拒绝回环、内网、链路本地等地址。
-func denyPrivate(_, address string, _ syscall.RawConn) error {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return err
-	}
-	ip, err := netip.ParseAddr(host)
-	if err != nil {
-		return err
-	}
-	ip = ip.Unmap()
-	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || cgnat.Contains(ip) {
-		return ErrPrivateAddress
-	}
-	return nil
-}
+// 防止借模型地址访问服务器内网（SSRF）。
+var publicTransport = netguard.PublicTransport()
 
 func newClient(baseURL, apiKey string, publicOnly bool) client {
 	t := sharedTransport
@@ -128,8 +101,8 @@ func (c client) do(ctx context.Context, path string, body any, retry bool) (*htt
 				return nil, ctx.Err()
 			}
 			lastErr = fmt.Errorf("请求模型服务: %w", err)
-			if errors.Is(err, ErrPrivateAddress) {
-				return nil, lastErr
+			if errors.Is(err, netguard.ErrPrivateAddress) {
+				return nil, fmt.Errorf("请求模型服务: %w", ErrPrivateAddress)
 			}
 			continue
 		}

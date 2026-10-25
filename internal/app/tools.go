@@ -11,7 +11,8 @@ import (
 )
 
 // toolProvider 按模型与用户决定一轮对话可用的工具：
-//   - 联网搜索与读取网页：当前模型是 DeepSeek 时提供，使用该模型的 Key；
+//   - 联网搜索与读取网页：按 tools.search 选择 DeepSeek（使用当前模型的 Key）、博查或 Tavily；
+//     搜索服务不能读网页时由服务器直接读取（direct_fetch）；
 //   - 运行 Python：Docker 沙箱可用时所有用户可用；本机 Python 只在 single 模式或管理员可用；
 //   - 安装 Python 库：开启 allow_install 时，single 模式或管理员的对话可用。
 type toolProvider struct {
@@ -19,10 +20,11 @@ type toolProvider struct {
 	log    *slog.Logger
 	docker *tools.Docker
 	local  *tools.Local
+	direct *tools.Direct
 }
 
 func newToolProvider(cfg *config.Config, log *slog.Logger) *toolProvider {
-	p := &toolProvider{cfg: cfg, log: log}
+	p := &toolProvider{cfg: cfg, log: log, direct: tools.NewDirect()}
 	switch cfg.Tools.Python.Runner {
 	case config.PythonDocker:
 		p.docker = tools.NewDocker(cfg.Tools.Python, log)
@@ -54,9 +56,65 @@ func (p *toolProvider) python(ctx context.Context, u *store.User) tools.Runner {
 	return nil
 }
 
+// search 选择联网搜索与读取网页的服务。
+func (p *toolProvider) search(model *models.Resolved) (tools.Searcher, tools.Fetcher) {
+	sc := p.cfg.Tools.Search
+	var searcher tools.Searcher
+	var fetcher tools.Fetcher
+	use := func(s tools.Searcher) {
+		if s == nil || searcher != nil {
+			return
+		}
+		searcher = s
+		if f, ok := s.(tools.Fetcher); ok {
+			fetcher = f
+		}
+	}
+	// 接口的值为 nil 指针时也不能放进 interface，所以逐个判断。
+	deepseek := func() {
+		if ds := tools.NewDeepSeek(model.BaseURL, model.APIKey); ds != nil {
+			use(ds)
+		}
+	}
+	bocha := func() {
+		if b := tools.NewBocha(sc.BochaAPIKey); b != nil {
+			use(b)
+		}
+	}
+	tavily := func() {
+		if t := tools.NewTavily(sc.TavilyAPIKey); t != nil {
+			use(t)
+		}
+	}
+	switch sc.Provider {
+	case config.SearchOff:
+	case config.SearchDeepSeek:
+		deepseek()
+	case config.SearchBocha:
+		bocha()
+	case config.SearchTavily:
+		tavily()
+	default:
+		deepseek()
+		bocha()
+		tavily()
+	}
+	// 博查不能读网页：如果也配了 Tavily，用 Tavily 读。
+	if fetcher == nil && sc.Provider != config.SearchOff {
+		if t := tools.NewTavily(sc.TavilyAPIKey); t != nil {
+			fetcher = t
+		}
+	}
+	if fetcher == nil && sc.DirectFetch && sc.Provider != config.SearchOff {
+		fetcher = p.direct
+	}
+	return searcher, fetcher
+}
+
 // For 实现 chat.ToolProvider。
 func (p *toolProvider) For(ctx context.Context, u *store.User, model *models.Resolved) *tools.Set {
-	opts := tools.Options{DeepSeek: tools.NewDeepSeek(model.BaseURL, model.APIKey)}
+	opts := tools.Options{}
+	opts.Search, opts.Fetch = p.search(model)
 	if r := p.python(ctx, u); r != nil {
 		opts.Python = r
 		opts.Packages = p.cfg.Tools.Python.Packages
@@ -68,7 +126,7 @@ func (p *toolProvider) For(ctx context.Context, u *store.User, model *models.Res
 			}
 		}
 	}
-	if opts.DeepSeek == nil && opts.Python == nil {
+	if opts.Search == nil && opts.Fetch == nil && opts.Python == nil {
 		return nil
 	}
 	return tools.New(opts)

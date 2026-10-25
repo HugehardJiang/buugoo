@@ -83,87 +83,31 @@ type searchResult struct {
 	Date     *string `json:"date"`
 }
 
-func (d *DeepSeek) search(ctx context.Context, args json.RawMessage) Result {
-	var in struct {
-		Query string `json:"query"`
-		Count int    `json:"count"`
-	}
-	_ = json.Unmarshal(args, &in)
-	in.Query = strings.TrimSpace(in.Query)
-	res := Result{Input: in.Query}
-	if in.Query == "" {
-		res.Output, res.Summary = "搜索词不能为空", "搜索词为空"
-		return res
-	}
-	if r := []rune(in.Query); len(r) > 128 {
-		in.Query = string(r[:128])
-	}
-	if in.Count <= 0 || in.Count > 10 {
-		in.Count = 5
-	}
+// Search 实现 Searcher。
+func (d *DeepSeek) Search(ctx context.Context, query string, count int) ([]SearchHit, error) {
 	var out struct {
 		Results []searchResult `json:"results"`
 	}
-	if err := d.post(ctx, "/v1/tools/search", map[string]any{"query": in.Query, "count": in.Count}, &out); err != nil {
-		res.Output, res.Summary = "搜索失败："+err.Error(), "搜索失败"
-		return res
+	if err := d.post(ctx, "/v1/tools/search", map[string]any{"query": query, "count": count}, &out); err != nil {
+		return nil, err
 	}
-	if len(out.Results) == 0 {
-		res.OK, res.Output, res.Summary = true, "没有搜索到结果。", "没有结果"
-		return res
+	hits := make([]SearchHit, 0, len(out.Results))
+	for _, r := range out.Results {
+		h := SearchHit{Title: r.Title, URL: r.URL, Summary: r.Summary}
+		if h.Summary == "" {
+			h.Summary = r.Snippet
+		}
+		if r.Date != nil {
+			h.Date = *r.Date
+		}
+		hits = append(hits, h)
 	}
-	var model, detail strings.Builder
-	for i, r := range out.Results {
-		date := ""
-		if r.Date != nil && len(*r.Date) >= 10 {
-			date = (*r.Date)[:10]
-		}
-		summary := r.Summary
-		if summary == "" {
-			summary = r.Snippet
-		}
-		fmt.Fprintf(&model, "[%d] %s\n链接：%s\n", i+1, r.Title, r.URL)
-		if date != "" {
-			fmt.Fprintf(&model, "日期：%s\n", date)
-		}
-		fmt.Fprintf(&model, "摘要：%s\n\n", summary)
-		fmt.Fprintf(&detail, "%d. %s\n%s\n", i+1, r.Title, r.URL)
-	}
-	res.OK = true
-	res.Output = strings.TrimSpace(model.String())
-	res.Summary = fmt.Sprintf("找到 %d 条结果", len(out.Results))
-	res.Detail = strings.TrimSpace(detail.String())
-	return res
+	return hits, nil
 }
 
-// maxFetchChars 是网页正文返回给模型的最多字数。
-const maxFetchChars = 12000
-
-func (d *DeepSeek) fetch(ctx context.Context, args json.RawMessage) Result {
-	var in struct {
-		URL string `json:"url"`
-	}
-	_ = json.Unmarshal(args, &in)
-	in.URL = strings.TrimSpace(in.URL)
-	res := Result{Input: in.URL}
-	u, err := url.Parse(in.URL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
-		res.Output, res.Summary = "网址无效：需要 http(s) 开头的完整网址", "网址无效"
-		return res
-	}
-	var out struct {
-		Title   string `json:"title"`
-		Content string `json:"content"`
-	}
-	if err := d.post(ctx, "/v1/tools/fetch", map[string]any{"url": in.URL}, &out); err != nil {
-		res.Output, res.Summary = "读取失败："+err.Error(), "读取失败"
-		return res
-	}
-	res.OK = true
-	res.Output = truncate(fmt.Sprintf("# %s\n\n%s", out.Title, out.Content), maxFetchChars)
-	res.Summary = out.Title
-	if res.Summary == "" {
-		res.Summary = "已读取"
-	}
-	return res
+// Fetch 实现 Fetcher。
+func (d *DeepSeek) Fetch(ctx context.Context, url string) (Page, error) {
+	var out Page
+	err := d.post(ctx, "/v1/tools/fetch", map[string]any{"url": url}, &out)
+	return out, err
 }

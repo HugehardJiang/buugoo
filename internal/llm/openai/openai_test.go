@@ -15,6 +15,7 @@ import (
 
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/llm"
+	"github.com/HugehardJiang/buugoo/internal/netguard"
 )
 
 func chatCfg(url string) config.ModelConfig {
@@ -259,11 +260,11 @@ func TestPublicOnlyBlocksPrivateAddresses(t *testing.T) {
 		t.Fatalf("应拒绝连接本机地址: %v", err)
 	}
 	for _, addr := range []string{"10.0.0.1:80", "192.168.1.1:443", "169.254.169.254:80", "[::1]:80", "100.64.0.1:80", "0.0.0.0:80", "[::ffff:127.0.0.1]:80"} {
-		if denyPrivate("tcp", addr, nil) == nil {
+		if netguard.DenyPrivate("tcp", addr, nil) == nil {
 			t.Errorf("%s 应被拒绝", addr)
 		}
 	}
-	if err := denyPrivate("tcp", "1.1.1.1:443", nil); err != nil {
+	if err := netguard.DenyPrivate("tcp", "1.1.1.1:443", nil); err != nil {
 		t.Errorf("公网地址应允许: %v", err)
 	}
 }

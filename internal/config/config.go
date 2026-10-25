@@ -245,6 +245,25 @@ type EmotionConfig struct {
 // ToolsConfig 是模型可以调用的工具配置。
 type ToolsConfig struct {
 	Python PythonConfig `koanf:"python"`
+	Search SearchConfig `koanf:"search"`
+}
+
+// 联网搜索服务。
+const (
+	SearchAuto     = "auto"     // 当前模型是 DeepSeek 时用 DeepSeek，否则用配置了 Key 的博查或 Tavily
+	SearchDeepSeek = "deepseek" // 只在当前模型是 DeepSeek 时可用
+	SearchBocha    = "bocha"
+	SearchTavily   = "tavily"
+	SearchOff      = "off"
+)
+
+// SearchConfig 是联网搜索与读取网页的配置。
+type SearchConfig struct {
+	Provider     string `koanf:"provider"`
+	BochaAPIKey  string `koanf:"bocha_api_key"`
+	TavilyAPIKey string `koanf:"tavily_api_key"`
+	// DirectFetch 为 true 时，搜索服务不能读取网页（例如博查、或没有搜索服务）也由服务器直接下载网页读取正文（只能访问公网）。
+	DirectFetch bool `koanf:"direct_fetch"`
 }
 
 // Python 运行方式。
@@ -423,7 +442,7 @@ func Default() *Config {
 			Timeout: 30 * time.Second, MemoryMB: 256,
 			Packages:     []string{"numpy", "scipy", "sympy", "pandas", "mpmath", "matplotlib"},
 			AllowInstall: true, LibMaxMB: 2048, InstallTimeout: 5 * time.Minute,
-		}},
+		}, Search: SearchConfig{Provider: SearchAuto, DirectFetch: true}},
 		Quota: QuotaConfig{ExemptAdmins: true},
 		Scheduler: SchedulerConfig{
 			Enabled:           true,
@@ -646,6 +665,17 @@ func (c *Config) Validate() error {
 		if v < 0 || v > 3 {
 			errs = append(errs, fmt.Errorf("emotion.%s 需在 0-3 之间", name))
 		}
+	}
+	switch c.Tools.Search.Provider {
+	case SearchAuto, SearchDeepSeek, SearchBocha, SearchTavily, SearchOff:
+	default:
+		errs = append(errs, fmt.Errorf("tools.search.provider %q 无效（可选 auto、deepseek、bocha、tavily、off）", c.Tools.Search.Provider))
+	}
+	if c.Tools.Search.Provider == SearchBocha && strings.TrimSpace(c.Tools.Search.BochaAPIKey) == "" {
+		errs = append(errs, errors.New("tools.search.provider 为 bocha 时需要填写 tools.search.bocha_api_key"))
+	}
+	if c.Tools.Search.Provider == SearchTavily && strings.TrimSpace(c.Tools.Search.TavilyAPIKey) == "" {
+		errs = append(errs, errors.New("tools.search.provider 为 tavily 时需要填写 tools.search.tavily_api_key"))
 	}
 	switch c.Tools.Python.Runner {
 	case PythonDocker, PythonLocal, PythonOff:

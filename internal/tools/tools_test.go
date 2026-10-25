@@ -50,7 +50,8 @@ func TestSearchAndFetch(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	set := New(Options{DeepSeek: newDeepSeekAt(srv.URL, "sk-ds")})
+	ds := newDeepSeekAt(srv.URL, "sk-ds")
+	set := New(Options{Search: ds, Fetch: ds})
 	if len(set.Defs()) != 2 {
 		t.Fatalf("defs=%v", set.Defs())
 	}
@@ -298,5 +299,71 @@ func TestDockerPlot(t *testing.T) {
 	res, err = d.Run(ctx, "import matplotlib.pyplot as plt\nplt.plot([1, 2])\nplt.savefig('line.png')")
 	if err != nil || len(res.Images) != 1 || res.Images[0].Name != "line.png" {
 		t.Fatalf("res=%+v err=%v", res, err)
+	}
+}
+
+func TestBochaAndTavily(t *testing.T) {
+	var auth, path string
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth, path = r.Header.Get("Authorization"), r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch r.URL.Path {
+		case "/bocha":
+			_, _ = w.Write([]byte(`{"code":200,"data":{"webPages":{"value":[{"name":"天气","url":"https://a.cn","snippet":"短","summary":"明天晴","datePublished":"2026-10-24T08:00:00+08:00"}]}}}`))
+		case "/tavily":
+			_, _ = w.Write([]byte(`{"results":[{"title":"News","url":"https://b.com","content":"hello"}]}`))
+		case "/extract":
+			_, _ = w.Write([]byte(`{"results":[{"url":"https://b.com","raw_content":"full text"}],"failed_results":[]}`))
+		case "/limit":
+			w.WriteHeader(432)
+			_, _ = w.Write([]byte(`{"detail":{"error":"quota"}}`))
+		}
+	}))
+	defer srv.Close()
+	oldB, oldT, oldE := bochaURL, tavilyURL, tavilyExtract
+	defer func() { bochaURL, tavilyURL, tavilyExtract = oldB, oldT, oldE }()
+	bochaURL, tavilyURL, tavilyExtract = srv.URL+"/bocha", srv.URL+"/tavily", srv.URL+"/extract"
+	ctx := context.Background()
+
+	if NewBocha(" ") != nil || NewTavily("") != nil {
+		t.Fatal("没有 Key 时不应提供")
+	}
+	r := New(Options{Search: NewBocha("bk")}).Run(ctx, llm.ToolCall{Name: NameSearch, Arguments: `{"query":"天气","count":3}`})
+	if !r.OK || !strings.Contains(r.Output, "明天晴") || !strings.Contains(r.Output, "日期：2026-10-24") || auth != "Bearer bk" ||
+		body["count"] != float64(3) || body["summary"] != true {
+		t.Fatalf("bocha: %+v auth=%s body=%v", r, auth, body)
+	}
+	tv := NewTavily("tk")
+	set := New(Options{Search: tv, Fetch: tv})
+	if r := set.Run(ctx, llm.ToolCall{Name: NameSearch, Arguments: `{"query":"news"}`}); !r.OK || !strings.Contains(r.Output, "hello") || path != "/tavily" || body["max_results"] != float64(5) {
+		t.Fatalf("tavily: %+v %v", r, body)
+	}
+	if r := set.Run(ctx, llm.ToolCall{Name: NameFetch, Arguments: `{"url":"https://b.com"}`}); !r.OK || !strings.Contains(r.Output, "full text") {
+		t.Fatalf("extract: %+v", r)
+	}
+	tavilyURL = srv.URL + "/limit"
+	if r := set.Run(ctx, llm.ToolCall{Name: NameSearch, Arguments: `{"query":"x"}`}); r.OK || !strings.Contains(r.Output, "额度用完") {
+		t.Fatalf("quota: %+v", r)
+	}
+}
+
+func TestDirectFetch(t *testing.T) {
+	page := `<html><head><title>布谷的博客</title><style>.x{}</style><script>alert(1)</script></head>
+<body><nav>首页 关于</nav><article><h1>今天</h1><p>吃了 <b>三碗</b>饭。</p><ul><li>一</li><li>二</li></ul></article><footer>版权</footer></body></html>`
+	p, err := extractHTML(strings.NewReader(page))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Title != "布谷的博客" || !strings.Contains(p.Content, "# 今天") || !strings.Contains(p.Content, "吃了 三碗 饭。") ||
+		!strings.Contains(p.Content, "- 一") || strings.Contains(p.Content, "alert") || strings.Contains(p.Content, "首页") || strings.Contains(p.Content, "版权") {
+		t.Fatalf("%+v", p)
+	}
+	// 不能访问内网和本机。
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("secret")) }))
+	defer srv.Close()
+	r := New(Options{Fetch: NewDirect()}).Run(context.Background(), llm.ToolCall{Name: NameFetch, Arguments: `{"url":"` + srv.URL + `"}`})
+	if r.OK || !strings.Contains(r.Output, "内网") {
+		t.Fatalf("应拒绝本机地址: %+v", r)
 	}
 }
