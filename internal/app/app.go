@@ -23,6 +23,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/memory"
 	"github.com/HugehardJiang/buugoo/internal/models"
 	"github.com/HugehardJiang/buugoo/internal/persona"
+	"github.com/HugehardJiang/buugoo/internal/proactive"
 	"github.com/HugehardJiang/buugoo/internal/prompt"
 	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/scheduler"
@@ -45,8 +46,9 @@ type App struct {
 	Scheduler *scheduler.Scheduler
 	Handler   http.Handler
 
-	uploads *uploads.Service
-	tools   *toolProvider
+	uploads   *uploads.Service
+	tools     *toolProvider
+	proactive *proactive.Engine
 
 	// UpdateCheck 在服务启动后于后台执行（检查新版本），可为空。
 	UpdateCheck func(ctx context.Context)
@@ -120,6 +122,9 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	}
 	toolsProv := newToolProvider(cfg, log)
 	toolsProv.files, toolsProv.attachments = uploadSvc, db.Attachments()
+	if cfg.Proactive.Reminders {
+		toolsProv.reminders, toolsProv.loc = db.Reminders(), loc
+	}
 	emo := emotion.New(db.Emotions(), cfg.Emotion, loc, log)
 	writer.OnAppraisal(func(ctx context.Context, job memory.WriteJob, a emotion.Appraisal) {
 		if err := emo.Appraise(ctx, job.UserID, a); err != nil {
@@ -146,6 +151,10 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	})
 	a := &App{Config: cfg, Log: log, DB: db, Auth: authSvc, Chat: chatSvc, Models: modelSvc, Writer: writer, Handler: handler,
 		uploads: uploadSvc, tools: toolsProv}
+	if cfg.Proactive.Reminders || cfg.Proactive.Care {
+		a.proactive = proactive.New(proactive.Deps{Store: db, Speaker: chatSvc, Utility: utilLLM, Mood: emo, Config: cfg.Proactive,
+			Name: func() string { return personas.Current().Name }, Location: loc, Logger: log})
+	}
 	if cfg.Scheduler.Enabled {
 		a.Scheduler = scheduler.New(db.Jobs(), loc, log)
 		// 第二阶段在此注入 Consolidator 实现。
@@ -166,6 +175,9 @@ func (a *App) Run(ctx context.Context) error {
 	a.Writer.Start(bgCtx)
 	go a.uploads.RunCleanup(bgCtx)
 	go a.tools.prepare(bgCtx)
+	if a.proactive != nil {
+		go a.proactive.Run(bgCtx)
+	}
 	if a.Scheduler != nil {
 		a.Scheduler.Start(bgCtx)
 	}

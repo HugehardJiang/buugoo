@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/models"
+	"github.com/HugehardJiang/buugoo/internal/proactive"
 	"github.com/HugehardJiang/buugoo/internal/store"
 	"github.com/HugehardJiang/buugoo/internal/tools"
 	"github.com/HugehardJiang/buugoo/internal/uploads"
@@ -26,6 +28,9 @@ type toolProvider struct {
 	// files 与 attachments 用于准备对话的文件环境（运行代码时的 input/ 与工作目录），可以为空。
 	files       *uploads.Service
 	attachments store.AttachmentRepo
+	// reminders 不为空时提供设提醒的工具。
+	reminders store.ReminderRepo
+	loc       *time.Location
 }
 
 func newToolProvider(cfg *config.Config, log *slog.Logger) *toolProvider {
@@ -163,7 +168,10 @@ func (p *toolProvider) For(ctx context.Context, u *store.User, conv *store.Conve
 			}
 		}
 	}
-	if opts.Search == nil && opts.Fetch == nil && opts.Python == nil {
+	if p.reminders != nil {
+		opts.Extra = append(opts.Extra, proactive.ReminderTools(p.reminders, u.ID, p.loc, time.Now)...)
+	}
+	if opts.Search == nil && opts.Fetch == nil && opts.Python == nil && len(opts.Extra) == 0 {
 		return nil
 	}
 	return tools.New(opts)

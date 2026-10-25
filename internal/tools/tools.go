@@ -42,10 +42,22 @@ type Result struct {
 
 type handler func(ctx context.Context, args json.RawMessage) Result
 
+// Extra 是由其他模块提供的工具（例如提醒）。
+type Extra struct {
+	Def llm.Tool
+	// Label 是界面上显示的中文名。
+	Label string
+	// Hint 写进系统提示词的工具说明，可以为空。
+	Hint string
+	Run  func(ctx context.Context, args json.RawMessage) Result
+}
+
 // Set 是一轮对话可用的工具。
 type Set struct {
 	defs     []llm.Tool
 	handlers map[string]handler
+	labels   map[string]string
+	hints    []string
 }
 
 // Options 决定提供哪些工具。
@@ -66,11 +78,20 @@ type Options struct {
 	Workspace Workspace
 	// Inputs 是 input/ 中的文件名，Saved 是工作目录里已经保存的文件（写进工具说明）。
 	Inputs, Saved []string
+	// Extra 是其他模块提供的工具。
+	Extra []Extra
 }
 
 // New 按选项组装工具集。
 func New(o Options) *Set {
-	s := &Set{handlers: map[string]handler{}}
+	s := &Set{handlers: map[string]handler{}, labels: map[string]string{}}
+	for _, e := range o.Extra {
+		s.add(e.Def, e.Run)
+		s.labels[e.Def.Name] = e.Label
+		if e.Hint != "" {
+			s.hints = append(s.hints, e.Hint)
+		}
+	}
 	if o.Search != nil {
 		s.add(llm.Tool{
 			Name:        NameSearch,
@@ -169,6 +190,24 @@ func object(props map[string]any, required ...string) map[string]any {
 func (s *Set) add(def llm.Tool, h handler) {
 	s.defs = append(s.defs, def)
 	s.handlers[def.Name] = h
+}
+
+// Label 返回工具在界面上显示的中文名。
+func (s *Set) Label(name string) string {
+	if s != nil {
+		if l, ok := s.labels[name]; ok {
+			return l
+		}
+	}
+	return Label(name)
+}
+
+// Hints 返回其他模块提供的工具说明（写进系统提示词）。
+func (s *Set) Hints() []string {
+	if s == nil {
+		return nil
+	}
+	return s.hints
 }
 
 // Defs 返回工具定义，没有工具时为空。

@@ -180,6 +180,8 @@ func (s *DB) Messages() store.MessageRepo           { return messageRepo{s.db} }
 func (s *DB) Models() store.ModelRepo               { return modelRepo{s.db} }
 func (s *DB) Attachments() store.AttachmentRepo     { return attachmentRepo{s.db} }
 func (s *DB) Emotions() store.EmotionRepo           { return emotionRepo{s.db} }
+func (s *DB) Reminders() store.ReminderRepo         { return reminderRepo{s.db} }
+func (s *DB) Bindings() store.BindingRepo           { return bindingRepo{s.db} }
 func (s *DB) Memories() store.MemoryRepo            { return memoryRepo{s.db} }
 func (s *DB) Usage() store.UsageRepo                { return usageRepo{s.db} }
 func (s *DB) Jobs() store.JobRepo                   { return jobRepo{s.db} }

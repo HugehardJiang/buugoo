@@ -107,6 +107,14 @@ var meta = map[string]struct {
 	"uploads.user_quota_mb": {"每人上传总量（MB）", "0 不限", nil},
 	"uploads.doc_chars":     {"文档放进对话的字数", "超出部分截断", nil},
 
+	"proactive.reminders":      {"提醒", "布谷可以帮用户设提醒，到时间主动发消息", nil},
+	"proactive.care":           {"主动关心", "很久没聊、之前提到的事可能有结果时，布谷会主动找用户聊（每个用户可以在设置里关掉）", nil},
+	"proactive.quiet_start":    {"免打扰开始", "本地时间 HH:MM，这段时间不主动关心；提醒照常", nil},
+	"proactive.quiet_end":      {"免打扰结束", "本地时间 HH:MM", nil},
+	"proactive.idle_hours":     {"多久没聊后才主动（小时）", "", nil},
+	"proactive.min_gap_hours":  {"两次主动关心至少间隔（小时）", "", nil},
+	"proactive.check_interval": {"检查间隔", "多久检查一次要不要主动关心", nil},
+
 	"tools.search.provider":       {"联网搜索服务", "auto：模型是 DeepSeek 时用 DeepSeek，否则用填了 Key 的博查或 Tavily；deepseek：只在模型是 DeepSeek 时搜索；off：关闭", []string{"auto", "deepseek", "bocha", "tavily", "off"}},
 	"tools.search.bocha_api_key":  {"博查 API Key", "在 open.bochaai.com 申请；国内服务器推荐", nil},
 	"tools.search.tavily_api_key": {"Tavily API Key", "在 app.tavily.com 申请，每月有免费额度；也用于读取网页", nil},
@@ -153,6 +161,7 @@ var GroupLabels = []struct {
 	{"quota", "每日限额"},
 	{"uploads", "文件上传"},
 	{"tools", "工具"},
+	{"proactive", "主动消息"},
 	{"security", "安全"},
 	{"database", "数据库"},
 	{"scheduler", "定时任务"},

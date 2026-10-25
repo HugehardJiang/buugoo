@@ -6,6 +6,7 @@ import EmbeddingPanel from '../components/EmbeddingPanel.vue'
 import Modal from '../components/Modal.vue'
 import ModelsPanel from '../components/ModelsPanel.vue'
 import PersonaPanel from '../components/PersonaPanel.vue'
+import ProactivePanel from '../components/ProactivePanel.vue'
 import { dateTime } from '../format'
 import { memoriesUnlocked, setMemoriesUnlocked } from '../memoryLock'
 import { applySession, logout, session } from '../session'
@@ -150,6 +151,8 @@ onMounted(async () => {
         <p v-if="message" class="form-flash">{{ message }}</p>
 
         <PersonaPanel />
+
+        <ProactivePanel />
 
         <ModelsPanel />
 

@@ -5,6 +5,7 @@ export interface User {
   username: string
   display_name: string
   is_admin: boolean
+  proactive: boolean
   created_at: string
 }
 
@@ -48,6 +49,13 @@ export interface Usage {
   workspace_bytes: number
   quota_bytes: number // 0 表示不限
   full: boolean
+}
+
+export interface Reminder {
+  id: number
+  content: string
+  due_at: string
+  repeat: '' | 'daily' | 'weekdays' | 'weekly'
 }
 
 export interface PersonaPreset {
@@ -383,6 +391,10 @@ export const api = {
   createInvite: (input: { max_uses: number; ttl_hours: number; note: string }) =>
     request<Invite>('POST', '/admin/invites', input),
   deleteInvite: (id: number) => request<void>('DELETE', `/admin/invites/${id}`),
+  reminders: () => request<{ reminders: Reminder[]; enabled: boolean; care: boolean }>('GET', '/reminders'),
+  cancelReminder: (id: number) => request<void>('DELETE', `/reminders/${id}`),
+  setProactive: (on: boolean) => request<{ on: boolean }>('PUT', '/me/proactive', { on }),
+  latestMessage: (conversationId: number) => request<{ latest_id: number }>('GET', `/conversations/${conversationId}/latest`),
   presets: () => request<{ current: string; presets: PersonaPreset[] }>('GET', '/persona/presets'),
   setPreset: (id: string) => request<{ current: string }>('PUT', '/persona/preset', { id }),
   files: (params: { kind?: string; limit?: number; offset?: number }) => {

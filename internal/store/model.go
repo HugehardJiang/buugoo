@@ -20,8 +20,11 @@ type User struct {
 	InviteID     *uint64 `gorm:"index"`
 	// PersonaPreset 是用户为布谷选的预设性格，空为默认（管理后台设置的人格）。
 	PersonaPreset string `gorm:"size:32;not null;default:''"`
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	// Proactive 为 true 时布谷可以主动找用户聊天（提醒不受影响）；LastProactiveAt 是上次主动发消息的时间。
+	Proactive       bool `gorm:"not null;default:true"`
+	LastProactiveAt *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // OwnerID 是 single 模式下唯一用户的 ID。
@@ -191,6 +194,46 @@ type Attachment struct {
 	Source string `gorm:"size:16;not null;default:''"`
 	// DeletedAt 是在文件管理中删除的时间：文件已经删掉、不再计入用量，记录保留用于在聊天记录中显示「文件已删除」。
 	DeletedAt *time.Time `gorm:"index"`
+}
+
+// Reminder 是用户让布谷设的提醒。
+type Reminder struct {
+	ID      uint64 `gorm:"primaryKey"`
+	UserID  uint64 `gorm:"index;not null"`
+	Content string `gorm:"size:512;not null"`
+	// DueAt 是下次提醒的时间（UTC 保存）。
+	DueAt time.Time `gorm:"index:idx_reminder_due,priority:2;not null"`
+	// Repeat 是重复方式：空（一次）、daily、weekdays、weekly。
+	Repeat string `gorm:"size:16;not null;default:''"`
+	Status string `gorm:"size:16;index:idx_reminder_due,priority:1;not null;default:'pending'"`
+	// FiredAt 是最近一次提醒的时间。
+	FiredAt   *time.Time
+	CreatedAt time.Time
+}
+
+// 提醒状态与重复方式。
+const (
+	ReminderPending  = "pending"
+	ReminderDone     = "done"
+	ReminderCanceled = "canceled"
+
+	RepeatNone     = ""
+	RepeatDaily    = "daily"
+	RepeatWeekdays = "weekdays"
+	RepeatWeekly   = "weekly"
+)
+
+// ChannelBinding 把聊天软件（微信、QQ、Telegram）里的一个人绑定到布谷的账号。
+type ChannelBinding struct {
+	ID       uint64 `gorm:"primaryKey"`
+	UserID   uint64 `gorm:"index;not null"`
+	Channel  string `gorm:"size:16;not null;uniqueIndex:idx_binding_peer,priority:1"`
+	PeerID   string `gorm:"size:128;not null;uniqueIndex:idx_binding_peer,priority:2"`
+	PeerName string `gorm:"size:128;not null;default:''"`
+	// ConversationID 是在这个聊天软件里聊天使用的对话（删除后自动新建）。
+	ConversationID *uint64
+	CreatedAt      time.Time
+	LastMessageAt  *time.Time
 }
 
 // 附件来源。

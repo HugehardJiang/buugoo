@@ -484,7 +484,7 @@ func (t *turn) runTool(call llm.ToolCall) (string, error) {
 	if call.ID == "" {
 		call.ID = fmt.Sprintf("call_%d", len(t.records)+1)
 	}
-	ev := ToolEvent{ID: call.ID, Name: call.Name, Label: tools.Label(call.Name), Status: "running"}
+	ev := ToolEvent{ID: call.ID, Name: call.Name, Label: t.tools.Label(call.Name), Status: "running"}
 	if t.tools == nil {
 		return "当前没有可用的工具", nil
 	}
@@ -625,6 +625,9 @@ func toolHints(set *tools.Set) string {
 		case tools.NameInstall:
 			b.WriteString("\n- install_package：运行代码缺少第三方库（ModuleNotFoundError）时安装后再运行")
 		}
+	}
+	for _, h := range set.Hints() {
+		b.WriteString("\n- " + h)
 	}
 	b.WriteString("\n- 用了搜索结果时，在回答里自然地提到来源（网站名即可，必要时附链接）；日常聊天不需要用工具")
 	return b.String()

@@ -746,3 +746,39 @@ func hasContent(msgs []llm.Message, s string) bool {
 	}
 	return false
 }
+
+func TestProactive(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, config.QuotaConfig{})
+	// 用户在第二段对话里说过话：主动消息写进这段对话。
+	first, _ := e.svc.Send(ctx, e.user, SendInput{Content: "早"}, &recordSink{})
+	c2, _ := e.svc.CreateConversation(ctx, e.user, ConversationPatch{})
+	if _, err := e.svc.Send(ctx, e.user, SendInput{ConversationID: c2.ID, Content: "周三面试"}, &recordSink{}); err != nil {
+		t.Fatal(err)
+	}
+	e.chat.describe = "面试怎么样啦"
+	res, err := e.svc.Proactive(ctx, e.user, "想问问面试结果", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Conversation.ID != c2.ID || res.Conversation.ID == first.Conversation.ID || res.Message.Content != "面试怎么样啦" || res.Message.Role != store.RoleAssistant {
+		t.Fatalf("res=%+v", res)
+	}
+	req := e.chat.chatReqs[len(e.chat.chatReqs)-1]
+	if last := req.Messages[len(req.Messages)-1]; !strings.Contains(last.Content, "不是对方发来的消息") || !strings.Contains(last.Content, "想问问面试结果") || !strings.Contains(last.Content, skipToken) {
+		t.Fatalf("last=%q", last.Content)
+	}
+	_, msgs, _ := e.svc.History(ctx, e.user, c2.ID, 0, 10)
+	if msgs[len(msgs)-1].Content != "面试怎么样啦" {
+		t.Fatal("主动消息应保存在对话里")
+	}
+	u, _ := e.db.Users().GetByID(ctx, e.user.ID)
+	if u.LastProactiveAt == nil {
+		t.Fatal("应记录主动消息时间")
+	}
+	// 模型觉得不适合打扰时不发。
+	e.chat.describe = "[SKIP]"
+	if _, err := e.svc.Proactive(ctx, e.user, "随便聊聊", true); !errors.Is(err, ErrNothingToSay) {
+		t.Fatalf("err=%v", err)
+	}
+}

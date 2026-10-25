@@ -29,6 +29,8 @@ type Store interface {
 	Attachments() AttachmentRepo
 	Memories() MemoryRepo
 	Emotions() EmotionRepo
+	Reminders() ReminderRepo
+	Bindings() BindingRepo
 	Usage() UsageRepo
 	Jobs() JobRepo
 	Meta() MetaRepo
@@ -99,6 +101,35 @@ type UserRepo interface {
 	SetAdmin(ctx context.Context, id uint64, admin bool) error
 	// SetPersonaPreset 设置用户选的预设性格（空为默认）。
 	SetPersonaPreset(ctx context.Context, id uint64, preset string) error
+	// SetProactive 设置是否允许布谷主动找用户聊天。
+	SetProactive(ctx context.Context, id uint64, on bool) error
+	// MarkProactive 记录布谷主动发消息的时间。
+	MarkProactive(ctx context.Context, id uint64, at time.Time) error
+}
+
+// ReminderRepo 是提醒数据访问接口。
+type ReminderRepo interface {
+	Create(ctx context.Context, r *Reminder) error
+	// ListPending 按时间顺序返回用户还没到期或重复中的提醒。
+	ListPending(ctx context.Context, userID uint64) ([]Reminder, error)
+	// Cancel 取消用户的提醒，不存在或已结束时返回 ErrNotFound。
+	Cancel(ctx context.Context, userID, id uint64) error
+	// Due 返回所有用户中到期（DueAt <= now）的提醒。
+	Due(ctx context.Context, now time.Time, limit int) ([]Reminder, error)
+	// Fired 记录一次提醒：next 为空时结束，否则改到下次时间。
+	Fired(ctx context.Context, id uint64, at time.Time, next *time.Time) error
+}
+
+// BindingRepo 是聊天软件绑定的数据访问接口。
+type BindingRepo interface {
+	// Create 创建绑定；这个聊天软件账号已经绑定过时返回 ErrConflict。
+	Create(ctx context.Context, b *ChannelBinding) error
+	GetByPeer(ctx context.Context, channel, peerID string) (*ChannelBinding, error)
+	// ListByUser 按最近聊天时间倒序返回用户的绑定。
+	ListByUser(ctx context.Context, userID uint64) ([]ChannelBinding, error)
+	Delete(ctx context.Context, userID, id uint64) error
+	// Update 更新字段（键为列名），例如 conversation_id、last_message_at、peer_name。
+	Update(ctx context.Context, id uint64, fields map[string]any) error
 }
 
 // InviteRepo 是邀请码数据访问接口。
@@ -152,6 +183,10 @@ type MessageRepo interface {
 	Before(ctx context.Context, userID, conversationID, beforeID uint64, limit int) ([]Message, error)
 	// After 按时间正序返回 ID 大于 afterID 的最早 limit 条消息。
 	After(ctx context.Context, userID, conversationID, afterID uint64, limit int) ([]Message, error)
+	// LastUserMessage 返回用户最近发的一条消息（所有对话），没有时返回 ErrNotFound。
+	LastUserMessage(ctx context.Context, userID uint64) (*Message, error)
+	// LatestID 返回对话中最新一条消息的 ID（没有时为 0），用于网页检查有没有新消息。
+	LatestID(ctx context.Context, userID, conversationID uint64) (uint64, error)
 }
 
 // MemoryFilter 是记忆列表的筛选条件。

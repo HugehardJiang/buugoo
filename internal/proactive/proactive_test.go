@@ -1,0 +1,215 @@
+package proactive
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/HugehardJiang/buugoo/internal/chat"
+	"github.com/HugehardJiang/buugoo/internal/config"
+	"github.com/HugehardJiang/buugoo/internal/llm"
+	"github.com/HugehardJiang/buugoo/internal/store"
+	"github.com/HugehardJiang/buugoo/internal/store/gormstore"
+)
+
+var shanghai = time.FixedZone("CST", 8*3600)
+
+func newDB(t *testing.T) *gormstore.DB {
+	t.Helper()
+	db, err := gormstore.Open(config.DatabaseConfig{Driver: config.DriverSQLite, DSN: filepath.Join(t.TempDir(), "p.db")}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	return db
+}
+
+func TestNextDue(t *testing.T) {
+	due := time.Date(2026, 10, 23, 22, 0, 0, 0, shanghai) // 周五
+	after := due
+	if n := NextDue(due, store.RepeatDaily, after, shanghai); !n.Equal(due.AddDate(0, 0, 1)) {
+		t.Fatalf("daily %v", n)
+	}
+	if n := NextDue(due, store.RepeatWeekdays, after, shanghai); n.Weekday() != time.Monday || n.Hour() != 22 {
+		t.Fatalf("weekdays %v", n)
+	}
+	if n := NextDue(due, store.RepeatWeekly, after.Add(10*24*time.Hour), shanghai); !n.Equal(due.AddDate(0, 0, 14)) {
+		t.Fatalf("weekly 应跳过错过的周期 %v", n)
+	}
+	if NextDue(due, store.RepeatNone, after, shanghai) != nil {
+		t.Fatal("不重复")
+	}
+}
+
+func TestReminderTools(t *testing.T) {
+	ctx := context.Background()
+	db := newDB(t)
+	now := time.Date(2026, 10, 25, 20, 0, 0, 0, shanghai)
+	tools := ReminderTools(db.Reminders(), 1, shanghai, func() time.Time { return now })
+	call := func(name, args string) (bool, string) {
+		for _, x := range tools {
+			if x.Def.Name == name {
+				r := x.Run(ctx, json.RawMessage(args))
+				return r.OK, r.Output
+			}
+		}
+		t.Fatalf("no tool %s", name)
+		return false, ""
+	}
+	if ok, out := call(NameSetReminder, `{"content":"起来活动","after_minutes":30}`); !ok || !strings.Contains(out, "2026-10-25 20:30") {
+		t.Fatalf("%v %s", ok, out)
+	}
+	if ok, out := call(NameSetReminder, `{"content":"吃药","time":"2026-10-25 08:00","repeat":"daily"}`); !ok || !strings.Contains(out, "2026-10-26 08:00") {
+		t.Fatalf("已过去的重复提醒应顺延到下一次: %v %s", ok, out)
+	}
+	for _, bad := range []string{`{"content":"x","time":"2026-10-25 08:00"}`, `{"content":"x","time":"明天"}`, `{"content":"","after_minutes":5}`,
+		`{"content":"x"}`, `{"content":"x","after_minutes":5,"repeat":"yearly"}`} {
+		if ok, _ := call(NameSetReminder, bad); ok {
+			t.Errorf("%s 应失败", bad)
+		}
+	}
+	if ok, out := call(NameListReminders, `{}`); !ok || !strings.Contains(out, "起来活动") || !strings.Contains(out, "每天") {
+		t.Fatalf("%s", out)
+	}
+	list, _ := db.Reminders().ListPending(ctx, 1)
+	if ok, _ := call(NameCancelReminder, `{"id":`+itoa(list[0].ID)+`}`); !ok {
+		t.Fatal("cancel")
+	}
+	if ok, _ := call(NameCancelReminder, `{"id":`+itoa(list[0].ID)+`}`); ok {
+		t.Fatal("重复取消应失败")
+	}
+	// 别人的提醒看不到。
+	other := ReminderTools(db.Reminders(), 2, shanghai, func() time.Time { return now })
+	if r := other[1].Run(ctx, nil); !strings.Contains(r.Output, "没有提醒") {
+		t.Fatal(r.Output)
+	}
+}
+
+func itoa(n uint64) string { b, _ := json.Marshal(n); return string(b) }
+
+type fakeSpeaker struct {
+	mu      sync.Mutex
+	reasons []string
+	fail    error
+	skip    bool
+}
+
+func (f *fakeSpeaker) Proactive(_ context.Context, u *store.User, reason string, allowSkip bool) (*chat.ProactiveResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.fail != nil {
+		return nil, f.fail
+	}
+	if f.skip && allowSkip {
+		return nil, chat.ErrNothingToSay
+	}
+	f.reasons = append(f.reasons, reason)
+	return &chat.ProactiveResult{Message: &store.Message{UserID: u.ID, Content: "嘿"}}, nil
+}
+
+type fakeDeliver struct{ n int }
+
+func (f *fakeDeliver) Deliver(context.Context, *store.User, *chat.ProactiveResult) { f.n++ }
+
+func TestFireReminders(t *testing.T) {
+	ctx := context.Background()
+	db := newDB(t)
+	u, _ := db.Users().EnsureOwner(ctx)
+	now := time.Date(2026, 10, 25, 22, 0, 0, 0, shanghai)
+	_ = db.Reminders().Create(ctx, &store.Reminder{UserID: u.ID, Content: "吃药", DueAt: now.Add(-time.Minute), Repeat: store.RepeatDaily})
+	_ = db.Reminders().Create(ctx, &store.Reminder{UserID: u.ID, Content: "开会", DueAt: now.Add(-time.Minute)})
+	_ = db.Reminders().Create(ctx, &store.Reminder{UserID: u.ID, Content: "以后", DueAt: now.Add(time.Hour)})
+	sp, dl := &fakeSpeaker{}, &fakeDeliver{}
+	e := New(Deps{Store: db, Speaker: sp, Deliver: dl, Location: shanghai})
+	e.now = func() time.Time { return now }
+	e.FireReminders(ctx)
+	if len(sp.reasons) != 2 || dl.n != 2 || !strings.Contains(sp.reasons[0], "吃药") {
+		t.Fatalf("reasons=%v deliver=%d", sp.reasons, dl.n)
+	}
+	pending, _ := db.Reminders().ListPending(ctx, u.ID)
+	if len(pending) != 2 || pending[0].Content != "以后" || pending[1].Content != "吃药" || !pending[1].DueAt.Equal(now.Add(-time.Minute).AddDate(0, 0, 1)) {
+		t.Fatalf("一次性的结束、每天的顺延到明天: %+v", pending)
+	}
+	// 发送失败：稍后重试，不会每 30 秒都打扰模型；过期太久就放弃。
+	_ = db.Reminders().Create(ctx, &store.Reminder{UserID: u.ID, Content: "失败", DueAt: now})
+	sp.fail = errors.New("模型不可用")
+	e.FireReminders(ctx)
+	e.now = func() time.Time { return now.Add(time.Minute) }
+	e.FireReminders(ctx)
+	if p, _ := db.Reminders().ListPending(ctx, u.ID); len(p) != 3 {
+		t.Fatal("失败的提醒应保留")
+	}
+	e.now = func() time.Time { return now.Add(40 * time.Minute) }
+	e.FireReminders(ctx)
+	if p, _ := db.Reminders().ListPending(ctx, u.ID); len(p) != 2 {
+		t.Fatal("过期太久应放弃")
+	}
+}
+
+type fakeUtil struct {
+	reply string
+	reqs  int
+}
+
+func (f *fakeUtil) Chat(context.Context, llm.ChatRequest) (*llm.ChatResponse, error) {
+	f.reqs++
+	return &llm.ChatResponse{Content: f.reply}, nil
+}
+func (f *fakeUtil) ChatStream(context.Context, llm.ChatRequest) (llm.ChatStream, error) {
+	return nil, errors.New("no")
+}
+
+func TestCare(t *testing.T) {
+	ctx := context.Background()
+	db := newDB(t)
+	u, _ := db.Users().EnsureOwner(ctx)
+	conv, _ := db.Conversations().Primary(ctx, u.ID)
+	talked := time.Date(2026, 10, 23, 18, 0, 0, 0, shanghai)
+	_ = db.Messages().Create(ctx, &store.Message{ConversationID: conv.ID, UserID: u.ID, Role: store.RoleUser, Content: "周三面试", Status: store.MessageComplete, CreatedAt: talked})
+	util := &fakeUtil{reply: "```json\n{\"reach_out\": true, \"reason\": \"想问问面试结果\"}\n```"}
+	sp := &fakeSpeaker{}
+	cfg := config.Default().Proactive
+	e := New(Deps{Store: db, Speaker: sp, Utility: util, Config: cfg, Location: shanghai})
+
+	e.now = func() time.Time { return time.Date(2026, 10, 24, 2, 0, 0, 0, shanghai) }
+	e.Care(ctx)
+	if util.reqs != 0 {
+		t.Fatal("免打扰时段不应判断")
+	}
+	e.now = func() time.Time { return time.Date(2026, 10, 23, 22, 0, 0, 0, shanghai) }
+	e.Care(ctx)
+	if util.reqs != 0 {
+		t.Fatal("刚聊过不应判断")
+	}
+	now := time.Date(2026, 10, 25, 10, 0, 0, 0, shanghai)
+	e.now = func() time.Time { return now }
+	e.Care(ctx)
+	if util.reqs != 1 || len(sp.reasons) != 1 || !strings.Contains(sp.reasons[0], "面试结果") {
+		t.Fatalf("reqs=%d reasons=%v", util.reqs, sp.reasons)
+	}
+	// 主动发过还没回：不再追着发。
+	_ = db.Users().MarkProactive(ctx, u.ID, now)
+	e.checked = map[uint64]time.Time{}
+	e.now = func() time.Time { return now.Add(30 * time.Hour) }
+	e.Care(ctx)
+	if util.reqs != 1 {
+		t.Fatal("没回复时不应再主动")
+	}
+	// 用户关掉主动消息。
+	_ = db.Users().SetProactive(ctx, u.ID, false)
+	e.now = func() time.Time { return now.Add(100 * time.Hour) }
+	e.Care(ctx)
+	if util.reqs != 1 {
+		t.Fatal("关掉后不应主动")
+	}
+}
+
+func (f *fakeUtil) Model() string { return "fake" }

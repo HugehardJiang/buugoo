@@ -28,11 +28,12 @@ type userDTO struct {
 	Username    string    `json:"username"`
 	DisplayName string    `json:"display_name"`
 	IsAdmin     bool      `json:"is_admin"`
+	Proactive   bool      `json:"proactive"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
 func toUser(u *store.User) userDTO {
-	return userDTO{ID: u.ID, Username: u.Username, DisplayName: u.DisplayName, IsAdmin: u.IsAdmin, CreatedAt: u.CreatedAt}
+	return userDTO{ID: u.ID, Username: u.Username, DisplayName: u.DisplayName, IsAdmin: u.IsAdmin, Proactive: u.Proactive, CreatedAt: u.CreatedAt}
 }
 
 type sessionDTO struct {

@@ -67,6 +67,7 @@ type Config struct {
 	Tools     ToolsConfig     `koanf:"tools"`
 	Emotion   EmotionConfig   `koanf:"emotion"`
 	Admin     AdminConfig     `koanf:"admin"`
+	Proactive ProactiveConfig `koanf:"proactive"`
 
 	// path 记录实际加载的配置文件路径（未加载文件时为空），不参与反序列化。
 	path string
@@ -242,6 +243,23 @@ type EmotionConfig struct {
 	Forgiveness float64 `koanf:"forgiveness"`
 	// Empathy 是被对方情绪感染的程度。
 	Empathy float64 `koanf:"empathy"`
+}
+
+// ProactiveConfig 是主动消息的配置：提醒（用户让布谷设的）与主动关心。
+type ProactiveConfig struct {
+	// Reminders 为 true 时布谷可以设提醒，到时间主动发消息。
+	Reminders bool `koanf:"reminders"`
+	// Care 为 true 时布谷会在合适的时候主动关心用户（每个用户可以在设置里关掉）。
+	Care bool `koanf:"care"`
+	// QuietStart、QuietEnd 是免打扰时段（本地时间 HH:MM），这段时间不主动关心；提醒不受影响。
+	QuietStart string `koanf:"quiet_start"`
+	QuietEnd   string `koanf:"quiet_end"`
+	// IdleHours 是对方多久没说话后才考虑主动关心。
+	IdleHours float64 `koanf:"idle_hours"`
+	// MinGapHours 是两次主动关心之间至少间隔的小时数。
+	MinGapHours float64 `koanf:"min_gap_hours"`
+	// CheckInterval 是检查一次要不要主动关心的间隔。
+	CheckInterval time.Duration `koanf:"check_interval"`
 }
 
 // ToolsConfig 是模型可以调用的工具配置。
@@ -443,6 +461,8 @@ func Default() *Config {
 		},
 		Uploads: UploadsConfig{MaxFileMB: 20, MaxFiles: 8, UserQuotaMB: 500, DocChars: 20000},
 		Admin:   AdminConfig{Password: DefaultAdminPassword},
+		Proactive: ProactiveConfig{Reminders: true, Care: true, QuietStart: "23:00", QuietEnd: "08:00",
+			IdleHours: 20, MinGapHours: 20, CheckInterval: 30 * time.Minute},
 		Emotion: EmotionConfig{Enabled: true, Expressiveness: 1, Temper: 1, Patience: 1, Forgiveness: 1, Empathy: 1},
 		Tools: ToolsConfig{Python: PythonConfig{
 			Runner: PythonDocker, Image: "python:3.12-slim", Docker: "docker", Python: "python3",
@@ -675,6 +695,14 @@ func (c *Config) Validate() error {
 		if v < 0 || v > 3 {
 			errs = append(errs, fmt.Errorf("emotion.%s 需在 0-3 之间", name))
 		}
+	}
+	for _, t := range []string{c.Proactive.QuietStart, c.Proactive.QuietEnd} {
+		if _, err := time.Parse("15:04", t); err != nil {
+			errs = append(errs, fmt.Errorf("proactive.quiet_start / quiet_end 应为 HH:MM 格式，现在是 %q", t))
+		}
+	}
+	if c.Proactive.IdleHours < 1 || c.Proactive.MinGapHours < 1 || c.Proactive.CheckInterval < time.Minute {
+		errs = append(errs, errors.New("proactive.idle_hours、min_gap_hours 至少 1 小时，check_interval 至少 1 分钟"))
 	}
 	switch c.Tools.Search.Provider {
 	case SearchAuto, SearchDeepSeek, SearchBocha, SearchTavily, SearchOff:

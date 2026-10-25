@@ -542,7 +542,45 @@ watch(
   },
 )
 
-onMounted(loadInitial)
+// 布谷可能主动发来消息（提醒、主动关心，或在微信/QQ 里聊的）：页面可见时定期检查当前对话有没有新消息。
+let pollTimer: ReturnType<typeof setInterval> | undefined
+async function checkNew() {
+  const id = currentId.value
+  if (!id || sending.value || document.visibilityState !== 'visible') return
+  try {
+    const { latest_id } = await api.latestMessage(id)
+    const known = items.value.reduce((m, it) => Math.max(m, it.id), 0)
+    if (latest_id <= known || currentId.value !== id || sending.value) return
+    const r = await api.messages(id, 0, 50)
+    if (currentId.value !== id || sending.value) return
+    const fresh = r.messages.filter((m) => m.id > known).map((m) => ({ ...m, fresh: true }))
+    if (!fresh.length) return
+    const wasAtBottom = nearBottom()
+    items.value = [...items.value, ...fresh]
+    if (wasAtBottom) scrollToBottom(true, true)
+    const c = convs.value.find((x) => x.id === id)
+    if (c) {
+      c.last_message_at = fresh[fresh.length - 1].created_at
+      convs.value = [c, ...convs.value.filter((x) => x.id !== id)]
+    }
+  } catch {
+    // 只是检查新消息，失败了下次再试。
+  }
+}
+function onVisible() {
+  if (document.visibilityState === 'visible') checkNew()
+}
+onMounted(() => {
+  loadInitial()
+  pollTimer = setInterval(checkNew, 30000)
+  document.addEventListener('visibilitychange', onVisible)
+  window.addEventListener('focus', checkNew)
+})
+onBeforeUnmount(() => {
+  clearInterval(pollTimer)
+  document.removeEventListener('visibilitychange', onVisible)
+  window.removeEventListener('focus', checkNew)
+})
 </script>
 
 <template>

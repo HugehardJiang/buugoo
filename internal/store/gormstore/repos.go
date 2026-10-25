@@ -82,6 +82,14 @@ func (r userRepo) SetPersonaPreset(ctx context.Context, id uint64, preset string
 	return r.update(ctx, id, map[string]any{"persona_preset": preset})
 }
 
+func (r userRepo) SetProactive(ctx context.Context, id uint64, on bool) error {
+	return r.update(ctx, id, map[string]any{"proactive": on})
+}
+
+func (r userRepo) MarkProactive(ctx context.Context, id uint64, at time.Time) error {
+	return r.update(ctx, id, map[string]any{"last_proactive_at": at})
+}
+
 func (r userRepo) update(ctx context.Context, id uint64, values map[string]any) error {
 	res := r.db.WithContext(ctx).Model(&store.User{}).Where("id = ?", id).Updates(values)
 	if res.Error != nil {
@@ -329,6 +337,22 @@ func (r messageRepo) After(ctx context.Context, userID, conversationID, afterID 
 	err := r.db.WithContext(ctx).Where("user_id = ? AND conversation_id = ? AND id > ?", userID, conversationID, afterID).
 		Order("id").Limit(limit).Find(&out).Error
 	return out, mapErr(err)
+}
+
+func (r messageRepo) LastUserMessage(ctx context.Context, userID uint64) (*store.Message, error) {
+	var m store.Message
+	err := r.db.WithContext(ctx).Where("user_id = ? AND role = ?", userID, store.RoleUser).Order("id DESC").Limit(1).Take(&m).Error
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return &m, nil
+}
+
+func (r messageRepo) LatestID(ctx context.Context, userID, conversationID uint64) (uint64, error) {
+	var id uint64
+	err := r.db.WithContext(ctx).Model(&store.Message{}).Where("user_id = ? AND conversation_id = ?", userID, conversationID).
+		Select("COALESCE(MAX(id), 0)").Scan(&id).Error
+	return id, mapErr(err)
 }
 
 func (r messageRepo) Before(ctx context.Context, userID, conversationID, beforeID uint64, limit int) ([]store.Message, error) {
