@@ -18,6 +18,7 @@ const (
 	NameFetch   = "web_fetch"
 	NamePython  = "run_python"
 	NameInstall = "install_package"
+	NameSend    = "send_file"
 )
 
 // Installer 安装第三方库。
@@ -38,6 +39,8 @@ type Result struct {
 	OK     bool
 	// Images 是代码生成的图片，由调用方保存后显示在回复中。
 	Images []Image
+	// Files 是要发给用户的文件，由调用方保存为回复的附件。
+	Files []Image
 }
 
 type handler func(ctx context.Context, args json.RawMessage) Result
@@ -144,6 +147,17 @@ func New(o Options) *Set {
 				"code": map[string]any{"type": "string", "description": "完整的 Python 代码"},
 			}, "code"),
 		}, pythonHandler(o.Python, o.Workspace))
+		if fs, ok := o.Workspace.(FileSource); ok && o.Workspace != nil {
+			s.add(llm.Tool{
+				Name: NameSend,
+				Description: "把工作目录里的文件发给对方（例如代码生成的 Excel、CSV、PDF、压缩包），对方可以下载；在聊天软件里聊天时会直接发过去。" +
+					"先用 run_python 把文件保存到当前目录，再用这个工具发送。图片不用发，画的图会自动显示。一次最多 5 个文件。",
+				Parameters: object(map[string]any{
+					"paths": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
+						"description": "文件在工作目录中的路径，例如 [\"结果.xlsx\"]"},
+				}, "paths"),
+			}, sendHandler(fs))
+		}
 		if o.Installer != nil {
 			s.add(llm.Tool{
 				Name: NameInstall,
@@ -245,6 +259,8 @@ func Label(name string) string {
 		return "运行代码"
 	case NameInstall:
 		return "安装 Python 库"
+	case NameSend:
+		return "发送文件"
 	}
 	return name
 }

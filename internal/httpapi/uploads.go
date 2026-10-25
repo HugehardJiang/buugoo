@@ -15,7 +15,7 @@ func (s *server) uploadLimits() any {
 	if s.Uploads == nil {
 		return nil
 	}
-	return map[string]any{"max_file_bytes": s.Uploads.MaxFileBytes(), "max_files": s.Uploads.MaxFiles()}
+	return map[string]any{"max_file_bytes": s.Uploads.MaxFileBytes(), "max_files": s.Uploads.MaxFiles(), "any_file": s.Uploads.AnyFile()}
 }
 
 // uploadFile 处理 POST /api/v1/uploads（multipart/form-data，字段名 file）。

@@ -110,8 +110,12 @@ type UserRepo interface {
 // ReminderRepo 是提醒数据访问接口。
 type ReminderRepo interface {
 	Create(ctx context.Context, r *Reminder) error
-	// ListPending 按时间顺序返回用户还没到期或重复中的提醒。
+	// ListPending 按时间顺序返回用户还在进行（没到期、重复中或暂停）的提醒与定时任务。
 	ListPending(ctx context.Context, userID uint64) ([]Reminder, error)
+	// Get 返回用户还在进行的一个提醒，不存在或已结束时返回 ErrNotFound。
+	Get(ctx context.Context, userID, id uint64) (*Reminder, error)
+	// Update 修改用户还在进行的提醒（键为列名），不存在或已结束时返回 ErrNotFound。
+	Update(ctx context.Context, userID, id uint64, fields map[string]any) error
 	// Cancel 取消用户的提醒，不存在或已结束时返回 ErrNotFound。
 	Cancel(ctx context.Context, userID, id uint64) error
 	// Due 返回所有用户中到期（DueAt <= now）的提醒。
@@ -187,6 +191,8 @@ type MessageRepo interface {
 	LastUserMessage(ctx context.Context, userID uint64) (*Message, error)
 	// LatestID 返回对话中最新一条消息的 ID（没有时为 0），用于网页检查有没有新消息。
 	LatestID(ctx context.Context, userID, conversationID uint64) (uint64, error)
+	// Delete 删除一条消息（定时任务没做成时删掉占位消息）。
+	Delete(ctx context.Context, userID, id uint64) error
 }
 
 // MemoryFilter 是记忆列表的筛选条件。

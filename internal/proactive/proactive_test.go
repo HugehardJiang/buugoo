@@ -13,6 +13,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/chat"
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/llm"
+	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/store"
 	"github.com/HugehardJiang/buugoo/internal/store/gormstore"
 )
@@ -35,17 +36,68 @@ func newDB(t *testing.T) *gormstore.DB {
 func TestNextDue(t *testing.T) {
 	due := time.Date(2026, 10, 23, 22, 0, 0, 0, shanghai) // 周五
 	after := due
-	if n := NextDue(due, store.RepeatDaily, after, shanghai); !n.Equal(due.AddDate(0, 0, 1)) {
+	next := func(repeat string, after time.Time) *time.Time {
+		return NextDue(&store.Reminder{DueAt: due, Repeat: repeat}, after, shanghai)
+	}
+	if n := next(store.RepeatDaily, after); !n.Equal(due.AddDate(0, 0, 1)) {
 		t.Fatalf("daily %v", n)
 	}
-	if n := NextDue(due, store.RepeatWeekdays, after, shanghai); n.Weekday() != time.Monday || n.Hour() != 22 {
+	if n := next(store.RepeatWeekdays, after); n.Weekday() != time.Monday || n.Hour() != 22 {
 		t.Fatalf("weekdays %v", n)
 	}
-	if n := NextDue(due, store.RepeatWeekly, after.Add(10*24*time.Hour), shanghai); !n.Equal(due.AddDate(0, 0, 14)) {
+	if n := next(store.RepeatWeekly, after.Add(10*24*time.Hour)); !n.Equal(due.AddDate(0, 0, 14)) {
 		t.Fatalf("weekly 应跳过错过的周期 %v", n)
 	}
-	if NextDue(due, store.RepeatNone, after, shanghai) != nil {
+	if next(store.RepeatNone, after) != nil {
 		t.Fatal("不重复")
+	}
+	// 每隔 90 分钟：错过的周期跳过。
+	if n := NextDue(&store.Reminder{DueAt: due, Repeat: store.RepeatInterval, Every: 90}, due.Add(200*time.Minute), shanghai); !n.Equal(due.Add(270 * time.Minute)) {
+		t.Fatalf("interval %v", n)
+	}
+	// 每月 31 号：没有 31 号的月份跳过。
+	jan := time.Date(2027, 1, 31, 9, 0, 0, 0, shanghai)
+	m := &store.Reminder{DueAt: jan, Repeat: store.RepeatMonthly, Cron: monthlyCron(jan, shanghai)}
+	if n := NextDue(m, jan, shanghai); !n.Equal(time.Date(2027, 3, 31, 9, 0, 0, 0, shanghai)) {
+		t.Fatalf("monthly %v", n)
+	}
+	// cron：每周一三五早上 9 点。
+	c := &store.Reminder{DueAt: due, Repeat: store.RepeatCron, Cron: "0 9 * * 1,3,5"}
+	if n := NextDue(c, due, shanghai); !n.Equal(time.Date(2026, 10, 26, 9, 0, 0, 0, shanghai)) {
+		t.Fatalf("cron %v", n)
+	}
+}
+
+func TestScheduleApply(t *testing.T) {
+	now := time.Date(2026, 10, 25, 20, 0, 0, 0, shanghai)
+	ok := func(s Schedule) *store.Reminder {
+		t.Helper()
+		r := &store.Reminder{}
+		if err := s.Apply(r, now, shanghai); err != nil {
+			t.Fatalf("%+v: %v", s, err)
+		}
+		return r
+	}
+	if r := ok(Schedule{Repeat: "cron", Cron: "30 8 * * *"}); !r.DueAt.Equal(time.Date(2026, 10, 26, 8, 30, 0, 0, shanghai)) || r.Cron != "30 8 * * *" {
+		t.Fatalf("cron 不填时间从下一次开始 %+v", r)
+	}
+	if r := ok(Schedule{Repeat: "monthly", Time: "2026-11-15 09:00"}); r.Cron != "0 9 15 * *" {
+		t.Fatalf("%+v", r)
+	}
+	if r := ok(Schedule{Repeat: "interval", EveryMinutes: 120, AfterMinutes: 10}); r.Every != 120 || !r.DueAt.Equal(now.Add(10*time.Minute)) {
+		t.Fatalf("%+v", r)
+	}
+	for _, bad := range []Schedule{
+		{Repeat: "cron", Cron: "*/5 * * * *"}, // 太频繁
+		{Repeat: "cron", Cron: "0 9 * *"},     // 少一段
+		{Repeat: "cron", Cron: "CRON_TZ=UTC 0 9 * * *"},
+		{Repeat: "interval", EveryMinutes: 10, AfterMinutes: 1},
+		{Repeat: "yearly", AfterMinutes: 1},
+		{Time: "2026-10-25 08:00"}, // 已经过去
+	} {
+		if err := bad.Apply(&store.Reminder{}, now, shanghai); err == nil {
+			t.Errorf("%+v 应失败", bad)
+		}
 	}
 }
 
@@ -76,7 +128,10 @@ func TestReminderTools(t *testing.T) {
 			t.Errorf("%s 应失败", bad)
 		}
 	}
-	if ok, out := call(NameListReminders, `{}`); !ok || !strings.Contains(out, "起来活动") || !strings.Contains(out, "每天") {
+	if ok, out := call(NameScheduleTask, `{"content":"搜一下今天的科技新闻，挑三条说说","time":"2026-10-26 08:00","repeat":"weekdays"}`); !ok || !strings.Contains(out, "定时任务") {
+		t.Fatalf("%v %s", ok, out)
+	}
+	if ok, out := call(NameListReminders, `{}`); !ok || !strings.Contains(out, "起来活动") || !strings.Contains(out, "每天") || !strings.Contains(out, "[定时任务]") {
 		t.Fatalf("%s", out)
 	}
 	list, _ := db.Reminders().ListPending(ctx, 1)
@@ -88,7 +143,7 @@ func TestReminderTools(t *testing.T) {
 	}
 	// 别人的提醒看不到。
 	other := ReminderTools(db.Reminders(), 2, shanghai, func() time.Time { return now })
-	if r := other[1].Run(ctx, nil); !strings.Contains(r.Output, "没有提醒") {
+	if r := other[2].Run(ctx, nil); !strings.Contains(r.Output, "没有提醒") {
 		t.Fatal(r.Output)
 	}
 }
@@ -98,8 +153,19 @@ func itoa(n uint64) string { b, _ := json.Marshal(n); return string(b) }
 type fakeSpeaker struct {
 	mu      sync.Mutex
 	reasons []string
+	tasks   []string
 	fail    error
 	skip    bool
+}
+
+func (f *fakeSpeaker) RunTask(_ context.Context, u *store.User, task string) (*chat.ProactiveResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.fail != nil {
+		return nil, f.fail
+	}
+	f.tasks = append(f.tasks, task)
+	return &chat.ProactiveResult{Message: &store.Message{UserID: u.ID, Content: "今天的新闻"}}, nil
 }
 
 func (f *fakeSpeaker) Proactive(_ context.Context, u *store.User, reason string, allowSkip bool) (*chat.ProactiveResult, error) {
@@ -115,9 +181,16 @@ func (f *fakeSpeaker) Proactive(_ context.Context, u *store.User, reason string,
 	return &chat.ProactiveResult{Message: &store.Message{UserID: u.ID, Content: "嘿"}}, nil
 }
 
-type fakeDeliver struct{ n int }
+type fakeDeliver struct {
+	mu sync.Mutex
+	n  int
+}
 
-func (f *fakeDeliver) Deliver(context.Context, *store.User, *chat.ProactiveResult) { f.n++ }
+func (f *fakeDeliver) Deliver(context.Context, *store.User, *chat.ProactiveResult) {
+	f.mu.Lock()
+	f.n++
+	f.mu.Unlock()
+}
 
 func TestFireReminders(t *testing.T) {
 	ctx := context.Background()
@@ -151,6 +224,29 @@ func TestFireReminders(t *testing.T) {
 	e.FireReminders(ctx)
 	if p, _ := db.Reminders().ListPending(ctx, u.ID); len(p) != 2 {
 		t.Fatal("过期太久应放弃")
+	}
+
+	// 定时任务在后台执行；暂停的不执行。
+	sp.fail = nil
+	e.now = func() time.Time { return now }
+	task := &store.Reminder{UserID: u.ID, Kind: store.KindTask, Content: "搜新闻", DueAt: now.Add(-time.Minute), Repeat: store.RepeatDaily}
+	paused := &store.Reminder{UserID: u.ID, Kind: store.KindTask, Content: "暂停的", DueAt: now.Add(-time.Minute), Status: store.ReminderPaused}
+	_ = db.Reminders().Create(ctx, task)
+	_ = db.Reminders().Create(ctx, paused)
+	e.FireReminders(ctx)
+	e.Wait()
+	if len(sp.tasks) != 1 || sp.tasks[0] != "搜新闻" || dl.n != 3 {
+		t.Fatalf("tasks=%v deliver=%d", sp.tasks, dl.n)
+	}
+	if r, _ := db.Reminders().Get(ctx, u.ID, task.ID); !r.DueAt.Equal(task.DueAt.AddDate(0, 0, 1)) {
+		t.Fatalf("每天的任务顺延到明天 %v", r.DueAt)
+	}
+	// 额度用完重试也没用：跳过这一次。
+	_ = db.Reminders().Create(ctx, &store.Reminder{UserID: u.ID, Content: "额度", DueAt: now})
+	sp.fail = &quota.ExceededError{}
+	e.FireReminders(ctx)
+	if p, _ := db.Reminders().ListPending(ctx, u.ID); len(p) != 4 {
+		t.Fatalf("%d", len(p))
 	}
 }
 

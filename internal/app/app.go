@@ -122,6 +122,8 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	if cfg.Tools.Python.WorkspaceMB > 0 {
 		uploadSvc.SetWorkspaceRoot(cfg.Tools.Python.WorkspaceDir)
 	}
+	// 能运行代码时，读不出文字的文件（表格、压缩包等）也可以上传，交给代码处理。
+	uploadSvc.SetAnyFile(cfg.Tools.Python.Runner != config.PythonOff && cfg.Tools.Python.Runner != "")
 	toolsProv := newToolProvider(cfg, log)
 	toolsProv.files, toolsProv.attachments = uploadSvc, db.Attachments()
 	if cfg.Proactive.Reminders {

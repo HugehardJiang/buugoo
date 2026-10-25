@@ -2,11 +2,15 @@ package channels
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -69,8 +73,8 @@ func (f *fakeChat) Send(ctx context.Context, u *store.User, in chat.SendInput, _
 	return &chat.Result{Reply: &store.Message{Content: "**好呀**\n\n我在呢"}}, nil
 }
 
-func (f *fakeChat) CreateConversation(ctx context.Context, u *store.User, _ chat.ConversationPatch) (*store.Conversation, error) {
-	c := &store.Conversation{UserID: u.ID, Thinking: "off"}
+func (f *fakeChat) CreateConversation(ctx context.Context, u *store.User, p chat.ConversationPatch) (*store.Conversation, error) {
+	c := &store.Conversation{UserID: u.ID, Thinking: "off", Channel: p.Channel}
 	return c, f.db.Conversations().Create(ctx, c)
 }
 
@@ -164,6 +168,26 @@ func TestHubBindAndChat(t *testing.T) {
 		_, err := db.Bindings().GetByPeer(ctx, Telegram, "42")
 		return errors.Is(err, store.ErrNotFound)
 	})
+	if conv.Channel != Telegram {
+		t.Fatalf("聊天软件里的对话应标记来源：%q", conv.Channel)
+	}
+
+	// 自己扫码登录的账号（Owner）：不用绑定码，直接绑定并聊天；已经绑给别人的改绑过来。
+	fc.fail = nil
+	u2 := &store.User{Username: "u2", PasswordHash: "x"}
+	if err := db.Users().Create(ctx, u2); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Bindings().Create(ctx, &store.ChannelBinding{UserID: u.ID, Channel: Telegram, PeerID: "wx1"})
+	sends := len(fc.sends)
+	h.handle(ctx, Inbound{Channel: Telegram, PeerID: "wx1", Text: "早", Owner: u2.ID})
+	waitFor(t, func() bool { fc.mu.Lock(); defer fc.mu.Unlock(); return len(fc.sends) == sends+1 })
+	if b, err := db.Bindings().GetByPeer(ctx, Telegram, "wx1"); err != nil || b.UserID != u2.ID {
+		t.Fatalf("%+v %v", b, err)
+	}
+	// 自己扫码的账号不能发「解绑」解除（要去网页断开）。
+	h.handle(ctx, Inbound{Channel: Telegram, PeerID: "wx1", Text: "解绑", Owner: u2.ID})
+	waitFor(t, func() bool { m := ch.messages(); return strings.Contains(m[len(m)-1], "断开") })
 }
 
 func TestOneBot(t *testing.T) {
@@ -241,29 +265,58 @@ func TestOneBot(t *testing.T) {
 func TestWeixin(t *testing.T) {
 	var mu sync.Mutex
 	var sent []map[string]any
+	cdn := map[string][]byte{}
+	key := []byte("0123456789abcdef")
+	cdn["in1"] = aesECBEncrypt(key, []byte("a,b\n1,2\n"))
 	polls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		switch r.URL.Path {
+		case "/c2c/download":
+			mu.Lock()
+			data := cdn[r.URL.Query().Get("encrypted_query_param")]
+			mu.Unlock()
+			_, _ = w.Write(data)
+			return
+		case "/c2c/upload":
+			mu.Lock()
+			cdn["up"] = body
+			mu.Unlock()
+			w.Header().Set("x-encrypted-param", "up")
+			return
+		}
 		if r.Header.Get("AuthorizationType") != "ilink_bot_token" || r.Header.Get("X-WECHAT-UIN") == "" {
 			w.WriteHeader(400)
 			return
 		}
-		body, _ := io.ReadAll(r.Body)
 		switch r.URL.Path {
+		case "/ilink/bot/get_bot_qrcode":
+			_, _ = w.Write([]byte(`{"qrcode":"q1","qrcode_img_content":"https://weixin.qq.com/x/q1"}`))
+		case "/ilink/bot/get_qrcode_status":
+			_, _ = w.Write([]byte(`{"status":"confirmed","bot_token":"tok7","ilink_bot_id":"bot7","ilink_user_id":"wx_u1","baseurl":"` + srv.URL + `"}`))
 		case "/ilink/bot/getupdates":
+			if r.Header.Get("Authorization") != "Bearer tok7" {
+				w.WriteHeader(401)
+				return
+			}
 			mu.Lock()
 			polls++
 			first := polls == 1
 			mu.Unlock()
-			if r.Header.Get("Authorization") != "Bearer tok" {
-				w.WriteHeader(401)
-				return
-			}
 			if !first {
 				time.Sleep(50 * time.Millisecond)
 				_, _ = w.Write([]byte(`{"ret":0,"msgs":[]}`))
 				return
 			}
-			_, _ = w.Write([]byte(`{"ret":0,"get_updates_buf":"b1","msgs":[{"from_user_id":"wx_u1","context_token":"ctx1","item_list":[{"type":1,"text_item":{"text":"早"}},{"type":3,"voice_item":{"text":"语音转的字"}}]},{"from_user_id":"wx_bot","message_type":2,"item_list":[{"type":1,"text_item":{"text":"自己发的"}}]}]}`))
+			k := base64.StdEncoding.EncodeToString([]byte(hex.EncodeToString(key)))
+			_, _ = w.Write([]byte(`{"ret":0,"get_updates_buf":"b1","msgs":[` +
+				`{"from_user_id":"wx_u1","context_token":"ctx1","item_list":[{"type":1,"text_item":{"text":"早"}},{"type":3,"voice_item":{"text":"语音转的字"}},` +
+				`{"type":4,"file_item":{"file_name":"表.csv","media":{"encrypt_query_param":"in1","aes_key":"` + k + `"}}}]},` +
+				`{"from_user_id":"wx_other","context_token":"ctx2","item_list":[{"type":1,"text_item":{"text":"我是别人"}}]},` +
+				`{"from_user_id":"wx_bot","message_type":2,"item_list":[{"type":1,"text_item":{"text":"自己发的"}}]}]}`))
+		case "/ilink/bot/getuploadurl":
+			_, _ = w.Write([]byte(`{"ret":0,"upload_param":"p1"}`))
 		case "/ilink/bot/sendmessage":
 			var m map[string]any
 			_ = json.Unmarshal(body, &m)
@@ -276,37 +329,104 @@ func TestWeixin(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
+	oldBase, oldCDN := weixinBaseURL, weixinCDNURL
+	weixinBaseURL, weixinCDNURL = srv.URL, srv.URL+"/c2c"
+	defer func() { weixinBaseURL, weixinCDNURL = oldBase, oldCDN }()
+
 	dir := t.TempDir()
 	w := NewWeixin(dir, nil)
-	w.state = weixinState{Token: "tok", BaseURL: srv.URL, Contexts: map[string]string{}}
-	got := make(chan Inbound, 2)
+	logins := make(chan string, 4)
+	logouts := make(chan string, 4)
+	w.OnLogin = func(_ context.Context, uid uint64, peer string) { logins <- fmt.Sprint(uid, peer) }
+	w.OnLogout = func(_ context.Context, uid uint64, peer string) { logouts <- fmt.Sprint(uid, peer) }
+	got := make(chan Inbound, 4)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go w.Run(ctx, func(_ context.Context, in Inbound) { got <- in })
+	time.Sleep(20 * time.Millisecond)
+
+	// 用户 7 扫码登录自己的微信：自动绑定扫码人。
+	l, err := w.StartLogin(ctx, 7)
+	if err != nil || !strings.HasPrefix(l.QRCode, "data:image/png;base64,") {
+		t.Fatal(l, err)
+	}
+	if v := <-logins; v != "7wx_u1" {
+		t.Fatal(v)
+	}
 	in := <-got
-	if in.PeerID != "wx_u1" || in.Text != "早\n语音转的字" {
+	if in.PeerID != "wx_u1" || in.Owner != 7 || in.Text != "早\n语音转的字" || len(in.Files) != 1 ||
+		in.Files[0].Name != "表.csv" || string(in.Files[0].Data) != "a,b\n1,2\n" {
 		t.Fatalf("%+v", in)
 	}
+	// 别人发来的消息不算这个用户的（要用绑定码）。
+	if other := <-got; other.PeerID != "wx_other" || other.Owner != 0 {
+		t.Fatalf("%+v", other)
+	}
+	if u := w.User(7); u.Account == nil || u.Account.Account != "bot7" || u.Login == nil || u.Login.Status != "confirmed" {
+		t.Fatalf("%+v", u)
+	}
+	if u := w.User(8); u.Account != nil {
+		t.Fatal("别的用户没有连接微信")
+	}
+
 	if err := w.Send(context.Background(), "wx_u1", Outbound{Text: "早呀"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Send(context.Background(), "wx_u1", Outbound{File: &File{Name: "结果.csv", Data: []byte("x,y\n")}}); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()
 	msg := sent[0]["msg"].(map[string]any)
+	fileMsg := mustJSON(sent[1]["msg"])
+	uploaded := cdn["up"]
 	mu.Unlock()
 	if msg["context_token"] != "ctx1" || msg["to_user_id"] != "wx_u1" || !strings.Contains(mustJSON(msg), "早呀") {
 		t.Fatalf("%v", msg)
 	}
+	if !strings.Contains(fileMsg, `"file_name":"结果.csv"`) || !strings.Contains(fileMsg, `"type":4`) {
+		t.Fatal(fileMsg)
+	}
+	if len(uploaded)%16 != 0 || len(uploaded) == 0 {
+		t.Fatal("上传的文件应该是加密过的")
+	}
 	if err := w.Send(context.Background(), "nobody", Outbound{Text: "x"}); err == nil {
 		t.Fatal("没发过消息的人不能主动发")
 	}
+
 	// 登录态（含 context_token）保存在数据目录，重启后还能用。
-	waitFor(t, func() bool { return NewWeixin(dir, nil).state.SyncBuf == "b1" })
+	waitFor(t, func() bool {
+		a := NewWeixin(dir, nil).accounts[7]
+		return a != nil && a.state.SyncBuf == "b1"
+	})
 	w2 := NewWeixin(dir, nil)
-	if w2.state.Contexts["wx_u1"] != "ctx1" || w2.state.Token != "tok" {
-		t.Fatalf("%+v", w2.state)
+	if a := w2.accounts[7]; a.state.Contexts["wx_u1"] != "ctx1" || a.state.Token != "tok7" || a.state.OwnerPeer != "wx_u1" {
+		t.Fatalf("%+v", a.state)
 	}
+	if list := w2.Accounts(); len(list) != 1 || list[0].UserID != 7 {
+		t.Fatalf("%+v", list)
+	}
+
+	// 管理员踢下线：删除登录态，告诉用户原因。
+	w.Logout(ctx, 7, "管理员断开了你的微信连接")
+	if v := <-logouts; v != "7wx_u1" {
+		t.Fatal(v)
+	}
+	if u := w.User(7); u.Account != nil || u.Notice == "" {
+		t.Fatalf("%+v", u)
+	}
+	if len(NewWeixin(dir, nil).Accounts()) != 0 {
+		t.Fatal("退出后不应再保存登录态")
+	}
+
+	// 旧版本管理员扫码的登录态继续可用。
+	legacy := t.TempDir()
+	b, _ := json.Marshal(weixinState{Token: "old", AccountID: "bot0"})
+	_ = os.WriteFile(filepath.Join(legacy, "weixin.json"), b, 0o600)
+	if list := NewWeixin(legacy, nil).Accounts(); len(list) != 1 || !list[0].Legacy {
+		t.Fatalf("%+v", list)
+	}
+
 	// 媒体加解密。
-	key := []byte("0123456789abcdef")
 	if out, err := aesECBDecrypt(key, aesECBEncrypt(key, []byte("hello"))); err != nil || string(out) != "hello" {
 		t.Fatal("aes")
 	}

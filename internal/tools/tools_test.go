@@ -482,3 +482,35 @@ func TestUntarRejectsUnsafe(t *testing.T) {
 		t.Fatal("普通文件应解压")
 	}
 }
+
+// send_file 只能发工作目录（和 input/）里的普通文件。
+func TestSendFile(t *testing.T) {
+	ws := newTestWorkspace(t, 1<<20)
+	_ = os.MkdirAll(filepath.Join(ws.Dir, "out"), 0o755)
+	_ = os.WriteFile(filepath.Join(ws.Dir, "out", "结果.csv"), []byte("x,y\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(filepath.Dir(ws.Dir), "secret.txt"), []byte("no"), 0o644)
+	_ = os.Symlink("/etc/passwd", filepath.Join(ws.Dir, "link"))
+	set := New(Options{Python: fakeRunner{}, Workspace: ws})
+	run := func(paths ...string) Result {
+		b, _ := json.Marshal(map[string]any{"paths": paths})
+		return set.Run(context.Background(), llm.ToolCall{Name: NameSend, Arguments: string(b)})
+	}
+	r := run("out/结果.csv", "/work/input/data (2).csv")
+	if !r.OK || len(r.Files) != 2 || r.Files[0].Name != "结果.csv" || string(r.Files[0].Data) != "x,y\n" || r.Files[1].Name != "data (2).csv" {
+		t.Fatalf("%+v", r)
+	}
+	for _, bad := range []string{"../secret.txt", "../../1/secret.txt", "link", "out", "nothing.txt", ""} {
+		if r := run(bad); r.OK {
+			t.Errorf("%q 不应能发送: %+v", bad, r)
+		}
+	}
+	if r := run("a", "b", "c", "d", "e", "f"); r.OK {
+		t.Fatal("一次最多 5 个")
+	}
+	// 没有工作目录时不提供。
+	for _, d := range New(Options{Python: fakeRunner{}}).Defs() {
+		if d.Name == NameSend {
+			t.Fatal("没有工作目录时不应提供 send_file")
+		}
+	}
+}

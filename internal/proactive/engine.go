@@ -13,12 +13,16 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/chat"
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/llm"
+	"github.com/HugehardJiang/buugoo/internal/models"
+	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/store"
 )
 
 // Speaker 生成并保存主动消息（chat.Service）。
 type Speaker interface {
 	Proactive(ctx context.Context, u *store.User, reason string, allowSkip bool) (*chat.ProactiveResult, error)
+	// RunTask 执行一个定时任务（可以用工具），把结果作为主动消息保存。
+	RunTask(ctx context.Context, u *store.User, task string) (*chat.ProactiveResult, error)
 }
 
 // Deliverer 把主动消息发到用户绑定的聊天软件（消息已经保存在对话里，网页上也能看到）。
@@ -47,6 +51,9 @@ type Engine struct {
 	mu       sync.Mutex
 	attempts map[uint64]time.Time // 提醒上次尝试发送的时间（失败后稍后重试）
 	checked  map[uint64]time.Time // 用户上次判断要不要主动关心的时间
+	running  map[uint64]bool      // 正在执行的定时任务
+	tasks    sync.WaitGroup
+	slots    chan struct{} // 同时执行的定时任务数
 }
 
 // Deps 是 Engine 的依赖。Deliver 与 Mood 可以为空。
@@ -73,7 +80,8 @@ func New(d Deps) *Engine {
 	}
 	return &Engine{store: d.Store, speaker: d.Speaker, deliver: d.Deliver, util: d.Utility, mood: d.Mood, cfg: d.Config,
 		name: d.Name, loc: d.Location, log: d.Logger.With("component", "proactive"), now: time.Now,
-		attempts: map[uint64]time.Time{}, checked: map[uint64]time.Time{}}
+		attempts: map[uint64]time.Time{}, checked: map[uint64]time.Time{}, running: map[uint64]bool{},
+		slots: make(chan struct{}, maxConcurrentTasks)}
 }
 
 // 节奏与重试。
@@ -83,6 +91,8 @@ const (
 	reminderGiveUp     = 30 * time.Minute // 过期太久还没发出去就放弃这一次
 	careRecheck        = 6 * time.Hour    // 同一个人多久判断一次要不要主动关心
 	unansweredWait     = 72 * time.Hour   // 主动发的消息没人回时，多久后才再次主动
+	maxConcurrentTasks = 3
+	taskTimeout        = 10 * time.Minute
 )
 
 // Run 在后台运行，直到 ctx 取消。
@@ -110,7 +120,7 @@ func (e *Engine) Run(ctx context.Context) {
 	}
 }
 
-// FireReminders 发出所有到期的提醒。
+// FireReminders 发出所有到期的提醒，并在后台开始执行到期的定时任务。
 func (e *Engine) FireReminders(ctx context.Context) {
 	now := e.now()
 	due, err := e.store.Reminders().Due(ctx, now, 50)
@@ -124,29 +134,67 @@ func (e *Engine) FireReminders(ctx context.Context) {
 		}
 		e.mu.Lock()
 		last, tried := e.attempts[r.ID]
+		busy := e.running[r.ID]
 		e.mu.Unlock()
-		if tried && now.Sub(last) < reminderRetryAfter {
+		if busy || (tried && now.Sub(last) < reminderRetryAfter) {
 			continue
 		}
-		err := e.fire(ctx, r)
+		if r.Kind != store.KindTask {
+			e.finish(ctx, r, now, e.fire(ctx, r))
+			continue
+		}
+		select {
+		case e.slots <- struct{}{}:
+		default:
+			continue // 正在执行的任务太多，下次再看
+		}
 		e.mu.Lock()
-		if err == nil || now.Sub(r.DueAt) > reminderGiveUp {
-			delete(e.attempts, r.ID)
-		} else {
-			e.attempts[r.ID] = now
-		}
+		e.running[r.ID] = true
 		e.mu.Unlock()
-		if err != nil && now.Sub(r.DueAt) <= reminderGiveUp {
-			e.log.Warn("发送提醒失败，稍后重试", "reminder_id", r.ID, "err", err)
-			continue
-		}
-		if err != nil {
-			e.log.Warn("提醒过期太久，放弃这一次", "reminder_id", r.ID, "err", err)
-		}
-		if ferr := e.store.Reminders().Fired(ctx, r.ID, now, NextDue(r.DueAt, r.Repeat, now, e.loc)); ferr != nil {
-			e.log.Error("更新提醒失败", "reminder_id", r.ID, "err", ferr)
-		}
+		e.tasks.Add(1)
+		go func(r store.Reminder) {
+			defer e.tasks.Done()
+			defer func() { <-e.slots }()
+			tctx, cancel := context.WithTimeout(ctx, taskTimeout)
+			err := e.fire(tctx, r)
+			cancel()
+			e.finish(ctx, r, now, err)
+			e.mu.Lock()
+			delete(e.running, r.ID)
+			e.mu.Unlock()
+		}(r)
 	}
+}
+
+// Wait 等待正在执行的定时任务结束。
+func (e *Engine) Wait() { e.tasks.Wait() }
+
+// finish 记录一次提醒的结果：成功或者过期太久放弃时改到下一次（或结束），否则稍后重试。
+func (e *Engine) finish(ctx context.Context, r store.Reminder, now time.Time, err error) {
+	// 额度用完、模型没配置这类问题重试也没用，直接跳过这一次。
+	giveUp := now.Sub(r.DueAt) > reminderGiveUp || errors.Is(err, chat.ErrNothingToSay) || permanent(err)
+	e.mu.Lock()
+	if err == nil || giveUp {
+		delete(e.attempts, r.ID)
+	} else {
+		e.attempts[r.ID] = now
+	}
+	e.mu.Unlock()
+	if err != nil && !giveUp {
+		e.log.Warn("发送提醒失败，稍后重试", "reminder_id", r.ID, "err", err)
+		return
+	}
+	if err != nil {
+		e.log.Warn("提醒没能发出，跳过这一次", "reminder_id", r.ID, "err", err)
+	}
+	if ferr := e.store.Reminders().Fired(context.WithoutCancel(ctx), r.ID, now, NextDue(&r, now, e.loc)); ferr != nil {
+		e.log.Error("更新提醒失败", "reminder_id", r.ID, "err", ferr)
+	}
+}
+
+func permanent(err error) bool {
+	var qe *quota.ExceededError
+	return errors.As(err, &qe) || errors.Is(err, models.ErrNoModel) || errors.Is(err, store.ErrNotFound)
 }
 
 func (e *Engine) fire(ctx context.Context, r store.Reminder) error {
@@ -158,16 +206,21 @@ func (e *Engine) fire(ctx context.Context, r store.Reminder) error {
 	if d := e.now().Sub(r.DueAt); d > 5*time.Minute {
 		late = fmt.Sprintf("（服务器刚才忙，晚了 %d 分钟）", int(d.Minutes()))
 	}
-	reason := fmt.Sprintf("对方之前让你在 %s 提醒：「%s」。现在到时间了%s，提醒对方一下。",
-		r.DueAt.In(e.loc).Format("01-02 15:04"), r.Content, late)
-	res, err := e.speaker.Proactive(ctx, u, reason, false)
+	var res *chat.ProactiveResult
+	if r.Kind == store.KindTask {
+		res, err = e.speaker.RunTask(ctx, u, r.Content+late)
+	} else {
+		reason := fmt.Sprintf("对方之前让你在 %s 提醒：「%s」。现在到时间了%s，提醒对方一下。",
+			r.DueAt.In(e.loc).Format("01-02 15:04"), r.Content, late)
+		res, err = e.speaker.Proactive(ctx, u, reason, false)
+	}
 	if err != nil {
 		return err
 	}
 	if e.deliver != nil {
-		e.deliver.Deliver(ctx, u, res)
+		e.deliver.Deliver(context.WithoutCancel(ctx), u, res)
 	}
-	e.log.Info("已发送提醒", "user_id", u.ID, "reminder_id", r.ID)
+	e.log.Info("已发送"+kindLabel(r.Kind), "user_id", u.ID, "reminder_id", r.ID)
 	return nil
 }
 

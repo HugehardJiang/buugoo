@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -245,4 +246,105 @@ func ListWorkspace(dir string, n int) []string {
 		out = append(out[:n], fmt.Sprintf("……等共 %d 项", len(out)))
 	}
 	return out
+}
+
+// FileSource 是能读出工作目录中文件的 Workspace（发送文件用）。
+type FileSource interface {
+	// ReadFile 读出工作目录中的一个文件（不超过 max 字节）。input/ 中的文件也可以读。
+	ReadFile(name string, max int64) ([]byte, error)
+}
+
+// maxSendFiles 是一次最多发送的文件数。
+const maxSendFiles = 5
+
+// ReadFile 实现 FileSource：只允许工作目录里的普通文件，不跟随链接。
+func (w *DirWorkspace) ReadFile(name string, max int64) ([]byte, error) {
+	clean := path.Clean("/" + strings.ReplaceAll(strings.TrimSpace(name), "\\", "/"))[1:]
+	clean = strings.TrimPrefix(clean, "work/")
+	if clean == "" || clean == "." {
+		return nil, errors.New("文件名为空")
+	}
+	if rest, ok := strings.CutPrefix(clean, "input/"); ok {
+		names := InputNames(w.Inputs)
+		for i, n := range names {
+			if n == rest {
+				return readLimited(w.Inputs[i].Path, max)
+			}
+		}
+		return nil, errors.New("input/ 里没有这个文件")
+	}
+	p := filepath.Join(w.Dir, filepath.FromSlash(clean))
+	// 逐级检查，不允许经过链接。
+	cur := w.Dir
+	for _, part := range strings.Split(clean, "/") {
+		cur = filepath.Join(cur, part)
+		info, err := os.Lstat(cur)
+		if err != nil {
+			return nil, errors.New("没有这个文件（要先用 run_python 保存到当前目录）")
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			return nil, errors.New("不能发送链接")
+		}
+	}
+	return readLimited(p, max)
+}
+
+func readLimited(p string, max int64) ([]byte, error) {
+	info, err := os.Stat(p)
+	if err != nil {
+		return nil, errors.New("没有这个文件")
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("这不是文件")
+	}
+	if info.Size() > max {
+		return nil, fmt.Errorf("文件太大（%.1f MB），不能超过 %d MB", float64(info.Size())/(1<<20), max>>20)
+	}
+	if info.Size() == 0 {
+		return nil, errors.New("文件是空的")
+	}
+	return os.ReadFile(p)
+}
+
+// maxSendBytes 是发送的单个文件大小上限（保存时还会按上传大小上限检查）。
+var maxSendBytes int64 = 50 << 20
+
+func sendHandler(src FileSource) func(ctx context.Context, args json.RawMessage) Result {
+	return func(ctx context.Context, args json.RawMessage) Result {
+		var in struct {
+			Paths []string `json:"paths"`
+			Path  string   `json:"path"`
+		}
+		_ = json.Unmarshal(args, &in)
+		if in.Path != "" {
+			in.Paths = append(in.Paths, in.Path)
+		}
+		res := Result{Input: strings.Join(in.Paths, "、")}
+		if len(in.Paths) == 0 {
+			res.Output, res.Summary = "没有指定要发送的文件", "没有指定文件"
+			return res
+		}
+		if len(in.Paths) > maxSendFiles {
+			res.Output, res.Summary = fmt.Sprintf("一次最多发送 %d 个文件", maxSendFiles), "文件太多"
+			return res
+		}
+		var b strings.Builder
+		for _, p := range in.Paths {
+			data, err := src.ReadFile(p, maxSendBytes)
+			if err != nil {
+				fmt.Fprintf(&b, "%s 没有发送：%s\n", p, err)
+				continue
+			}
+			res.Files = append(res.Files, Image{Name: path.Base(strings.ReplaceAll(p, "\\", "/")), Data: data})
+		}
+		if len(res.Files) > 0 {
+			res.OK = true
+			fmt.Fprintf(&b, "已经把 %d 个文件附在你的回复里发给对方，不需要再贴链接。", len(res.Files))
+			res.Summary = fmt.Sprintf("发送 %d 个文件", len(res.Files))
+		} else {
+			res.Summary = "没有发送"
+		}
+		res.Output = strings.TrimSpace(b.String())
+		return res
+	}
 }

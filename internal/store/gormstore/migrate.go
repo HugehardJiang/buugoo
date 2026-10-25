@@ -26,6 +26,7 @@ func migrations() []*gormigrate.Migration {
 		migrationV4Emotions(),
 		migrationV5PresetsFiles(),
 		migrationV6(),
+		migrationV7(),
 	}
 }
 

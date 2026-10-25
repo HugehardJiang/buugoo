@@ -94,7 +94,12 @@ func (r attachmentRepo) TotalSize(ctx context.Context, userID uint64) (int64, er
 
 func (r attachmentRepo) ListFiles(ctx context.Context, userID uint64, kind string, limit, offset int) ([]store.Attachment, int64, error) {
 	q := r.db.WithContext(ctx).Model(&store.Attachment{}).Where("user_id = ? AND message_id IS NOT NULL AND deleted_at IS NULL", userID)
-	if kind != "" {
+	switch kind {
+	case "":
+	case store.AttachmentDocument:
+		// 「文档」包括读不出文字的其他文件。
+		q = q.Where("kind IN ?", []string{store.AttachmentDocument, store.AttachmentFile})
+	default:
 		q = q.Where("kind = ?", kind)
 	}
 	var total int64

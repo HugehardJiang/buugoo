@@ -57,6 +57,8 @@ type ToolEvent struct {
 	Detail  string `json:"detail,omitempty"`
 	// Images 是代码生成的图片（已保存为回复的附件），显示在回复中。
 	Images []ToolImage `json:"images,omitempty"`
+	// Files 是工具发给用户的文件（已保存为回复的附件），显示为可以下载的文件。
+	Files []ToolImage `json:"files,omitempty"`
 }
 
 // ToolImage 是工具生成并保存好的一张图片，字段与附件一致，前端按附件展示。
@@ -511,6 +513,13 @@ func (t *turn) runTool(call llm.ToolCall) (string, error) {
 			res.Output += "\n" + note
 		}
 	}
+	if len(res.Files) > 0 {
+		var note string
+		ev.Files, note = t.saveFiles(res.Files)
+		if note != "" {
+			res.Output += "\n" + note
+		}
+	}
 	t.records = append(t.records, ev)
 	t.toolTokens += prompt.EstimateTokens(res.Output)
 	if err := t.sink.Tool(ev); err != nil {
@@ -543,6 +552,34 @@ func (t *turn) saveImages(images []tools.Image) ([]ToolImage, string) {
 	}
 	if len(failed) > 0 {
 		return out, "以下图片没有显示给用户：" + strings.Join(failed, "；")
+	}
+	return out, ""
+}
+
+// saveFiles 把工具发给用户的文件保存为回复的附件。
+func (t *turn) saveFiles(files []tools.Image) ([]ToolImage, string) {
+	if t.s.uploads == nil {
+		return nil, "（当前不支持发送文件，文件没有发给用户）"
+	}
+	bg := context.WithoutCancel(t.ctx)
+	var out []ToolImage
+	var failed []string
+	for _, f := range files {
+		a, err := t.s.uploads.SaveSent(bg, t.userID, t.convID, t.replyID, f.Name, f.Data)
+		if err != nil {
+			var ue *uploads.UserError
+			if errors.As(err, &ue) {
+				failed = append(failed, f.Name+"："+ue.Msg)
+			} else {
+				t.s.log.Warn("保存发送的文件失败", "user_id", t.userID, "name", f.Name, "err", err)
+				failed = append(failed, f.Name+"：保存失败")
+			}
+			continue
+		}
+		out = append(out, ToolImage{ID: a.ID, Kind: a.Kind, Filename: a.Filename, MIME: a.MIME, Size: a.Size})
+	}
+	if len(failed) > 0 {
+		return out, "以下文件没有发给用户：" + strings.Join(failed, "；")
 	}
 	return out, ""
 }

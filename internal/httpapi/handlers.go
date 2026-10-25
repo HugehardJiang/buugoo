@@ -96,11 +96,13 @@ type conversationDTO struct {
 	Thinking      string     `json:"thinking"`
 	CreatedAt     time.Time  `json:"created_at"`
 	LastMessageAt *time.Time `json:"last_message_at"`
+	// Channel 是对话来自哪个聊天软件（weixin、qq、telegram），网页上的对话为空。
+	Channel string `json:"channel,omitempty"`
 }
 
 func toConversation(c *store.Conversation) conversationDTO {
 	return conversationDTO{ID: c.ID, Title: c.Title, ModelID: c.ModelID, Thinking: c.Thinking,
-		CreatedAt: c.CreatedAt, LastMessageAt: c.LastMessageAt}
+		CreatedAt: c.CreatedAt, LastMessageAt: c.LastMessageAt, Channel: c.Channel}
 }
 
 type memoryDTO struct {
@@ -385,7 +387,7 @@ func (s *server) messages(c echo.Context, convID uint64) error {
 			out[i].Attachments = toAttachments(list)
 			continue
 		}
-		// 助手回复的附件是代码生成的图片，随工具记录展示；标出已经删除的。
+		// 助手回复的附件是代码生成的图片和发送的文件，随工具记录展示；标出已经删除的。
 		deleted := map[uint64]bool{}
 		for _, a := range list {
 			deleted[a.ID] = a.DeletedAt != nil
@@ -394,6 +396,10 @@ func (s *server) messages(c echo.Context, convID uint64) error {
 			for k := range out[i].Tools[j].Images {
 				img := &out[i].Tools[j].Images[k]
 				img.Deleted = deleted[img.ID]
+			}
+			for k := range out[i].Tools[j].Files {
+				f := &out[i].Tools[j].Files[k]
+				f.Deleted = deleted[f.ID]
 			}
 		}
 	}

@@ -140,6 +140,27 @@ func TestSaveKinds(t *testing.T) {
 			t.Errorf("%s: 应返回 %v，得到 %v", bad.file, bad.kind, err)
 		}
 	}
+
+	// 能运行代码时，读不出文字的文件也可以上传（交给代码处理）；空文件、太大的照样拒绝。
+	s.SetAnyFile(true)
+	a, err := s.Save(ctx, 7, "表格.xlsx", bytes.NewReader([]byte("PK\x03\x04\x00\x00 zip")))
+	if err != nil || a.Kind != store.AttachmentFile || !strings.HasSuffix(a.Path, ".xlsx") {
+		t.Fatalf("%+v %v", a, err)
+	}
+	if _, err := s.Save(ctx, 7, "empty.bin", bytes.NewReader(nil)); !errors.Is(err, ErrEmpty) {
+		t.Fatal(err)
+	}
+	if a, err := s.Save(ctx, 7, "weird.$%", bytes.NewReader([]byte{0, 1, 2})); err != nil || strings.Contains(a.Path, "$") {
+		t.Fatalf("%+v %v", a, err)
+	}
+	// 发给用户的文件：图片按图片保存，其他文件只能下载。
+	png := pngBytes(t)
+	if a, err := s.SaveSent(ctx, 7, 1, 2, "图.png", png); err != nil || a.Kind != store.AttachmentImage || a.Source != store.AttachmentGenerated {
+		t.Fatalf("%+v %v", a, err)
+	}
+	if a, err := s.SaveSent(ctx, 7, 1, 2, "结果.csv", []byte("a,b")); err != nil || a.Kind != store.AttachmentFile || *a.MessageID != 2 {
+		t.Fatalf("%+v %v", a, err)
+	}
 }
 
 func TestQuotaAndCleanup(t *testing.T) {

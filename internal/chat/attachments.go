@@ -146,6 +146,8 @@ func (s *Service) renderAttachments(content string, atts []store.Attachment, vis
 				b.WriteString("\n…（文件较长，后面的内容已省略）")
 			}
 			fmt.Fprintf(&b, "\n【文件结束：%s】", a.Filename)
+		case store.AttachmentFile:
+			fmt.Fprintf(&b, "【文件：%s（%s，读不出文字，你看不到内容；运行代码时可以从 input/%s 读取处理）】", a.Filename, uploads.HumanSize(a.Size), a.Filename)
 		case store.AttachmentImage:
 			switch {
 			case vision && s.uploads != nil:

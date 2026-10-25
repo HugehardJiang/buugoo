@@ -348,6 +348,10 @@ func (r messageRepo) LastUserMessage(ctx context.Context, userID uint64) (*store
 	return &m, nil
 }
 
+func (r messageRepo) Delete(ctx context.Context, userID, id uint64) error {
+	return mapErr(r.db.WithContext(ctx).Where("id = ? AND user_id = ?", id, userID).Delete(&store.Message{}).Error)
+}
+
 func (r messageRepo) LatestID(ctx context.Context, userID, conversationID uint64) (uint64, error) {
 	var id uint64
 	err := r.db.WithContext(ctx).Model(&store.Message{}).Where("user_id = ? AND conversation_id = ?", userID, conversationID).

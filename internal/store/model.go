@@ -85,6 +85,8 @@ type Conversation struct {
 	// Summary 是较早消息的摘要，SummaryUntil 是已经整理进摘要的最后一条消息 ID（之后的消息原样放进提示词）。
 	Summary      string `gorm:"size:4000"`
 	SummaryUntil uint64 `gorm:"not null;default:0"`
+	// Channel 是这段对话来自哪个聊天软件（weixin、qq、telegram），网页上的对话为空。
+	Channel string `gorm:"size:16;not null;default:''"`
 }
 
 // 消息角色。
@@ -170,6 +172,8 @@ func (m *ModelConfig) Public() bool { return m.OwnerID == PublicOwner }
 const (
 	AttachmentImage    = "image"
 	AttachmentDocument = "document"
+	// AttachmentFile 是读不出文字的其他文件（表格、压缩包等），只能在运行代码时从 input/ 读取。
+	AttachmentFile = "file"
 )
 
 // Attachment 是聊天中上传的文件。上传后先处于未发送状态（MessageID 为空），随消息发送后关联到用户消息。
@@ -196,15 +200,21 @@ type Attachment struct {
 	DeletedAt *time.Time `gorm:"index"`
 }
 
-// Reminder 是用户让布谷设的提醒。
+// Reminder 是用户让布谷设的提醒或定时任务。
 type Reminder struct {
-	ID      uint64 `gorm:"primaryKey"`
-	UserID  uint64 `gorm:"index;not null"`
+	ID     uint64 `gorm:"primaryKey"`
+	UserID uint64 `gorm:"index;not null"`
+	// Kind：remind 到点提醒一句；task 到点执行一件事（可以搜索、运行代码），把结果发给用户。
+	Kind string `gorm:"size:16;not null;default:'remind'"`
+	// Content 是提醒的事，或者定时任务要做的事。
 	Content string `gorm:"size:512;not null"`
-	// DueAt 是下次提醒的时间（UTC 保存）。
+	// DueAt 是下次的时间（UTC 保存）。
 	DueAt time.Time `gorm:"index:idx_reminder_due,priority:2;not null"`
-	// Repeat 是重复方式：空（一次）、daily、weekdays、weekly。
+	// Repeat 是重复方式：空（一次）、daily、weekdays、weekly、monthly、interval（每隔 Every 分钟）、cron（按 Cron 表达式）。
 	Repeat string `gorm:"size:16;not null;default:''"`
+	Every  int    `gorm:"not null;default:0"`
+	// Cron 是 5 段 cron 表达式（分 时 日 月 周，本地时间），Repeat 为 cron 时使用。
+	Cron   string `gorm:"size:64;not null;default:''"`
 	Status string `gorm:"size:16;index:idx_reminder_due,priority:1;not null;default:'pending'"`
 	// FiredAt 是最近一次提醒的时间。
 	FiredAt   *time.Time
@@ -214,13 +224,20 @@ type Reminder struct {
 // 提醒状态与重复方式。
 const (
 	ReminderPending  = "pending"
+	ReminderPaused   = "paused"
 	ReminderDone     = "done"
 	ReminderCanceled = "canceled"
+
+	KindRemind = "remind"
+	KindTask   = "task"
 
 	RepeatNone     = ""
 	RepeatDaily    = "daily"
 	RepeatWeekdays = "weekdays"
 	RepeatWeekly   = "weekly"
+	RepeatMonthly  = "monthly"
+	RepeatInterval = "interval"
+	RepeatCron     = "cron"
 )
 
 // ChannelBinding 把聊天软件（微信、QQ、Telegram）里的一个人绑定到布谷的账号。

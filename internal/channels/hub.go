@@ -68,7 +68,50 @@ func NewHub(st store.Store, cs ChatService, up *uploads.Service, name func() str
 }
 
 // Add 加入一个聊天软件。在 Start 之前调用。
-func (h *Hub) Add(c Channel) { h.channels[c.Name()] = c }
+func (h *Hub) Add(c Channel) {
+	h.channels[c.Name()] = c
+	if w, ok := c.(*WeixinChannel); ok {
+		w.OnLogin = func(ctx context.Context, userID uint64, peer string) {
+			if _, err := h.bindOwner(ctx, userID, Weixin, peer, ""); err != nil {
+				h.log.Error("绑定微信失败", "user_id", userID, "err", err)
+			}
+		}
+		w.OnLogout = func(ctx context.Context, userID uint64, peer string) {
+			if b, err := h.store.Bindings().GetByPeer(ctx, Weixin, peer); err == nil && b.UserID == userID {
+				_ = h.store.Bindings().Delete(ctx, userID, b.ID)
+			}
+		}
+	}
+}
+
+// Weixin 返回个人微信接入，没有开启时返回 nil。
+func (h *Hub) Weixin() *WeixinChannel {
+	w, _ := h.channels[Weixin].(*WeixinChannel)
+	return w
+}
+
+// bindOwner 把用户自己登录的账号绑定到这个用户：已经绑定给别人时改绑过来（同一个微信先后被两个账号扫码）。
+func (h *Hub) bindOwner(ctx context.Context, userID uint64, channel, peer, name string) (*store.ChannelBinding, error) {
+	b, err := h.store.Bindings().GetByPeer(ctx, channel, peer)
+	switch {
+	case err == nil && b.UserID == userID:
+		return b, nil
+	case err == nil:
+		if err := h.store.Bindings().Update(ctx, b.ID, map[string]any{"user_id": userID, "conversation_id": nil}); err != nil {
+			return nil, err
+		}
+		b.UserID, b.ConversationID = userID, nil
+		return b, nil
+	case !errors.Is(err, store.ErrNotFound):
+		return nil, err
+	}
+	b = &store.ChannelBinding{UserID: userID, Channel: channel, PeerID: peer, PeerName: name}
+	if err := h.store.Bindings().Create(ctx, b); err != nil {
+		return nil, err
+	}
+	h.log.Info("聊天软件已绑定", "channel", channel, "user_id", userID)
+	return b, nil
+}
 
 // Channel 返回已加入的聊天软件，没有时返回 nil。
 func (h *Hub) Channel(name string) Channel { return h.channels[name] }
@@ -135,7 +178,7 @@ func (h *Hub) useCode(code string) (uint64, bool) {
 
 // handle 把消息交给这个人的处理队列：同一个人的消息按顺序处理，连着发的几条合并成一轮。
 func (h *Hub) handle(ctx context.Context, in Inbound) {
-	if strings.TrimSpace(in.Text) == "" && len(in.Images) == 0 {
+	if strings.TrimSpace(in.Text) == "" && len(in.Files) == 0 {
 		return
 	}
 	key := in.Channel + ":" + in.PeerID
@@ -187,7 +230,7 @@ func (h *Hub) worker(ctx context.Context, key string, ch chan Inbound) {
 			if in.Text != "" {
 				merged.Text = strings.TrimSpace(merged.Text + "\n" + in.Text)
 			}
-			merged.Images = append(merged.Images, in.Images...)
+			merged.Files = append(merged.Files, in.Files...)
 			if in.PeerName != "" {
 				merged.PeerName = in.PeerName
 			}
@@ -205,6 +248,9 @@ func (h *Hub) process(ctx context.Context, in Inbound) {
 	}
 	text := strings.TrimSpace(in.Text)
 	b, err := h.store.Bindings().GetByPeer(ctx, in.Channel, in.PeerID)
+	if in.Owner != 0 && (errors.Is(err, store.ErrNotFound) || (err == nil && b.UserID != in.Owner)) {
+		b, err = h.bindOwner(ctx, in.Owner, in.Channel, in.PeerID, in.PeerName)
+	}
 	if errors.Is(err, store.ErrNotFound) {
 		h.unbound(ctx, c, in, text)
 		return
@@ -227,18 +273,22 @@ func (h *Hub) process(ctx context.Context, in Inbound) {
 
 	switch strings.ToLower(text) {
 	case "/new", "新对话":
-		conv, err := h.chat.CreateConversation(ctx, u, chat.ConversationPatch{})
+		conv, err := h.chat.CreateConversation(ctx, u, chat.ConversationPatch{Channel: in.Channel})
 		if err == nil {
 			_ = h.store.Bindings().Update(ctx, b.ID, map[string]any{"conversation_id": conv.ID})
 			h.say(ctx, c, in.PeerID, "好，开个新话题")
 		}
 		return
 	case "/unbind", "解绑", "解除绑定":
+		if in.Owner != 0 {
+			h.say(ctx, c, in.PeerID, "这是你自己扫码连接的微信，要断开的话去网页「设置 → 聊天软件」里点「断开」")
+			return
+		}
 		_ = h.store.Bindings().Delete(ctx, u.ID, b.ID)
 		h.say(ctx, c, in.PeerID, "已经解绑啦，想再聊的话重新发绑定码就行")
 		return
 	case "/help", "帮助":
-		h.say(ctx, c, in.PeerID, "直接和我聊天就行，发图片也可以\n发「新对话」换个话题，发「解绑」解除绑定")
+		h.say(ctx, c, in.PeerID, "直接和我聊天就行，发图片、文件也可以\n发「新对话」换个话题，发「解绑」解除绑定")
 		return
 	}
 	h.reply(ctx, c, b, u, in)
@@ -287,7 +337,7 @@ func (h *Hub) conversation(ctx context.Context, b *store.ChannelBinding, u *stor
 			return *b.ConversationID, nil
 		}
 	}
-	conv, err := h.chat.CreateConversation(ctx, u, chat.ConversationPatch{})
+	conv, err := h.chat.CreateConversation(ctx, u, chat.ConversationPatch{Channel: b.Channel})
 	if err != nil {
 		return 0, err
 	}
@@ -305,16 +355,20 @@ func (h *Hub) reply(ctx context.Context, c Channel, b *store.ChannelBinding, u *
 		return
 	}
 	var attIDs []uint64
-	for _, img := range in.Images {
+	for _, f := range in.Files {
 		if h.uploads == nil {
 			break
 		}
-		a, err := h.uploads.Save(ctx, u.ID, img.Name, bytes.NewReader(img.Data))
+		a, err := h.uploads.Save(ctx, u.ID, f.Name, bytes.NewReader(f.Data))
 		if err != nil {
-			h.log.Warn("保存收到的图片失败", "err", err)
+			h.log.Warn("保存收到的文件失败", "err", err)
 			var ue *uploads.UserError
 			if errors.As(err, &ue) {
-				h.say(ctx, c, in.PeerID, "图片没收到："+ue.Msg)
+				what := "文件"
+				if f.IsImage() {
+					what = "图片"
+				}
+				h.say(ctx, c, in.PeerID, what+"没收到："+ue.Msg)
 			}
 			continue
 		}
@@ -333,7 +387,7 @@ func (h *Hub) reply(ctx context.Context, c Channel, b *store.ChannelBinding, u *
 	h.sendReply(ctx, c, in.PeerID, u, res.Reply.Content, res.Tools)
 }
 
-// sendReply 把回复拆成几条发出去，中间停顿一下；代码生成的图片放在最后发。
+// sendReply 把回复拆成几条发出去，中间停顿一下；代码生成的图片和文件放在最后发。
 func (h *Hub) sendReply(ctx context.Context, c Channel, peer string, u *store.User, content string, tools []chat.ToolEvent) {
 	for i, part := range SplitBubbles(content) {
 		if i > 0 {
@@ -349,8 +403,8 @@ func (h *Hub) sendReply(ctx context.Context, c Channel, peer string, u *store.Us
 		return
 	}
 	for _, t := range tools {
-		for _, img := range t.Images {
-			a, err := h.store.Attachments().Get(ctx, u.ID, img.ID)
+		for _, f := range append(append([]chat.ToolImage{}, t.Images...), t.Files...) {
+			a, err := h.store.Attachments().Get(ctx, u.ID, f.ID)
 			if err != nil {
 				continue
 			}
@@ -358,8 +412,9 @@ func (h *Hub) sendReply(ctx context.Context, c Channel, peer string, u *store.Us
 			if err != nil {
 				continue
 			}
-			if err := c.Send(ctx, peer, Outbound{Image: &Image{Name: a.Filename, Data: data}}); err != nil {
-				h.log.Warn("发送图片失败", "channel", c.Name(), "err", err)
+			if err := c.Send(ctx, peer, Outbound{File: &File{Name: a.Filename, Data: data}}); err != nil {
+				h.log.Warn("发送文件失败", "channel", c.Name(), "err", err)
+				h.say(ctx, c, peer, a.Filename+" 没发出去，可以到网页上下载")
 			}
 		}
 	}
@@ -374,7 +429,7 @@ func (h *Hub) say(ctx context.Context, c Channel, peer, text string) {
 	}
 }
 
-// Deliver 把主动消息（提醒、主动关心）发到这段对话绑定的聊天软件；对话没有绑定时只留在网页上。
+// Deliver 把主动消息（提醒、定时任务、主动关心）发到这段对话绑定的聊天软件；对话没有绑定时只留在网页上。
 func (h *Hub) Deliver(ctx context.Context, u *store.User, res *chat.ProactiveResult) {
 	if res == nil || res.Conversation == nil || res.Message == nil {
 		return
@@ -389,7 +444,7 @@ func (h *Hub) Deliver(ctx context.Context, u *store.User, res *chat.ProactiveRes
 		if c == nil || b.ConversationID == nil || *b.ConversationID != res.Conversation.ID {
 			continue
 		}
-		h.sendReply(ctx, c, b.PeerID, u, res.Message.Content, nil)
+		h.sendReply(ctx, c, b.PeerID, u, res.Message.Content, res.Tools)
 		return
 	}
 }

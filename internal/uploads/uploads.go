@@ -55,10 +55,17 @@ type Service struct {
 	now  func() time.Time
 	// workspaces 是运行代码的对话工作目录所在位置（为空表示不保留工作目录），其中的文件计入用户的文件空间。
 	workspaces string
+	anyFile    bool
 }
 
 // SetWorkspaceRoot 设置对话工作目录的位置。
 func (s *Service) SetWorkspaceRoot(dir string) { s.workspaces = dir }
+
+// SetAnyFile 设置是否接受读不出文字的其他文件（表格、压缩包等）：能运行代码时可以交给代码处理。
+func (s *Service) SetAnyFile(on bool) { s.anyFile = on }
+
+// AnyFile 报告是否接受其他文件。
+func (s *Service) AnyFile() bool { return s.anyFile }
 
 // WorkspaceDir 返回一段对话的工作目录，没有设置位置时返回空。
 func (s *Service) WorkspaceDir(userID, conversationID uint64) string {
@@ -135,11 +142,15 @@ func (s *Service) Save(ctx context.Context, userID uint64, filename string, r io
 		a.Path = ext
 	} else {
 		text, mime, err := extractText(filename, data)
-		if err != nil {
+		switch {
+		case err == nil:
+			a.Kind, a.MIME, a.Text = store.AttachmentDocument, mime, text
+		case s.anyFile:
+			a.Kind, a.MIME = store.AttachmentFile, "application/octet-stream"
+		default:
 			return nil, err
 		}
-		a.Kind, a.MIME, a.Text = store.AttachmentDocument, mime, text
-		a.Path = strings.ToLower(filepath.Ext(filename))
+		a.Path = safeExt(filename)
 	}
 
 	if err := s.checkQuota(ctx, userID, a.Size); err != nil {
@@ -149,6 +160,52 @@ func (s *Service) Save(ctx context.Context, userID uint64, filename string, r io
 	sum := sha256.Sum256(data)
 	a.SHA256 = hex.EncodeToString(sum[:])
 	rel, err := s.write(userID, a.Path, data)
+	if err != nil {
+		return nil, err
+	}
+	a.Path = rel
+	if err := s.repo.Create(ctx, a); err != nil {
+		_ = os.Remove(s.abs(rel))
+		return nil, err
+	}
+	return a, nil
+}
+
+// safeExt 返回保存到磁盘用的扩展名（只保留字母数字，避免奇怪的文件名）。
+func safeExt(name string) string {
+	ext := strings.ToLower(filepath.Ext(name))
+	if len(ext) > 12 {
+		return ""
+	}
+	for _, r := range ext[min(1, len(ext)):] {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') {
+			return ""
+		}
+	}
+	return ext
+}
+
+// SaveSent 保存工具发给用户的文件（send_file），直接关联到助手的回复，计入用户的上传空间。
+// 图片按图片保存，其他文件只能下载。
+func (s *Service) SaveSent(ctx context.Context, userID, conversationID, messageID uint64, filename string, data []byte) (*store.Attachment, error) {
+	if len(data) == 0 {
+		return nil, userErr(ErrEmpty, "文件是空的")
+	}
+	if int64(len(data)) > s.MaxFileBytes() {
+		return nil, userErr(ErrTooLarge, "文件太大，不能超过 %d MB", s.cfg.MaxFileMB)
+	}
+	if err := s.checkQuota(ctx, userID, int64(len(data))); err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(data)
+	a := &store.Attachment{UserID: userID, ConversationID: &conversationID, MessageID: &messageID,
+		Kind: store.AttachmentFile, Source: store.AttachmentGenerated, Filename: cleanName(filename), MIME: "application/octet-stream",
+		Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:])}
+	ext := safeExt(filename)
+	if sniffed := http.DetectContentType(data); imageTypes[sniffed] != "" {
+		a.Kind, a.MIME, ext = store.AttachmentImage, sniffed, imageTypes[sniffed]
+	}
+	rel, err := s.write(userID, ext, data)
 	if err != nil {
 		return nil, err
 	}
@@ -206,6 +263,9 @@ func (s *Service) checkQuota(ctx context.Context, userID uint64, size int64) err
 	}
 	return nil
 }
+
+// HumanSize 把字节数写成 KB / MB。
+func HumanSize(n int64) string { return mb(n) }
 
 func mb(n int64) string {
 	if n < 1<<20 {

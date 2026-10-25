@@ -15,6 +15,8 @@ type ConversationPatch struct {
 	SetModel bool
 	ModelID  *uint64
 	Thinking *string
+	// Channel 是对话来自哪个聊天软件，只在创建时使用。
+	Channel string
 }
 
 func (s *Service) patchFields(ctx context.Context, u *store.User, p ConversationPatch) (map[string]any, error) {
@@ -60,7 +62,7 @@ func (s *Service) CreateConversation(ctx context.Context, u *store.User, p Conve
 	if err != nil {
 		return nil, err
 	}
-	c := &store.Conversation{UserID: u.ID, Thinking: store.ThinkingOff}
+	c := &store.Conversation{UserID: u.ID, Thinking: store.ThinkingOff, Channel: p.Channel}
 	if recent, err := s.store.Conversations().List(ctx, u.ID); err == nil && len(recent) > 0 {
 		c.ModelID, c.Thinking = recent[0].ModelID, recent[0].Thinking
 	}

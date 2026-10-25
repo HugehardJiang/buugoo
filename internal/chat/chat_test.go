@@ -782,3 +782,41 @@ func TestProactive(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+func TestRunTask(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, config.QuotaConfig{})
+	e.models.tools = true
+	if _, err := e.svc.Send(ctx, e.user, SendInput{Content: "早"}, &recordSink{}); err != nil {
+		t.Fatal(err)
+	}
+	// 定时任务：模型先调用工具，再把结果发给对方。
+	e.chat.script = []*fakeStream{
+		{chunks: []llm.Chunk{{ToolCalls: []llm.ToolCallDelta{{Index: 0, ID: "c1", Name: "run_python", Arguments: `{"code":"print(42)"}`}}}}},
+		{chunks: []llm.Chunk{{Delta: "算好了，是 42"}}},
+	}
+	res, err := e.svc.RunTask(ctx, e.user, "每天算一下答案")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Message.Content != "算好了，是 42" || len(res.Tools) != 1 || res.Message.Status != store.MessageComplete {
+		t.Fatalf("%+v", res)
+	}
+	req := e.chat.reqs[len(e.chat.reqs)-2]
+	if last := req.Messages[len(req.Messages)-1]; !strings.Contains(last.Content, "每天算一下答案") || len(req.Tools) == 0 {
+		t.Fatalf("应带上任务说明并提供工具：%q", last.Content)
+	}
+	_, msgs, _ := e.svc.History(ctx, e.user, res.Conversation.ID, 0, 10)
+	if m := msgs[len(msgs)-1]; m.Content != "算好了，是 42" || !strings.Contains(m.ToolLog, "run_python") {
+		t.Fatalf("%+v", m)
+	}
+	// 没做成时不留下空消息。
+	n := len(msgs)
+	e.chat.script = []*fakeStream{{err: errors.New("boom")}}
+	if _, err := e.svc.RunTask(ctx, e.user, "x"); err == nil {
+		t.Fatal("应返回错误")
+	}
+	if _, msgs, _ = e.svc.History(ctx, e.user, res.Conversation.ID, 0, 10); len(msgs) != n {
+		t.Fatalf("失败时应删掉占位消息: %d != %d", len(msgs), n)
+	}
+}

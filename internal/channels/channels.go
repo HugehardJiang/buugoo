@@ -5,6 +5,7 @@ package channels
 
 import (
 	"context"
+	"net/http"
 	"time"
 )
 
@@ -18,10 +19,22 @@ const (
 // Labels 是聊天软件的中文名。
 var Labels = map[string]string{Weixin: "微信", QQ: "QQ", Telegram: "Telegram"}
 
-// Image 是收发的一张图片。
-type Image struct {
+// maxFileBytes 是从聊天软件下载文件的大小上限（再大的文件保存时也会被上传大小上限拒绝）。
+const maxFileBytes = 100 << 20
+
+// File 是收发的一个文件（图片也是文件）。
+type File struct {
 	Name string
 	Data []byte
+}
+
+// IsImage 按内容判断是不是图片（PNG、JPEG、GIF、WebP），聊天软件里图片和文件的发法不同。
+func (f File) IsImage() bool {
+	switch http.DetectContentType(f.Data) {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+		return true
+	}
+	return false
 }
 
 // Inbound 是收到的一条私聊消息。
@@ -30,14 +43,16 @@ type Inbound struct {
 	PeerID   string
 	PeerName string
 	Text     string
-	Images   []Image
+	Files    []File
 	At       time.Time
+	// Owner 不为 0 时，这条消息来自这个用户自己登录的账号（个人微信扫码登录），自动绑定到这个用户。
+	Owner uint64
 }
 
-// Outbound 是要发出的一条消息：文字或图片。
+// Outbound 是要发出的一条消息：文字或文件。
 type Outbound struct {
-	Text  string
-	Image *Image
+	Text string
+	File *File
 }
 
 // Handler 处理收到的消息。

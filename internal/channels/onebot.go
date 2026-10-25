@@ -164,7 +164,7 @@ func (o *OneBotChannel) event(ctx context.Context, h Handler, ev map[string]any)
 		if s, ok := ev["sender"].(map[string]any); ok {
 			in.PeerName = str(s, "nickname")
 		}
-		in.Text, in.Images = o.parseMessage(ctx, ev["message"])
+		in.Text, in.Files = o.parseMessage(ctx, ev["message"])
 		h(ctx, in)
 	case "request":
 		if str(ev, "request_type") == "friend" && o.autoAccept {
@@ -183,8 +183,8 @@ var (
 	cqParam = regexp.MustCompile(`,([a-z_]+)=([^,\]]*)`)
 )
 
-// parseMessage 解析消息段（数组格式或 CQ 码字符串格式），返回文字与图片。
-func (o *OneBotChannel) parseMessage(ctx context.Context, msg any) (string, []Image) {
+// parseMessage 解析消息段（数组格式或 CQ 码字符串格式），返回文字与图片、文件。
+func (o *OneBotChannel) parseMessage(ctx context.Context, msg any) (string, []File) {
 	var segs []map[string]any
 	switch m := msg.(type) {
 	case []any:
@@ -211,47 +211,83 @@ func (o *OneBotChannel) parseMessage(ctx context.Context, msg any) (string, []Im
 		}
 	}
 	var texts []string
-	var images []Image
+	var files []File
 	for _, seg := range segs {
 		data, _ := seg["data"].(map[string]any)
 		switch str(seg, "type") {
 		case "text":
 			texts = append(texts, str(data, "text"))
 		case "image":
-			if img, err := o.download(ctx, str(data, "url")); err == nil {
-				images = append(images, img)
+			if img, err := o.download(ctx, str(data, "url"), "QQ图片.jpg"); err == nil {
+				files = append(files, img)
 			} else {
 				texts = append(texts, "[图片]")
 			}
 		case "record":
 			texts = append(texts, "[语音]")
 		case "file":
-			texts = append(texts, "[文件]")
+			if f, err := o.receiveFile(ctx, data); err == nil {
+				files = append(files, f)
+			} else {
+				o.log.Warn("下载 QQ 文件失败", "err", err)
+				texts = append(texts, "[文件]")
+			}
 		case "face":
 			texts = append(texts, "[表情]")
 		}
 	}
-	return strings.TrimSpace(strings.Join(texts, "")), images
+	return strings.TrimSpace(strings.Join(texts, "")), files
 }
 
-func (o *OneBotChannel) download(ctx context.Context, u string) (Image, error) {
+// receiveFile 下载私聊发来的文件：Lagrange 等直接给出下载地址，NapCat 要用 get_private_file_url 换一个。
+func (o *OneBotChannel) receiveFile(ctx context.Context, data map[string]any) (File, error) {
+	name := firstNonEmpty(str(data, "file_name"), str(data, "name"), str(data, "file"), "QQ文件")
+	u := str(data, "url")
+	if !strings.HasPrefix(u, "http") {
+		id := str(data, "file_id")
+		if id == "" {
+			return File{}, errors.New("没有文件地址")
+		}
+		resp, err := o.call(ctx, "get_private_file_url", map[string]any{"file_id": id})
+		if err != nil {
+			return File{}, err
+		}
+		d, _ := resp["data"].(map[string]any)
+		if u = str(d, "url"); u == "" {
+			return File{}, errors.New("没有拿到文件地址")
+		}
+		name = firstNonEmpty(str(d, "file_name"), str(d, "name"), name)
+	}
+	return o.download(ctx, u, name)
+}
+
+func firstNonEmpty(vs ...string) string {
+	for _, v := range vs {
+		if v = strings.TrimSpace(v); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func (o *OneBotChannel) download(ctx context.Context, u, name string) (File, error) {
 	if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
-		return Image{}, errors.New("不是网络图片")
+		return File{}, errors.New("不是网络地址")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return Image{}, err
+		return File{}, err
 	}
 	resp, err := o.media.Do(req)
 	if err != nil {
-		return Image{}, err
+		return File{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return Image{}, fmt.Errorf("HTTP %d", resp.StatusCode)
+		return File{}, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 30<<20))
-	return Image{Name: "QQ图片.jpg", Data: data}, err
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxFileBytes))
+	return File{Name: name, Data: data}, err
 }
 
 // call 调用 OneBot 动作并等待结果。
@@ -300,9 +336,12 @@ func (o *OneBotChannel) Send(ctx context.Context, peer string, out Outbound) err
 		return fmt.Errorf("QQ 号不对：%s", peer)
 	}
 	var seg map[string]any
-	if out.Image != nil {
-		seg = map[string]any{"type": "image", "data": map[string]any{"file": "base64://" + base64.StdEncoding.EncodeToString(out.Image.Data)}}
-	} else {
+	switch {
+	case out.File != nil && out.File.IsImage():
+		seg = map[string]any{"type": "image", "data": map[string]any{"file": "base64://" + base64.StdEncoding.EncodeToString(out.File.Data)}}
+	case out.File != nil:
+		seg = map[string]any{"type": "file", "data": map[string]any{"file": "base64://" + base64.StdEncoding.EncodeToString(out.File.Data), "name": out.File.Name}}
+	default:
 		seg = map[string]any{"type": "text", "data": map[string]any{"text": out.Text}}
 	}
 	_, err = o.call(ctx, "send_private_msg", map[string]any{"user_id": uid, "message": []any{seg}})

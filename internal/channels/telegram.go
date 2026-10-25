@@ -130,8 +130,12 @@ type tgMessage struct {
 		FileSize int    `json:"file_size"`
 	} `json:"photo"`
 	Voice    any `json:"voice"`
-	Document any `json:"document"`
-	Sticker  any `json:"sticker"`
+	Document *struct {
+		FileID   string `json:"file_id"`
+		FileName string `json:"file_name"`
+		FileSize int64  `json:"file_size"`
+	} `json:"document"`
+	Sticker any `json:"sticker"`
 }
 
 // Run 实现 Channel：长轮询 getUpdates。
@@ -210,8 +214,8 @@ func (t *TelegramChannel) inbound(ctx context.Context, m *tgMessage) Inbound {
 	in := Inbound{Channel: Telegram, PeerID: strconv.FormatInt(m.Chat.ID, 10), PeerName: name, At: time.Now()}
 	in.Text = strings.TrimSpace(m.Text + m.Caption)
 	if len(m.Photo) > 0 {
-		if img, err := t.download(ctx, m.Photo[len(m.Photo)-1].FileID); err == nil {
-			in.Images = append(in.Images, img)
+		if img, err := t.download(ctx, m.Photo[len(m.Photo)-1].FileID, "telegram.jpg"); err == nil {
+			in.Files = append(in.Files, img)
 		} else {
 			t.log.Warn("下载 Telegram 图片失败", "err", err)
 		}
@@ -220,49 +224,66 @@ func (t *TelegramChannel) inbound(ctx context.Context, m *tgMessage) Inbound {
 	case m.Voice != nil:
 		in.Text = strings.TrimSpace(in.Text + " [语音]")
 	case m.Document != nil:
-		in.Text = strings.TrimSpace(in.Text + " [文件]")
+		name := m.Document.FileName
+		if name == "" {
+			name = "telegram文件"
+		}
+		if f, err := t.download(ctx, m.Document.FileID, name); err == nil {
+			in.Files = append(in.Files, f)
+		} else {
+			// Bot API 只能下载不超过 20 MB 的文件。
+			t.log.Warn("下载 Telegram 文件失败", "err", err)
+			in.Text = strings.TrimSpace(in.Text + " [文件：" + name + "（没能收到）]")
+		}
 	case m.Sticker != nil && in.Text == "":
 		in.Text = "[表情]"
 	}
 	return in
 }
 
-func (t *TelegramChannel) download(ctx context.Context, fileID string) (Image, error) {
+func (t *TelegramChannel) download(ctx context.Context, fileID, name string) (File, error) {
 	var f struct {
 		FilePath string `json:"file_path"`
 	}
 	if err := t.call(ctx, "getFile", map[string]any{"file_id": fileID}, 20*time.Second, &f); err != nil {
-		return Image{}, err
+		return File{}, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, t.base+"/file/bot"+t.token+"/"+f.FilePath, nil)
 	if err != nil {
-		return Image{}, err
+		return File{}, err
 	}
 	resp, err := t.http.Do(req)
 	if err != nil {
-		return Image{}, errors.New("下载失败")
+		return File{}, errors.New("下载失败")
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 20<<20))
-	return Image{Name: "telegram.jpg", Data: data}, err
+	if resp.StatusCode != http.StatusOK {
+		return File{}, fmt.Errorf("下载失败：HTTP %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxFileBytes))
+	return File{Name: name, Data: data}, err
 }
 
 // Send 实现 Channel。
 func (t *TelegramChannel) Send(ctx context.Context, peer string, out Outbound) error {
-	if out.Image == nil {
+	if out.File == nil {
 		return t.call(ctx, "sendMessage", map[string]any{"chat_id": peer, "text": out.Text}, 30*time.Second, nil)
 	}
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	_ = mw.WriteField("chat_id", peer)
-	fw, _ := mw.CreateFormFile("photo", out.Image.Name)
-	_, _ = fw.Write(out.Image.Data)
+	field, method := "document", "sendDocument"
+	if out.File.IsImage() {
+		field, method = "photo", "sendPhoto"
+	}
+	fw, _ := mw.CreateFormFile(field, out.File.Name)
+	_, _ = fw.Write(out.File.Data)
 	_ = mw.Close()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.base+"/bot"+t.token+"/sendPhoto", &body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.base+"/bot"+t.token+"/"+method, &body)
 	if err != nil {
 		return err
 	}
