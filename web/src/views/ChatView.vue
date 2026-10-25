@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   api,
@@ -237,9 +237,42 @@ async function patchCurrent(patch: { title?: string; model_id?: number | null; t
   }
 }
 
-function onModelChange(e: Event) {
-  const v = (e.target as HTMLSelectElement).value
-  patchCurrent({ model_id: v === '' ? null : Number(v) })
+const pickerOpen = ref(false)
+const pickerEl = ref<HTMLElement | null>(null)
+
+function chooseModel(id: number | null) {
+  patchCurrent({ model_id: id })
+}
+
+// 点击面板外部或按 Esc 时收起。
+function onDocPointer(e: PointerEvent) {
+  if (pickerOpen.value && pickerEl.value && !pickerEl.value.contains(e.target as Node)) pickerOpen.value = false
+}
+function onDocKey(e: KeyboardEvent) {
+  if (e.key === 'Escape') pickerOpen.value = false
+}
+onMounted(() => {
+  document.addEventListener('pointerdown', onDocPointer)
+  document.addEventListener('keydown', onDocKey)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onDocPointer)
+  document.removeEventListener('keydown', onDocKey)
+})
+
+const thinkingLabel = computed(() => {
+  if (!thinkingOptions.value.length) return ''
+  const o = thinkingOptions.value.find((x) => x.v === thinkingValue.value)
+  if (!o || o.v === 'off') return '不思考'
+  return o.l.length === 1 || o.l === '最高' ? `思考${o.l}` : o.l
+})
+
+function modelTraits(m: ModelView) {
+  const t: string[] = []
+  if (m.thinking_style !== 'none') t.push('可思考')
+  if (m.vision) t.push('看图')
+  if (m.tools) t.push('工具')
+  return t.join(' · ')
 }
 
 function startRename() {
@@ -594,22 +627,10 @@ onMounted(loadInitial)
           </div>
         </div>
         <div class="composer__box">
-          <button
-            v-if="session.meta?.uploads"
-            type="button"
-            class="icon-btn attach-btn"
-            aria-label="添加图片或文件"
-            title="添加图片或文件（也可以粘贴或拖进来）"
-            :disabled="sending"
-            @click="fileInput?.click()"
-          >
-            <Icon name="clip" />
-          </button>
-          <input ref="fileInput" type="file" multiple :accept="accept" hidden @change="onPickFiles" />
           <textarea
             ref="textarea"
             v-model="input"
-            class="textarea"
+            class="composer__input"
             rows="1"
             :placeholder="`和${name}说点什么`"
             aria-label="消息"
@@ -618,34 +639,76 @@ onMounted(loadInitial)
             @keydown="onKeydown"
             @paste="onPaste"
           />
-          <button v-if="sending" type="button" class="btn" @click="stop">停止</button>
-          <button v-else class="btn btn-primary" :disabled="!canSend">发送</button>
-        </div>
-        <div class="composer__tools">
-          <select
-            v-if="models.length"
-            class="text-input model-select"
-            aria-label="本对话使用的模型"
-            :value="current?.model_id ?? ''"
-            :disabled="sending"
-            @change="onModelChange"
-          >
-            <option value="">默认模型<template v-if="defaultModel">（{{ defaultModel.name }}）</template></option>
-            <option v-for="m in models" :key="m.id" :value="m.id">{{ modelLabel(m) }}</option>
-          </select>
-          <div v-if="thinkingOptions.length" class="type-switch thinking-switch" role="group" aria-label="思考等级">
+          <div class="composer__bar">
             <button
-              v-for="o in thinkingOptions"
-              :key="o.v"
+              v-if="session.meta?.uploads"
               type="button"
-              :class="{ 'is-active': thinkingValue === o.v }"
+              class="icon-btn"
+              aria-label="添加图片或文件"
+              title="添加图片或文件（也可以粘贴或拖进来）"
               :disabled="sending"
-              @click="patchCurrent({ thinking: o.v })"
+              @click="fileInput?.click()"
             >
-              {{ o.l }}
+              <Icon name="clip" />
             </button>
+            <input ref="fileInput" type="file" multiple :accept="accept" hidden @change="onPickFiles" />
+            <span class="spacer" />
+            <div v-if="models.length" ref="pickerEl" class="picker">
+              <button
+                type="button"
+                class="picker__chip"
+                :aria-expanded="pickerOpen"
+                aria-label="选择模型与思考等级"
+                :disabled="sending"
+                @click="pickerOpen = !pickerOpen"
+              >
+                <span class="picker__model">{{ activeModel?.name ?? '默认模型' }}</span>
+                <span v-if="thinkingLabel" class="picker__think">· {{ thinkingLabel }}</span>
+                <Icon name="chevron" :size="12" class="picker__chev" />
+              </button>
+              <div v-if="pickerOpen" class="picker__panel" role="dialog" aria-label="模型与思考等级">
+                <p class="picker__title">模型</p>
+                <div class="picker__list">
+                  <button
+                    type="button"
+                    class="picker__opt"
+                    :class="{ 'is-active': current?.model_id == null }"
+                    @click="chooseModel(null)"
+                  >
+                    <span>默认模型</span>
+                    <small v-if="defaultModel">{{ defaultModel.name }}</small>
+                  </button>
+                  <button
+                    v-for="m in models"
+                    :key="m.id"
+                    type="button"
+                    class="picker__opt"
+                    :class="{ 'is-active': current?.model_id === m.id }"
+                    @click="chooseModel(m.id)"
+                  >
+                    <span>{{ modelLabel(m) }}</span>
+                    <small>{{ modelTraits(m) }}</small>
+                  </button>
+                </div>
+                <template v-if="thinkingOptions.length">
+                  <p class="picker__title">思考</p>
+                  <div class="type-switch picker__think-switch" role="group" aria-label="思考等级">
+                    <button
+                      v-for="o in thinkingOptions"
+                      :key="o.v"
+                      type="button"
+                      :class="{ 'is-active': thinkingValue === o.v }"
+                      @click="patchCurrent({ thinking: o.v })"
+                    >
+                      {{ o.l }}
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </div>
+            <button v-if="sending" type="button" class="btn" @click="stop">停止</button>
+            <button v-else class="btn btn-primary" :disabled="!canSend" title="Enter 发送，Shift+Enter 换行">发送</button>
           </div>
-          <span class="caption hint">Enter 发送，Shift+Enter 换行</span>
         </div>
       </form>
     </main>
@@ -741,13 +804,47 @@ onMounted(loadInitial)
 .typing i:nth-child(2) { animation-delay: .2s; }
 .typing i:nth-child(3) { animation-delay: .4s; }
 @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
-.composer { padding: 12px 32px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--color-divider); }
-.composer__box { display: flex; align-items: flex-end; gap: 8px; max-width: 760px; margin: 0 auto; }
-.composer .textarea { min-height: 42px; max-height: 180px; resize: none; font-size: 15px; }
-.composer .btn { flex-shrink: 0; min-height: 42px; }
-.composer.is-dragging .composer__box { outline: 2px dashed var(--color-accent); outline-offset: 6px; border-radius: var(--radius-md); }
-.attach-btn { width: 42px; height: 42px; flex-basis: 42px; }
-.pending { display: flex; flex-wrap: wrap; gap: 8px; max-width: 760px; margin: 0 auto 8px; }
+.composer { padding: 10px 32px calc(14px + env(safe-area-inset-bottom)); }
+.composer__box {
+  display: flex; flex-direction: column; max-width: 960px; margin: 0 auto; padding: 10px 10px 8px 14px;
+  border: 1px solid var(--color-hairline-strong); border-radius: var(--radius-xl); background: var(--color-surface);
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+.composer__box:focus-within { border-color: var(--color-accent); box-shadow: 0 0 0 3px rgba(91, 122, 74, .14); }
+.composer__input {
+  width: 100%; min-height: 44px; max-height: 220px; padding: 4px 4px 6px 0; border: 0; outline: 0; resize: none;
+  background: transparent; color: var(--color-ink); font-size: 15px; line-height: 1.6;
+}
+.composer__input::placeholder { color: var(--color-tertiary); }
+.composer__bar { display: flex; align-items: center; gap: 6px; margin-left: -6px; }
+.composer__bar .btn { min-height: 34px; padding: 0 16px; border-radius: var(--radius-rail); }
+.spacer { flex: 1; }
+.picker { position: relative; min-width: 0; }
+.picker__chip {
+  display: inline-flex; max-width: 280px; height: 34px; align-items: center; gap: 4px; padding: 0 10px;
+  border-radius: var(--radius-rail); color: var(--color-text-secondary); font-size: 13px; white-space: nowrap;
+}
+.picker__chip:hover { background: var(--color-hover-wash); color: var(--color-ink); }
+.picker__model { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.picker__think { flex-shrink: 0; color: var(--color-muted); }
+.picker__chev { flex-shrink: 0; transform: rotate(-90deg); }
+.picker__panel {
+  position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 20; width: 300px; max-width: calc(100vw - 32px);
+  padding: 12px; border: 1px solid var(--color-divider); border-radius: var(--radius-lg); background: var(--color-surface);
+  box-shadow: var(--shadow-float); animation: toast-in 180ms var(--ease-editorial);
+}
+.picker__title { margin: 2px 4px 6px; color: var(--color-muted); font-size: 12px; font-weight: 600; letter-spacing: .06em; }
+.picker__list { display: grid; gap: 2px; max-height: 260px; overflow-y: auto; margin-bottom: 10px; }
+.picker__opt {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-height: 38px; padding: 8px 10px;
+  border-radius: var(--radius-md); color: var(--color-ink); font-size: 14px; text-align: left;
+}
+.picker__opt small { flex-shrink: 0; color: var(--color-muted); font-size: 12px; }
+.picker__opt:hover { background: var(--color-surface-hover); }
+.picker__opt.is-active { background: var(--color-canvas-soft); box-shadow: inset 3px 0 0 var(--color-accent); }
+.picker__think-switch { grid-auto-columns: minmax(0, 1fr); }
+.composer.is-dragging .composer__box { border-style: dashed; border-color: var(--color-accent); }
+.pending { display: flex; flex-wrap: wrap; gap: 8px; max-width: 960px; margin: 0 auto 8px; }
 .pending__item {
   position: relative; display: flex; align-items: center; height: 56px; min-width: 56px; max-width: 220px;
   border: 1px solid var(--color-divider); border-radius: var(--radius-md); background: var(--color-surface); overflow: hidden;
@@ -765,11 +862,6 @@ onMounted(loadInitial)
   position: absolute; top: 3px; right: 3px; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center;
   border-radius: 50%; background: rgba(20, 20, 19, .55); color: #fff;
 }
-.composer__tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; max-width: 760px; margin: 8px auto 0; }
-.model-select { width: auto; max-width: 260px; min-height: 34px; padding: 5px 8px; font-size: 13px; }
-.thinking-switch { padding: 3px; }
-.thinking-switch button { min-height: 28px; padding: 0 12px; }
-.hint { margin-left: auto; }
 
 @media (max-width: 960px) {
   .sidebar {
@@ -783,11 +875,7 @@ onMounted(loadInitial)
 }
 @media (max-width: 767px) {
   .thread { padding: 16px var(--mobile-gutter) 8px; }
-  .composer { padding: 10px var(--mobile-gutter) 10px; }
-  .hint { display: none; }
-  .composer__tools { flex-wrap: nowrap; }
-  .model-select { flex: 1 1 auto; min-width: 0; max-width: none; }
-  .thinking-switch { flex: 0 0 auto; }
-  .thinking-switch button { padding: 0 9px; }
+  .composer { padding: 8px var(--mobile-gutter) 10px; }
+  .picker__chip { max-width: 52vw; }
 }
 </style>

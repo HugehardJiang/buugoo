@@ -1,8 +1,9 @@
 // 时间与文本格式化工具。
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
+import { mathPlugin } from './math'
 
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
+const md = new MarkdownIt({ html: false, linkify: true, breaks: true }).use(mathPlugin)
 
 // renderMarkdown 渲染助手回复，结果经过 DOMPurify 清理。
 export function renderMarkdown(src: string): string {

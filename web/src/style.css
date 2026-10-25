@@ -224,6 +224,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--color-accent);
 .md code { background: var(--color-canvas-soft); padding: 1px 5px; border-radius: var(--radius-xs); }
 .md pre { background: var(--color-canvas-soft); padding: 12px 14px; border-radius: var(--radius-md); overflow-x: auto; }
 .md pre code { background: none; padding: 0; }
+.md .katex { font-size: 1.05em; }
+.md .math-display { display: block; margin: .5em 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
