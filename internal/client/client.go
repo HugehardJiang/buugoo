@@ -54,7 +54,6 @@ type Meta struct {
 	Mode             string `json:"mode"`
 	PasswordRequired bool   `json:"password_required"`
 	Registration     string `json:"registration"`
-	LLMReady         bool   `json:"llm_ready"`
 	EmbeddingReady   bool   `json:"embedding_ready"`
 }
 
@@ -181,7 +180,18 @@ func (c *Client) Me(ctx context.Context) (*User, error) {
 	return &r.User, c.do(ctx, http.MethodGet, "/me", nil, &r)
 }
 
-// Messages 分页获取对话历史（按时间正序）。
+// HasModel 报告当前用户是否有可用的聊天模型。旧版本服务端不返回该字段时视为有。
+func (c *Client) HasModel(ctx context.Context) (bool, error) {
+	var r struct {
+		HasModel *bool `json:"has_model"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/me", nil, &r); err != nil {
+		return false, err
+	}
+	return r.HasModel == nil || *r.HasModel, nil
+}
+
+// Messages 分页获取最近一段对话的历史（按时间正序）。
 func (c *Client) Messages(ctx context.Context, beforeID uint64, limit int) ([]Message, bool, error) {
 	q := url.Values{"limit": {strconv.Itoa(limit)}}
 	if beforeID > 0 {

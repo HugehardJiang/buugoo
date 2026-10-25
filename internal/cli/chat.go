@@ -114,8 +114,8 @@ func runChat(cmd *cobra.Command, g *globalOpts, o *chatOpts) error {
 			}
 		}
 	}
-	if !meta.LLMReady {
-		fmt.Fprintln(cmd.ErrOrStderr(), "提示：服务端尚未配置聊天模型 API Key（llm.chat.api_key），聊天将失败。")
+	if ok, err := c.HasModel(ctx); err == nil && !ok {
+		fmt.Fprintln(cmd.ErrOrStderr(), "提示：还没有可用的聊天模型，请先在网页「设置 → 模型」中添加，或在配置文件 llm.chat 中填写。")
 	}
 
 	stdinTTY := isTerminal(os.Stdin)
