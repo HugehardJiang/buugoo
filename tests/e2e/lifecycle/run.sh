@@ -7,7 +7,12 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
 MIRROR="$(mktemp -d)"
 NAME="buugoo-lifecycle-$$"
-cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; rm -rf "$MIRROR"; }
+cleanup() {
+  # 容器内以 root 生成的文件在宿主机上可能删不掉，先在容器里放开权限。
+  docker exec "$NAME" chmod -R a+rwX /srv/mirror >/dev/null 2>&1 || true
+  docker rm -f "$NAME" >/dev/null 2>&1 || true
+  rm -rf "$MIRROR" 2>/dev/null || true
+}
 trap cleanup EXIT
 
 echo "构建测试发布包…"

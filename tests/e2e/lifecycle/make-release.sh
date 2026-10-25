@@ -30,7 +30,11 @@ fi
 cp "$ROOT/LICENSE" "$WORK/"
 if [ "$OS" = windows ]; then
   ASSET="buugoo_${TAG#v}_${OS}_${ARCH}.zip"
-  (cd "$WORK" && python3 -c "import sys,zipfile; z=zipfile.ZipFile(sys.argv[1],'w',zipfile.ZIP_DEFLATED); [z.write(f) for f in sys.argv[2:]]; z.close()" "$DIR/$ASSET" buugoo.exe LICENSE)
+  # Windows（Git Bash）上的 Python 不认识 /tmp 这类路径，需要转换为原生路径。
+  native() { if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else echo "$1"; fi; }
+  PY="$(command -v python3 || command -v python)"
+  "$PY" -c "import os,sys,zipfile; z=zipfile.ZipFile(sys.argv[1],'w',zipfile.ZIP_DEFLATED); [z.write(f, os.path.basename(f)) for f in sys.argv[2:]]; z.close()" \
+    "$(native "$DIR/$ASSET")" "$(native "$WORK/buugoo.exe")" "$(native "$WORK/LICENSE")"
 else
   ASSET="buugoo_${TAG#v}_${OS}_${ARCH}.tar.gz"
   tar -czf "$DIR/$ASSET" -C "$WORK" buugoo LICENSE
