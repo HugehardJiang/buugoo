@@ -255,7 +255,7 @@ type ChannelsConfig struct {
 	Telegram TelegramChannelConfig `koanf:"telegram"`
 }
 
-// WeixinChannelConfig 是个人微信（ClawBot 接口）接入：在管理后台扫码登录。
+// WeixinChannelConfig 是个人微信（ClawBot 接口）接入：每个用户扫码连接自己的微信。
 type WeixinChannelConfig struct {
 	Enabled bool `koanf:"enabled"`
 }

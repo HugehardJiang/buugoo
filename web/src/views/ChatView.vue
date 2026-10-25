@@ -79,7 +79,9 @@ let pendingSeq = 0
 const usage = ref<Usage | null>(null)
 const persona = ref<PersonaPreset | null>(null)
 const showJump = ref(false)
-const accept = 'image/jpeg,image/png,image/gif,image/webp,.pdf,.docx,.txt,.md,.markdown,.csv,.tsv,.json,.yaml,.yml,.xml,.html,.log,.py,.js,.ts,.go,.java,.c,.cpp,.h,.rs,.sh,.sql'
+const docAccept = 'image/jpeg,image/png,image/gif,image/webp,.pdf,.docx,.txt,.md,.markdown,.csv,.tsv,.json,.yaml,.yml,.xml,.html,.log,.py,.js,.ts,.go,.java,.c,.cpp,.h,.rs,.sh,.sql'
+// 能运行代码时什么文件都能发（表格、压缩包等交给代码处理）。
+const accept = computed(() => (session.meta?.uploads?.any_file ? '' : docAccept))
 const uploading = computed(() => pending.value.some((p) => p.status === 'uploading'))
 const readyFiles = computed(() => pending.value.filter((p) => p.status === 'done'))
 // 文件空间用满后不能再上传任何文件。
@@ -493,7 +495,7 @@ async function send() {
     controller = null
     scrollToBottom()
     // 上传了文件或代码画了图，更新空间用量。
-    if (attachments.length || r.tools?.some((t) => t.images?.length)) refreshUsage()
+    if (attachments.length || r.tools?.some((t) => t.images?.length || t.files?.length)) refreshUsage()
     // 对话的最近时间与标题变了，重新排序。
     const c = convs.value.find((x) => x.id === convId)
     if (c) {
@@ -514,10 +516,14 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
-// 代码生成的图片显示在回复正文下方。
+// 代码生成的图片显示在回复正文下方，发给用户的文件显示为可以下载的文件。
 function toolImages(m: Item): Attachment[] {
   return m.tools?.flatMap((t) => t.images ?? []) ?? []
 }
+function toolFiles(m: Item): Attachment[] {
+  return m.tools?.flatMap((t) => t.files ?? []) ?? []
+}
+const channelLabels: Record<string, string> = { weixin: '微信', qq: 'QQ', telegram: 'Telegram' }
 
 function toggle(which: 'memories' | 'thinking', id: number) {
   // id 是 uid(item)
@@ -542,9 +548,29 @@ watch(
   },
 )
 
-// 布谷可能主动发来消息（提醒、主动关心，或在微信/QQ 里聊的）：页面可见时定期检查当前对话有没有新消息。
+// 在微信/QQ 里聊的会出现新的对话、对话顺序也会变：定期刷新对话列表（保留本地的改动，例如还没发消息的新对话）。
+async function refreshConvs() {
+  if (sending.value || document.visibilityState !== 'visible') return
+  try {
+    const r = await api.conversations()
+    if (sending.value) return
+    const known = new Set(r.conversations.map((c) => c.id))
+    const local = convs.value.filter((c) => !known.has(c.id))
+    const next = [...local, ...r.conversations]
+    const changed = next.length !== convs.value.length || next.some((c, i) => {
+      const o = convs.value[i]
+      return !o || o.id !== c.id || o.title !== c.title || o.last_message_at !== c.last_message_at
+    })
+    if (changed) convs.value = next
+  } catch {
+    // 下次再试。
+  }
+}
+
+// 布谷可能主动发来消息（提醒、定时任务、主动关心，或在微信/QQ 里聊的）：页面可见时定期检查当前对话有没有新消息。
 let pollTimer: ReturnType<typeof setInterval> | undefined
 async function checkNew() {
+  refreshConvs()
   const id = currentId.value
   if (!id || sending.value || document.visibilityState !== 'visible') return
   try {
@@ -572,7 +598,7 @@ function onVisible() {
 }
 onMounted(() => {
   loadInitial()
-  pollTimer = setInterval(checkNew, 30000)
+  pollTimer = setInterval(checkNew, 20000)
   document.addEventListener('visibilitychange', onVisible)
   window.addEventListener('focus', checkNew)
 })
@@ -605,7 +631,7 @@ onBeforeUnmount(() => {
           @click="openConversation(c.id)"
         >
           <span>{{ c.title || '新对话' }}</span>
-          <small>{{ shortWhen(c.last_message_at ?? c.created_at) }}</small>
+          <small><i v-if="c.channel" class="src-tag" :title="`在${channelLabels[c.channel]}里聊的`">{{ channelLabels[c.channel] }}</i>{{ shortWhen(c.last_message_at ?? c.created_at) }}</small>
         </button>
       </TransitionGroup>
       <p class="caption sidebar__foot">每段对话各自独立，但{{ name }}记得的事在所有对话里都通用。</p>
@@ -683,6 +709,7 @@ onBeforeUnmount(() => {
               </div>
               <div v-else-if="row.item.content" class="bubble">{{ row.item.content }}</div>
               <AttachmentList v-if="toolImages(row.item).length" :items="toolImages(row.item)" size="large" />
+              <AttachmentList v-if="toolFiles(row.item).length" :items="toolFiles(row.item)" />
               <FatBird
                 v-if="row.item.streaming && !row.item.content && !row.item.tools?.some((t) => t.status === 'running')"
                 :label="row.item.reasoning ? '正在思考' : '正在回复'"
@@ -864,6 +891,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.src-tag { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px; background: var(--color-accent-tint); color: var(--color-accent-active); font-size: 11px; font-style: normal; line-height: 17px; vertical-align: 1px; }
 .chat-shell { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .sidebar {
   display: flex; width: var(--sidebar-width); flex: 0 0 var(--sidebar-width); flex-direction: column; min-height: 0;

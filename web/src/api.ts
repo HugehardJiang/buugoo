@@ -22,12 +22,14 @@ export interface Meta {
   password_required: boolean
   registration: 'open' | 'invite' | 'closed'
   embedding_ready: boolean
-  uploads: { max_file_bytes: number; max_files: number } | null
+  // any_file：能运行代码时，表格、压缩包等读不出文字的文件也可以上传
+  uploads: { max_file_bytes: number; max_files: number; any_file?: boolean } | null
 }
 
 export interface Attachment {
   id: number
-  kind: 'image' | 'document'
+  // file 是读不出文字的其他文件（表格、压缩包等），只能下载或交给代码处理
+  kind: 'image' | 'document' | 'file'
   filename: string
   mime: string
   size: number
@@ -51,11 +53,50 @@ export interface Usage {
   full: boolean
 }
 
+export type Repeat = '' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'interval' | 'cron'
+
+// Reminder 是提醒（到点提醒一句）或定时任务（到点去做一件事，再把结果发过来）。
 export interface Reminder {
   id: number
+  kind: 'remind' | 'task'
   content: string
   due_at: string
-  repeat: '' | 'daily' | 'weekdays' | 'weekly'
+  time: string // 下次时间的本地写法 YYYY-MM-DD HH:MM
+  repeat: Repeat
+  every_minutes: number
+  cron: string
+  repeat_label: string
+  paused: boolean
+}
+
+export interface ReminderInput {
+  kind?: 'remind' | 'task'
+  content: string
+  time?: string
+  repeat: Repeat | 'none'
+  every_minutes?: number
+  cron?: string
+}
+
+export interface WeixinLogin {
+  qrcode?: string
+  status: 'wait' | 'scaned' | 'confirmed' | 'expired' | 'error'
+  error?: string
+}
+
+export interface WeixinAccount {
+  user_id: number
+  account: string
+  login_at: string
+  error?: string
+  legacy?: boolean
+}
+
+// WeixinUser 是自己的微信连接情况。
+export interface WeixinUser {
+  account: WeixinAccount | null
+  login: WeixinLogin | null
+  notice?: string
 }
 
 export interface ChannelInfo {
@@ -91,6 +132,8 @@ export interface ToolEvent {
   detail?: string
   // 代码生成的图片（已保存为附件）
   images?: Attachment[]
+  // 发给用户的文件（已保存为附件）
+  files?: Attachment[]
 }
 
 export type Thinking = 'off' | 'low' | 'medium' | 'high'
@@ -103,6 +146,8 @@ export interface Conversation {
   thinking: Thinking
   created_at: string
   last_message_at: string | null
+  // 来自哪个聊天软件，网页上的对话没有
+  channel?: 'weixin' | 'qq' | 'telegram'
 }
 
 export interface ModelView {
@@ -407,11 +452,16 @@ export const api = {
   createInvite: (input: { max_uses: number; ttl_hours: number; note: string }) =>
     request<Invite>('POST', '/admin/invites', input),
   deleteInvite: (id: number) => request<void>('DELETE', `/admin/invites/${id}`),
-  reminders: () => request<{ reminders: Reminder[]; enabled: boolean; care: boolean }>('GET', '/reminders'),
+  reminders: () => request<{ reminders: Reminder[]; enabled: boolean; care: boolean; timezone: string }>('GET', '/reminders'),
+  createReminder: (input: ReminderInput) => request<Reminder>('POST', '/reminders', input),
+  updateReminder: (id: number, input: ReminderInput) => request<Reminder>('PUT', `/reminders/${id}`, input),
+  pauseReminder: (id: number, pause: boolean) => request<Reminder>('POST', `/reminders/${id}/${pause ? 'pause' : 'resume'}`),
   cancelReminder: (id: number) => request<void>('DELETE', `/reminders/${id}`),
   setProactive: (on: boolean) => request<{ on: boolean }>('PUT', '/me/proactive', { on }),
   latestMessage: (conversationId: number) => request<{ latest_id: number }>('GET', `/conversations/${conversationId}/latest`),
-  channels: () => request<{ channels: ChannelInfo[]; bindings: Binding[] }>('GET', '/channels'),
+  channels: () => request<{ channels: ChannelInfo[]; bindings: Binding[]; weixin: WeixinUser | null }>('GET', '/channels'),
+  weixinLogin: () => request<WeixinLogin>('POST', '/channels/weixin/login'),
+  weixinLogout: () => request<void>('POST', '/channels/weixin/logout'),
   bindCode: () => request<{ code: string; expires_at: string }>('POST', '/channels/code'),
   unbind: (id: number) => request<void>('DELETE', `/channels/bindings/${id}`),
   presets: () => request<{ current: string; presets: PersonaPreset[] }>('GET', '/persona/presets'),

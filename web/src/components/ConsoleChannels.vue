@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// 管理后台 → 聊天软件：各个聊天软件的连接状态，个人微信扫码登录，QQ（NapCat）的连接方法。
+// 管理后台 → 聊天软件：各个聊天软件的连接状态，用户连接的微信（可以断开），QQ（NapCat）的连接方法。
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ApiError } from '../api'
+import { shortWhen } from '../format'
 import { toast } from '../toast'
 
 interface Status {
@@ -11,25 +12,26 @@ interface Status {
   account?: string
   detail?: string
 }
-interface WeixinLogin {
-  qrcode?: string
-  status: 'wait' | 'scaned' | 'confirmed' | 'expired' | 'error'
+interface WeixinAccount {
+  user_id: number
+  account: string
+  login_at: string
   error?: string
+  legacy?: boolean
+  username?: string
+  display_name?: string
 }
 interface Resp {
   channels: Status[]
   onebot_path: string
-  weixin_login?: WeixinLogin | null
+  weixin_accounts: WeixinAccount[]
 }
 
 const props = defineProps<{ call: <T>(method: string, path: string, body?: unknown) => Promise<T> }>()
 const data = ref<Resp | null>(null)
 const error = ref('')
-const starting = ref(false)
 let timer: ReturnType<typeof setInterval> | undefined
 
-const login = computed(() => data.value?.weixin_login ?? null)
-const scanning = computed(() => login.value && (login.value.status === 'wait' || login.value.status === 'scaned'))
 const wsURL = computed(() => {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${proto}//${location.host}${data.value?.onebot_path ?? '/onebot/v11/ws'}`
@@ -44,26 +46,19 @@ async function load() {
   }
 }
 
-async function startLogin() {
-  starting.value = true
+async function kick(a: WeixinAccount) {
   try {
-    const l = await props.call<WeixinLogin>('POST', '/channels/weixin/login')
-    if (data.value) data.value.weixin_login = l
-  } catch (e) {
-    toast(e instanceof ApiError ? e.message : '申请二维码失败')
-  } finally {
-    starting.value = false
-  }
-}
-
-async function logout() {
-  try {
-    await props.call('POST', '/channels/weixin/logout')
-    toast('已退出微信登录')
+    await props.call('POST', `/channels/weixin/${a.user_id}/logout`)
+    toast('已断开')
     load()
   } catch (e) {
     toast(e instanceof ApiError ? e.message : '操作失败')
   }
+}
+
+function who(a: WeixinAccount) {
+  if (a.legacy) return '旧版本管理员扫码的微信（用绑定码使用）'
+  return a.display_name ? `${a.display_name}（${a.username}）` : a.username || `用户 #${a.user_id}`
 }
 
 async function copy(text: string) {
@@ -77,8 +72,7 @@ async function copy(text: string) {
 
 onMounted(() => {
   load()
-  // 扫码时更快地刷新状态。
-  timer = setInterval(() => load(), 3000)
+  timer = setInterval(() => load(), 10000)
 })
 onBeforeUnmount(() => clearInterval(timer))
 </script>
@@ -87,8 +81,8 @@ onBeforeUnmount(() => clearInterval(timer))
   <section class="panel panel--inset">
     <h2>聊天软件</h2>
     <p class="muted intro">
-      让用户在微信、QQ、Telegram 里也能找布谷聊天，只处理私聊。用户需要先在网页「设置 → 聊天软件」生成绑定码发给机器人，
-      绑定后和网页共用同一份记忆和心情。在「系统设置 → 聊天软件」中开启，修改后需要重启服务。
+      让用户在微信、QQ、Telegram 里也能找布谷聊天，只处理私聊。微信由每个用户在「设置 → 聊天软件」里扫码连接自己的微信；
+      QQ、Telegram 由用户生成绑定码发给机器人。绑定后和网页共用同一份记忆和心情。在「系统设置 → 聊天软件」中开启，修改后需要重启服务。
     </p>
     <p v-if="error" class="form-flash form-flash--error">{{ error }}</p>
     <p v-else-if="data && !data.channels.length" class="form-flash">还没有开启任何聊天软件。到「系统设置 → 聊天软件」里打开需要的，保存后重启服务。</p>
@@ -102,22 +96,16 @@ onBeforeUnmount(() => clearInterval(timer))
       <p v-if="c.detail" class="caption ch__detail">{{ c.detail }}</p>
 
       <template v-if="c.name === 'weixin'">
-        <div v-if="!c.connected" class="wx">
-          <Transition name="fade" mode="out-in">
-            <div v-if="scanning && login?.qrcode" key="qr" class="wx__qr">
-              <img :src="login.qrcode" alt="微信登录二维码" width="200" height="200" />
-              <p class="caption">{{ login.status === 'scaned' ? '已扫码，请在手机上确认登录' : '用手机微信扫码登录（手机微信需要是最新版，并有 ClawBot 插件）' }}</p>
+        <TransitionGroup v-if="data?.weixin_accounts.length" tag="ul" name="list" class="accounts">
+          <li v-for="a in data.weixin_accounts" :key="a.user_id" class="account">
+            <div class="account__main">
+              <p class="account__who">{{ who(a) }}</p>
+              <p class="caption">连接于 {{ shortWhen(a.login_at) }}<template v-if="a.error"> · <span class="err">收消息出错：{{ a.error }}</span></template></p>
             </div>
-            <div v-else key="btn">
-              <p v-if="login?.status === 'expired'" class="caption">二维码过期了，重新获取一个</p>
-              <p v-else-if="login?.status === 'error'" class="caption err">{{ login.error }}</p>
-              <button class="btn btn-primary" :disabled="starting" @click="startLogin">{{ starting ? '正在获取二维码' : '扫码登录微信' }}</button>
-            </div>
-          </Transition>
-        </div>
-        <div v-else class="actions">
-          <button class="btn btn-ghost" @click="logout">退出登录</button>
-        </div>
+            <button type="button" class="btn btn-ghost btn-sm" @click="kick(a)">断开</button>
+          </li>
+        </TransitionGroup>
+        <p class="caption ch__detail">ClawBot 是扫码人自己微信里的机器人，只有扫码的人自己能用，所以每个用户扫自己的码。手机微信需要是最新版。</p>
       </template>
 
       <template v-else-if="c.name === 'qq'">
@@ -148,12 +136,13 @@ onBeforeUnmount(() => clearInterval(timer))
 .ch__detail { margin: 6px 0 0 16px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-hairline-strong); transition: background-color .3s ease; }
 .dot.is-on { background: var(--color-success); box-shadow: 0 0 0 3px var(--color-success-tint); }
-.wx { margin: 12px 0 0 16px; }
-.wx__qr { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-.wx__qr img { border: 1px solid var(--color-divider); border-radius: var(--radius-md); background: #fff; }
-.wx__qr .caption { max-width: 260px; }
 .err { color: var(--color-danger); }
-.actions { margin: 10px 0 0 16px; }
+.accounts { display: grid; margin: 10px 0 0 16px; padding: 0; list-style: none; }
+.account { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--color-divider); }
+.account__main { flex: 1; min-width: 0; }
+.account__who { margin: 0 0 2px; color: var(--color-ink); font-size: 14px; }
+.account .caption { margin: 0; }
+.btn-sm { min-height: 28px; padding: 0 10px; }
 .steps { margin: 10px 0 10px 16px; padding-left: 18px; line-height: 1.8; }
 .cmd { display: flex; align-items: center; gap: 8px; margin: 0 0 8px 16px; }
 .cmd code { flex: 1; min-width: 0; overflow-x: auto; padding: 8px 10px; border-radius: var(--radius-md); background: var(--color-canvas-soft); white-space: nowrap; }

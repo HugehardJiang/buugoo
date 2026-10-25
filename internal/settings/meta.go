@@ -108,7 +108,7 @@ var meta = map[string]struct {
 	"uploads.doc_chars":     {"文档放进对话的字数", "超出部分截断", nil},
 
 	"channels.dir":                   {"数据目录", "微信登录态等，留空为 <数据目录>/channels", nil},
-	"channels.weixin.enabled":        {"个人微信", "开启后在管理后台「聊天软件」中扫码登录；需要手机微信最新版并有 ClawBot 插件", nil},
+	"channels.weixin.enabled":        {"个人微信", "开启后每个用户在「设置 → 聊天软件」扫码连接自己的微信；需要手机微信最新版", nil},
 	"channels.qq.enabled":            {"QQ（NapCat）", "在 NapCat 中添加 WebSocket 客户端，地址 ws://布谷的地址/onebot/v11/ws", nil},
 	"channels.qq.access_token":       {"QQ 连接令牌", "至少 8 位，NapCat 中填同样的 Token", nil},
 	"channels.qq.auto_accept_friend": {"自动通过好友申请", "没绑定的人只会收到绑定说明", nil},
@@ -117,7 +117,7 @@ var meta = map[string]struct {
 	"channels.telegram.proxy":        {"Telegram 代理", "国内服务器需要，例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080", nil},
 	"channels.telegram.api_base":     {"Telegram API 地址", "留空为 https://api.telegram.org，可以换成自建的反向代理", nil},
 
-	"proactive.reminders":      {"提醒", "布谷可以帮用户设提醒，到时间主动发消息", nil},
+	"proactive.reminders":      {"提醒与定时任务", "布谷可以帮用户设提醒和定时任务，到时间主动发消息、或者去做一件事再把结果发过来", nil},
 	"proactive.care":           {"主动关心", "很久没聊、之前提到的事可能有结果时，布谷会主动找用户聊（每个用户可以在设置里关掉）", nil},
 	"proactive.quiet_start":    {"免打扰开始", "本地时间 HH:MM，这段时间不主动关心；提醒照常", nil},
 	"proactive.quiet_end":      {"免打扰结束", "本地时间 HH:MM", nil},
