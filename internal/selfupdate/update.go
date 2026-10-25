@@ -11,10 +11,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -425,17 +423,17 @@ func healthURL(listen string) string {
 	return "http://" + net.JoinHostPort(host, port) + "/healthz"
 }
 
-// chownData 以 root 身份运行时，把数据目录交还给服务用户（备份、迁移、恢复可能产生 root 所有的文件）。
+// chownData 以 root 身份运行时，把数据目录下的文件交还给数据目录的所有者
+// （备份、迁移、恢复可能产生 root 所有的文件）。跟随目录所有者而不是固定用户，
+// 这样用宝塔等以 www 用户运行时也不会被改错。
 func (u *Updater) chownData() {
-	if runtime.GOOS == "windows" || os.Geteuid() != 0 || u.Manifest == nil || u.Manifest.ServiceUser == "" {
+	if runtime.GOOS == "windows" || os.Geteuid() != 0 || u.Config == nil || u.Config.DataDir == "" {
 		return
 	}
-	usr, err := user.Lookup(u.Manifest.ServiceUser)
-	if err != nil {
+	uid, gid, ok := fileOwner(u.Config.DataDir)
+	if !ok || uid == 0 {
 		return
 	}
-	uid, _ := strconv.Atoi(usr.Uid)
-	gid, _ := strconv.Atoi(usr.Gid)
 	_ = filepath.Walk(u.Config.DataDir, func(p string, _ os.FileInfo, err error) error {
 		if err == nil {
 			_ = os.Lchown(p, uid, gid)
