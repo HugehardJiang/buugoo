@@ -83,6 +83,14 @@ type ToolProvider interface {
 	For(ctx context.Context, u *store.User, model *models.Resolved) *tools.Set
 }
 
+// EmotionProvider 提供布谷当前的心情（情绪系统）。
+type EmotionProvider interface {
+	// Before 在生成回复前更新情绪（时间消退、久别重逢、催促等）并返回心情说明。
+	Before(ctx context.Context, userID uint64, content string) (string, error)
+	// Peek 返回当前的心情说明，不修改状态。
+	Peek(ctx context.Context, userID uint64) (string, error)
+}
+
 // SendInput 是发送消息的参数。
 type SendInput struct {
 	// ConversationID 为 0 时使用最近的对话（没有则新建）。
@@ -109,6 +117,7 @@ type Service struct {
 	store     store.Store
 	models    ModelResolver
 	tools     ToolProvider
+	emotion   EmotionProvider
 	uploads   *uploads.Service
 	retriever *memory.Retriever
 	writer    *memory.Writer
@@ -125,6 +134,7 @@ type Deps struct {
 	Store     store.Store
 	Models    ModelResolver
 	Tools     ToolProvider
+	Emotion   EmotionProvider
 	Uploads   *uploads.Service
 	Retriever *memory.Retriever
 	Writer    *memory.Writer
@@ -142,7 +152,7 @@ func New(d Deps) *Service {
 		log = slog.Default()
 	}
 	return &Service{
-		store: d.Store, models: d.Models, tools: d.Tools, uploads: d.Uploads, retriever: d.Retriever, writer: d.Writer,
+		store: d.Store, models: d.Models, tools: d.Tools, emotion: d.Emotion, uploads: d.Uploads, retriever: d.Retriever, writer: d.Writer,
 		builder: d.Builder, quota: d.Quota, cfg: d.Config, loc: d.Location, log: log.With("component", "chat"), now: time.Now,
 	}
 }
@@ -184,6 +194,7 @@ type turnInput struct {
 	attachments []store.Attachment
 	model       *models.Resolved
 	toolHints   string
+	emotion     string
 }
 
 func (s *Service) prepare(ctx context.Context, u *store.User, conv *store.Conversation, in turnInput) (*prepared, error) {
@@ -208,6 +219,7 @@ func (s *Service) prepare(ctx context.Context, u *store.User, conv *store.Conver
 		HistoryImages: histImages,
 		KeepReasoning: in.toolHints != "" && in.model != nil && in.model.ThinkingStyle == store.ThinkingStyleDeepSeek,
 		ToolHints:     in.toolHints,
+		Emotion:       in.emotion,
 	})
 	return &prepared{conv: conv, history: history, prompt: p, userText: userText, images: images}, nil
 }
@@ -244,6 +256,9 @@ func (s *Service) Preview(ctx context.Context, u *store.User, convID uint64, con
 	in := turnInput{content: content, model: model}
 	if model != nil {
 		in.toolHints = toolHints(s.toolSet(ctx, u, model))
+	}
+	if s.emotion != nil {
+		in.emotion, _ = s.emotion.Peek(ctx, u.ID)
 	}
 	p, err := s.prepare(ctx, u, conv, in)
 	if err != nil {
@@ -287,7 +302,14 @@ func (s *Service) Send(ctx context.Context, u *store.User, in SendInput, sink Si
 		return nil, err
 	}
 	toolset := s.toolSet(ctx, u, model)
-	p, err := s.prepare(ctx, u, conv, turnInput{content: content, attachments: atts, model: model, toolHints: toolHints(toolset)})
+	var mood string
+	if s.emotion != nil {
+		// 情绪更新失败不影响聊天。
+		if mood, err = s.emotion.Before(ctx, u.ID, titleSource(content, atts)); err != nil {
+			s.log.Warn("更新情绪失败", "user_id", u.ID, "err", err)
+		}
+	}
+	p, err := s.prepare(ctx, u, conv, turnInput{content: content, attachments: atts, model: model, toolHints: toolHints(toolset), emotion: mood})
 	if err != nil {
 		return nil, err
 	}

@@ -23,7 +23,7 @@ function openMemories() {
 
 function hideMemories() {
   setMemoriesUnlocked(false)
-  toast(`记忆本合上了。${name.value}还是记得，只是不再摊开给你看`)
+  toast(`大脑皮层合上了。${name.value}的记忆和心情都还在，只是不再摊开给你看`)
 }
 const quota = ref<Quota | null>(null)
 const error = ref('')
@@ -166,18 +166,18 @@ onMounted(async () => {
         <EmbeddingPanel v-if="isAdmin" />
 
         <section id="memory" class="panel panel--inset">
-          <h2>记忆本</h2>
+          <h2>大脑皮层</h2>
           <template v-if="memoriesUnlocked">
-            <p class="muted">记忆本已经翻开，可以在导航里的「记忆」查看和删除{{ name }}记住的事。</p>
+            <p class="muted">已经翻开，可以在导航里的「大脑皮层」查看{{ name }}记住的事和此刻的心情。</p>
             <div class="actions">
-              <button class="btn" @click="router.push('/memories')">打开记忆本</button>
+              <button class="btn" @click="router.push('/memories')">打开大脑皮层</button>
               <button class="btn btn-ghost" @click="hideMemories">重新藏起来</button>
             </div>
           </template>
           <template v-else>
-            <p class="muted">{{ name }}会悄悄记住你们聊过的事，下次自然地想起来。这本小本子默认是合上的。</p>
+            <p class="muted">{{ name }}会悄悄记住你们聊过的事，也会因为你说的话开心、难过或生气。这些都藏在心里，默认是看不到的。</p>
             <div class="actions">
-              <button class="btn" @click="peeking = true">翻开记忆本</button>
+              <button class="btn" @click="peeking = true">偷看一眼</button>
             </div>
           </template>
         </section>
@@ -251,11 +251,11 @@ onMounted(async () => {
 
         <Modal
           v-if="peeking"
-          title="要翻开记忆本吗？"
-          :subtitle="`${name}记得的事，就像朋友心里的小本子。翻开它会少一点惊喜，确定要看吗？`"
+          title="要看看大脑皮层吗？"
+          :subtitle="`${name}记得的事和此刻的心情，就像朋友藏在心里的东西。看了会少一点惊喜，确定要看吗？`"
           @close="peeking = false"
         >
-          <p class="muted peek-note">翻开后可以查看、删除每一条记忆，聊天里也会显示{{ name }}这次想起了哪些事。随时可以重新藏起来。</p>
+          <p class="muted peek-note">翻开后可以查看、删除每一条记忆，看到{{ name }}对你的心情和你们的关系，聊天里也会显示这次想起了哪些事。随时可以重新藏起来。</p>
           <div class="modal-actions">
             <button class="btn" @click="peeking = false">还是保持神秘</button>
             <button class="btn btn-primary" @click="openMemories">翻开看看</button>

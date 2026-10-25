@@ -18,6 +18,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/buildinfo"
 	"github.com/HugehardJiang/buugoo/internal/chat"
 	"github.com/HugehardJiang/buugoo/internal/config"
+	"github.com/HugehardJiang/buugoo/internal/emotion"
 	"github.com/HugehardJiang/buugoo/internal/llm"
 	"github.com/HugehardJiang/buugoo/internal/llm/openai"
 	"github.com/HugehardJiang/buugoo/internal/memory"
@@ -40,6 +41,7 @@ type Deps struct {
 	Reembed  *memory.Reembedder
 	// Uploads 为空时不提供上传接口。
 	Uploads     *uploads.Service
+	Emotion     *emotion.Engine
 	PersonaName string
 	Logger      *slog.Logger
 }
@@ -127,6 +129,8 @@ func New(d Deps) http.Handler {
 	priv.GET("/memories/:id", s.getMemory)
 	priv.DELETE("/memories/:id", s.deleteMemory)
 	priv.GET("/debug/prompt", s.debugPrompt)
+	priv.GET("/emotion", s.getEmotion)
+	priv.DELETE("/emotion", s.resetEmotion)
 	if s.Uploads != nil {
 		// 上传接口单独设置请求体上限（单个文件上限 + 表单开销）。
 		limit := fmt.Sprintf("%dK", s.Uploads.MaxFileBytes()/1024+512)

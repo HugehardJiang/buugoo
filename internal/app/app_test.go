@@ -54,8 +54,12 @@ func fakeLLM(t *testing.T) *httptest.Server {
 				case strings.Contains(content, "用户：我养了一只狗"):
 					mem = `{"type":"semantic","content":"用户养了一只狗","importance":7,"emotion":0.3,"source":"stated"}`
 				}
+				appraisal := `{"pleasantness":0.1,"respect":0.2}`
+				if strings.Contains(content, "用户：你这个笨蛋") {
+					appraisal = `{"pleasantness":-0.8,"respect":-0.9,"user_emotion":"anger","user_intensity":0.7,"cause":"他骂我是笨蛋"}`
+				}
 				fmt.Fprintf(w, `{"choices":[{"message":{"content":%q}}],"usage":{"prompt_tokens":30,"completion_tokens":10}}`,
-					`{"memories":[`+mem+`]}`)
+					`{"memories":[`+mem+`],"appraisal":`+appraisal+`}`)
 				return
 			}
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -672,5 +676,51 @@ func TestUploadsAPI(t *testing.T) {
 	_, b = ta.do(t, "GET", "/api/v1/meta", "", nil)
 	if !strings.Contains(string(b), `"max_files":8`) {
 		t.Fatalf("meta: %s", b)
+	}
+}
+
+func TestEmotionAPI(t *testing.T) {
+	ta := newTestApp(t, func(c *config.Config) { c.Tools.Python.Runner = config.PythonOff })
+	_, b := ta.do(t, "GET", "/api/v1/emotion", "", nil)
+	if !strings.Contains(string(b), `"enabled":true`) || !strings.Contains(string(b), `"label":"生气"`) {
+		t.Fatalf("emotion: %s", b)
+	}
+	ta.do(t, "POST", "/api/v1/chat", "", map[string]any{"content": "你这个笨蛋", "stream": false})
+	deadline := time.Now().Add(5 * time.Second)
+	var v struct {
+		Emotions []struct {
+			Name      string
+			Intensity float64
+		}
+		Cause  string
+		Events []struct{ Cause string }
+	}
+	for {
+		_, b = ta.do(t, "GET", "/api/v1/emotion", "", nil)
+		_ = json.Unmarshal(b, &v)
+		if len(v.Events) > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	anger := 0.0
+	for _, e := range v.Emotions {
+		if e.Name == "anger" {
+			anger = e.Intensity
+		}
+	}
+	if anger < 0.4 || v.Cause != "他骂我是笨蛋" || len(v.Events) == 0 {
+		t.Fatalf("被骂后应生气: %s", b)
+	}
+	_, b = ta.do(t, "GET", "/api/v1/debug/prompt?q=你好&format=text", "", nil)
+	if !strings.Contains(string(b), "你现在的心情") || !strings.Contains(string(b), "生气") {
+		t.Fatalf("提示词应包含心情: %s", b)
+	}
+	if resp, _ := ta.do(t, "DELETE", "/api/v1/emotion", "", nil); resp.StatusCode != 204 {
+		t.Fatalf("reset: %d", resp.StatusCode)
+	}
+	_, b = ta.do(t, "GET", "/api/v1/emotion", "", nil)
+	if strings.Contains(string(b), "他骂我是笨蛋") {
+		t.Fatalf("重置后应清空: %s", b)
 	}
 }

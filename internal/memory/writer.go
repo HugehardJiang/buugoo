@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/HugehardJiang/buugoo/internal/config"
+	"github.com/HugehardJiang/buugoo/internal/emotion"
 	"github.com/HugehardJiang/buugoo/internal/llm"
 	"github.com/HugehardJiang/buugoo/internal/store"
 	"github.com/HugehardJiang/buugoo/internal/vector"
@@ -33,13 +34,14 @@ type UsageFunc func(ctx context.Context, job WriteJob, u llm.Usage)
 // Writer 异步执行记忆写入：LLM 提取 → 按重要性过滤 → 向量化 → 去重 → 入库。
 // 写入失败只记录日志，不影响对话。
 type Writer struct {
-	repo    store.MemoryRepo
-	vs      vector.Store
-	emb     llm.EmbeddingProvider
-	ext     Extractor
-	cfg     config.MemoryWriteConfig
-	log     *slog.Logger
-	onUsage UsageFunc
+	repo        store.MemoryRepo
+	vs          vector.Store
+	emb         llm.EmbeddingProvider
+	ext         Extractor
+	cfg         config.MemoryWriteConfig
+	log         *slog.Logger
+	onUsage     UsageFunc
+	onAppraisal AppraisalFunc
 
 	queue   chan WriteJob
 	wg      sync.WaitGroup
@@ -128,18 +130,28 @@ func (w *Writer) lockUser(userID uint64) func() {
 	return mu.Unlock
 }
 
+// AppraisalFunc 接收提取时顺带给出的情绪评价。
+type AppraisalFunc func(ctx context.Context, job WriteJob, a emotion.Appraisal)
+
+// OnAppraisal 设置情绪评价的回调（在 Start 之前调用）。
+func (w *Writer) OnAppraisal(fn AppraisalFunc) { w.onAppraisal = fn }
+
 // Process 同步执行一个写入任务，返回新写入的记忆。
 func (w *Writer) Process(ctx context.Context, job WriteJob) ([]store.Memory, error) {
 	unlock := w.lockUser(job.UserID)
 	defer unlock()
 
-	cands, usage, err := w.ext.Extract(ctx, job.Chat, job.Input)
-	if w.onUsage != nil && usage.Total() > 0 {
-		w.onUsage(ctx, job, usage)
+	ex, err := w.ext.Extract(ctx, job.Chat, job.Input)
+	if w.onUsage != nil && ex.Usage.Total() > 0 {
+		w.onUsage(ctx, job, ex.Usage)
 	}
 	if err != nil {
 		return nil, err
 	}
+	if ex.Appraisal != nil && w.onAppraisal != nil {
+		w.onAppraisal(ctx, job, *ex.Appraisal)
+	}
+	cands := ex.Candidates
 	kept := make([]Candidate, 0, len(cands))
 	for _, c := range cands {
 		if c.Importance >= w.cfg.ImportanceThreshold {

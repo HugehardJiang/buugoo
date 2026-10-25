@@ -28,6 +28,7 @@ type Store interface {
 	Messages() MessageRepo
 	Attachments() AttachmentRepo
 	Memories() MemoryRepo
+	Emotions() EmotionRepo
 	Usage() UsageRepo
 	Jobs() JobRepo
 	Meta() MetaRepo
@@ -58,6 +59,19 @@ type AttachmentRepo interface {
 	SetDescription(ctx context.Context, id uint64, desc string) error
 	// Delete 删除附件记录（文件由调用方删除）。
 	Delete(ctx context.Context, ids []uint64) error
+}
+
+// EmotionRepo 是情绪状态数据访问接口。
+type EmotionRepo interface {
+	// Get 返回用户对应的情绪状态，不存在时返回 ErrNotFound。
+	Get(ctx context.Context, userID uint64) (*EmotionState, error)
+	// Save 保存情绪状态（不存在则创建）。
+	Save(ctx context.Context, s *EmotionState) error
+	AddEvent(ctx context.Context, e *EmotionEvent) error
+	// Events 返回最近的情绪变化记录（新的在前）。
+	Events(ctx context.Context, userID uint64, limit int) ([]EmotionEvent, error)
+	// Reset 删除用户的情绪状态与记录。
+	Reset(ctx context.Context, userID uint64) error
 }
 
 // UserRepo 是用户数据访问接口。

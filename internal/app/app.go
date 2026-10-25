@@ -15,6 +15,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/buildinfo"
 	"github.com/HugehardJiang/buugoo/internal/chat"
 	"github.com/HugehardJiang/buugoo/internal/config"
+	"github.com/HugehardJiang/buugoo/internal/emotion"
 	"github.com/HugehardJiang/buugoo/internal/httpapi"
 	"github.com/HugehardJiang/buugoo/internal/llm"
 	"github.com/HugehardJiang/buugoo/internal/llm/provider"
@@ -113,15 +114,21 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	}
 	uploadSvc := uploads.New(db.Attachments(), cfg.Uploads, log)
 	toolsProv := newToolProvider(cfg, log)
+	emo := emotion.New(db.Emotions(), cfg.Emotion, loc, log)
+	writer.OnAppraisal(func(ctx context.Context, job memory.WriteJob, a emotion.Appraisal) {
+		if err := emo.Appraise(ctx, job.UserID, a); err != nil {
+			log.Warn("更新情绪失败", "user_id", job.UserID, "err", err)
+		}
+	})
 	chatSvc := chat.New(chat.Deps{
-		Store: db, Models: modelSvc, Tools: toolsProv, Uploads: uploadSvc, Retriever: retriever, Writer: writer,
+		Store: db, Models: modelSvc, Tools: toolsProv, Emotion: emo, Uploads: uploadSvc, Retriever: retriever, Writer: writer,
 		Builder: prompt.NewBuilder(p, cfg.Chat.MaxContextTokens), Quota: limiter,
 		Config: cfg.Chat, Location: loc, Logger: log,
 	})
 	handler := httpapi.New(httpapi.Deps{
 		Config: cfg, Store: db, Auth: authSvc, Chat: chatSvc, Memories: memory.NewManager(db.Memories(), vs),
 		Quota: limiter, Models: modelSvc, Reembed: memory.NewReembedder(db.Memories(), emb, vs, log),
-		Uploads: uploadSvc, PersonaName: p.Name, Logger: log,
+		Uploads: uploadSvc, Emotion: emo, PersonaName: p.Name, Logger: log,
 	})
 	a := &App{Config: cfg, Log: log, DB: db, Auth: authSvc, Chat: chatSvc, Models: modelSvc, Writer: writer, Handler: handler,
 		uploads: uploadSvc, tools: toolsProv}

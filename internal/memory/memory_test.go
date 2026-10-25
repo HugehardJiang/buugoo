@@ -156,8 +156,8 @@ type fakeExtractor struct {
 	err   error
 }
 
-func (f fakeExtractor) Extract(context.Context, llm.ChatProvider, ExtractInput) ([]Candidate, llm.Usage, error) {
-	return f.cands, f.usage, f.err
+func (f fakeExtractor) Extract(context.Context, llm.ChatProvider, ExtractInput) (Extraction, error) {
+	return Extraction{Candidates: f.cands, Usage: f.usage}, f.err
 }
 
 func TestWriterProcess(t *testing.T) {
@@ -284,13 +284,18 @@ func (f *fakeChat) ChatStream(context.Context, llm.ChatRequest) (llm.ChatStream,
 }
 
 func TestLLMExtractorPrompt(t *testing.T) {
-	fc := &fakeChat{reply: `{"memories":[{"type":"semantic","content":"用户对花生过敏","importance":9,"emotion":0.2,"source":"stated"}]}`}
-	cands, usage, err := NewLLMExtractor(fc).Extract(context.Background(), nil, ExtractInput{
+	fc := &fakeChat{reply: `{"memories":[{"type":"semantic","content":"用户对花生过敏","importance":9,"emotion":0.2,"source":"stated"}],` +
+		`"appraisal":{"pleasantness":0.4,"respect":2,"care":0.5,"user_emotion":"Joy","user_intensity":0.5,"cause":"他记得告诉我"}}`}
+	ex, err := NewLLMExtractor(fc).Extract(context.Background(), nil, ExtractInput{
 		UserMessage: "我对花生过敏", AssistantReply: "记住啦", Known: []string{"用户住在沈阳"},
 		Now: time.Date(2026, 10, 25, 9, 0, 0, 0, time.UTC),
 	})
-	if err != nil || len(cands) != 1 || usage.PromptTokens != 1 {
+	cands := ex.Candidates
+	if err != nil || len(cands) != 1 || ex.Usage.PromptTokens != 1 {
 		t.Fatalf("cands=%v err=%v", cands, err)
+	}
+	if a := ex.Appraisal; a == nil || a.Respect != 1 || a.UserEmotion != "joy" || a.Cause != "他记得告诉我" {
+		t.Fatalf("应解析并校正情绪评价: %+v", ex.Appraisal)
 	}
 	if !fc.got.JSON || len(fc.got.Messages) != 2 {
 		t.Fatal("应以 JSON 模式调用")

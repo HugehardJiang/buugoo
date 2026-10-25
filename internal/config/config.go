@@ -64,6 +64,7 @@ type Config struct {
 	Security  SecurityConfig  `koanf:"security"`
 	Uploads   UploadsConfig   `koanf:"uploads"`
 	Tools     ToolsConfig     `koanf:"tools"`
+	Emotion   EmotionConfig   `koanf:"emotion"`
 
 	// path 记录实际加载的配置文件路径（未加载文件时为空），不参与反序列化。
 	path string
@@ -213,6 +214,21 @@ type UploadsConfig struct {
 	DocChars int `koanf:"doc_chars"`
 }
 
+// EmotionConfig 是情绪系统的配置（布谷的脾气）。各系数以 1 为标准，越大越明显。
+type EmotionConfig struct {
+	Enabled bool `koanf:"enabled"`
+	// Expressiveness 是情绪起伏的整体幅度。
+	Expressiveness float64 `koanf:"expressiveness"`
+	// Temper 是易怒程度。
+	Temper float64 `koanf:"temper"`
+	// Patience 是耐心，越大越不容易不耐烦。
+	Patience float64 `koanf:"patience"`
+	// Forgiveness 是消气的速度。
+	Forgiveness float64 `koanf:"forgiveness"`
+	// Empathy 是被对方情绪感染的程度。
+	Empathy float64 `koanf:"empathy"`
+}
+
 // ToolsConfig 是模型可以调用的工具配置。
 type ToolsConfig struct {
 	Python PythonConfig `koanf:"python"`
@@ -358,6 +374,7 @@ func Default() *Config {
 			MaxContextTokens: 6000,
 		},
 		Uploads: UploadsConfig{MaxFileMB: 20, MaxFiles: 8, UserQuotaMB: 500, DocChars: 20000},
+		Emotion: EmotionConfig{Enabled: true, Expressiveness: 1, Temper: 1, Patience: 1, Forgiveness: 1, Empathy: 1},
 		Tools: ToolsConfig{Python: PythonConfig{
 			Runner: PythonDocker, Image: "python:3.12-slim", Docker: "docker", Python: "python3",
 			Timeout: 30 * time.Second, MemoryMB: 256,
@@ -552,6 +569,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Uploads.MaxFileMB <= 0 || c.Uploads.MaxFiles <= 0 || c.Uploads.UserQuotaMB < 0 || c.Uploads.DocChars <= 0 {
 		errs = append(errs, errors.New("uploads.max_file_mb、max_files、doc_chars 必须大于 0，user_quota_mb 不能小于 0"))
+	}
+	for name, v := range map[string]float64{"expressiveness": c.Emotion.Expressiveness, "temper": c.Emotion.Temper,
+		"patience": c.Emotion.Patience, "forgiveness": c.Emotion.Forgiveness, "empathy": c.Emotion.Empathy} {
+		if v < 0 || v > 3 {
+			errs = append(errs, fmt.Errorf("emotion.%s 需在 0-3 之间", name))
+		}
 	}
 	switch c.Tools.Python.Runner {
 	case PythonDocker, PythonLocal, PythonOff:

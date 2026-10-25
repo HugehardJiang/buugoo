@@ -33,6 +33,8 @@ type Input struct {
 	KeepReasoning bool
 	// ToolHints 是可用工具的使用说明，为空表示没有工具。
 	ToolHints string
+	// Emotion 是布谷当前的心情说明，为空表示不使用情绪系统。
+	Emotion string
 }
 
 // ImageTokens 是一张图片的近似 token 数（用于预算估算）。
@@ -93,6 +95,12 @@ func (b *Builder) Build(in Input) Prompt {
 	for _, s := range fixed {
 		used += s.Tokens
 	}
+	var mood *Section
+	if in.Emotion != "" {
+		m := b.section("心情", in.Emotion)
+		mood = &m
+		used += m.Tokens
+	}
 
 	memBudget := int(float64(b.maxTokens) * memoryBudgetShare)
 	memText, memUsed, memTokens := b.memoriesText(in.Memories, max(0, min(memBudget, b.maxTokens-used)))
@@ -101,6 +109,9 @@ func (b *Builder) Build(in Input) Prompt {
 	used += memTokens
 
 	sections := []Section{fixed[0], fixed[1]}
+	if mood != nil {
+		sections = append(sections, *mood)
+	}
 	if memText != "" {
 		sections = append(sections, Section{Name: "记忆", Content: memText, Tokens: memTokens})
 	}

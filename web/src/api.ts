@@ -167,6 +167,31 @@ export interface Memory {
   last_accessed_at: string | null
 }
 
+export interface EmotionLevel {
+  name: string
+  label: string
+  intensity: number
+}
+
+export interface EmotionEvent {
+  kind: 'message' | 'absence' | 'pace'
+  cause: string
+  changes: Record<string, number>
+  created_at: string
+}
+
+export interface EmotionView {
+  enabled: boolean
+  emotions?: EmotionLevel[]
+  mood?: number
+  affinity?: number
+  trust?: number
+  summary?: string
+  cause?: string
+  relation?: string
+  events?: EmotionEvent[]
+}
+
 export interface Invite {
   id: number
   code: string
@@ -325,6 +350,8 @@ export const api = {
     return request<{ memories: Memory[]; total: number }>('GET', `/memories?${qs}`)
   },
   deleteMemory: (id: number) => request<void>('DELETE', `/memories/${id}`),
+  emotion: () => request<EmotionView>('GET', '/emotion'),
+  resetEmotion: () => request<void>('DELETE', '/emotion'),
   invites: () => request<{ invites: Invite[] }>('GET', '/admin/invites'),
   createInvite: (input: { max_uses: number; ttl_hours: number; note: string }) =>
     request<Invite>('POST', '/admin/invites', input),

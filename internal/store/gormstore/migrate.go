@@ -23,6 +23,7 @@ func migrations() []*gormigrate.Migration {
 		migrationV1Init(),
 		migrationV2Models(),
 		migrationV3Attachments(),
+		migrationV4Emotions(),
 	}
 }
 

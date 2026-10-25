@@ -553,3 +553,27 @@ func (s *server) adminDeleteInvite(c echo.Context) error {
 	}
 	return c.NoContent(http.StatusNoContent)
 }
+
+// ---------- 情绪 ----------
+
+func (s *server) getEmotion(c echo.Context) error {
+	if s.Emotion == nil {
+		return c.JSON(http.StatusOK, map[string]any{"enabled": false})
+	}
+	v, err := s.Emotion.Get(c.Request().Context(), currentUser(c).ID)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, v)
+}
+
+// resetEmotion 让布谷对当前用户的情绪与关系从头开始。
+func (s *server) resetEmotion(c echo.Context) error {
+	if s.Emotion == nil {
+		return c.NoContent(http.StatusNoContent)
+	}
+	if err := s.Emotion.Reset(c.Request().Context(), currentUser(c).ID); err != nil {
+		return err
+	}
+	return c.NoContent(http.StatusNoContent)
+}

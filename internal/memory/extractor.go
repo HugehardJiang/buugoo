@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/HugehardJiang/buugoo/internal/emotion"
 	"github.com/HugehardJiang/buugoo/internal/llm"
 	"github.com/HugehardJiang/buugoo/internal/store"
 	"github.com/HugehardJiang/buugoo/internal/timefmt"
@@ -37,9 +38,17 @@ type ExtractInput struct {
 	Images []llm.Image
 }
 
+// Extraction 是一次提取的结果：值得记住的内容，以及（顺带给出的）布谷对这条消息的情绪评价。
+type Extraction struct {
+	Candidates []Candidate
+	// Appraisal 为空表示模型没有给出评价。
+	Appraisal *emotion.Appraisal
+	Usage     llm.Usage
+}
+
 // Extractor 从对话中提取值得记住的内容并打分。chat 为本轮对话使用的模型，为空时使用默认模型。
 type Extractor interface {
-	Extract(ctx context.Context, chat llm.ChatProvider, in ExtractInput) ([]Candidate, llm.Usage, error)
+	Extract(ctx context.Context, chat llm.ChatProvider, in ExtractInput) (Extraction, error)
 }
 
 // LLMExtractor 用 LLM 实现 Extractor。
@@ -70,17 +79,30 @@ const extractSystemPrompt = `你是一个记忆整理助手，负责从"用户"�
   - "inferred"：你根据对话推测的、用户并没有直接说出的（必须谨慎，只有把握较大时才提取，并在 content 中体现推测语气，例如"用户可能……"）
   布谷说的话不能作为 stated 的依据。
 
+另外，站在布谷（一个有真实情绪的朋友）的角度，评价用户本轮这条消息给布谷的感受，输出 appraisal：
+- pleasantness：-1 到 1，这句话让布谷感觉愉快（正）还是不愉快（负）
+- respect：-1 到 1，尊重布谷（正）还是冒犯、辱骂、贬低、嘲讽布谷（负）；普通的话为 0 到 0.3
+- care：0 到 1，对方关心、感谢、夸奖布谷的程度
+- apology：0 到 1，对方向布谷道歉的诚意
+- user_emotion：对方自己的情绪，joy / sadness / anger / fear / neutral 之一；user_intensity：0 到 1
+- threat：0 到 1，对方处境危险、生病或受伤、情绪崩溃的程度
+- surprise：0 到 1，这句话出乎意料的程度
+- demanding：0 到 1，命令、催促、反复索要的程度
+- cause：一句话（不超过 30 字），以布谷的口吻说明为什么有这种感受，例如"他说我是没用的机器"
+用户对别人生气不等于冒犯布谷；开玩笑式的调侃 respect 不要给太低。
+
 严格只输出一个 JSON 对象，格式为：
-{"memories":[{"type":"semantic","content":"...","importance":5,"emotion":0.2,"source":"stated"}]}
-没有值得记住的内容时输出 {"memories":[]}。`
+{"memories":[{"type":"semantic","content":"...","importance":5,"emotion":0.2,"source":"stated"}],
+ "appraisal":{"pleasantness":0.2,"respect":0.2,"care":0,"apology":0,"user_emotion":"neutral","user_intensity":0,"threat":0,"surprise":0,"demanding":0,"cause":"..."}}
+没有值得记住的内容时 memories 为 []。`
 
 // Extract 实现 Extractor。
-func (e *LLMExtractor) Extract(ctx context.Context, chat llm.ChatProvider, in ExtractInput) ([]Candidate, llm.Usage, error) {
+func (e *LLMExtractor) Extract(ctx context.Context, chat llm.ChatProvider, in ExtractInput) (Extraction, error) {
 	if chat == nil {
 		chat = e.fallback
 	}
 	if chat == nil {
-		return nil, llm.Usage{}, errors.New("没有可用于记忆提取的模型")
+		return Extraction{}, errors.New("没有可用于记忆提取的模型")
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "当前时间：%s\n", timefmt.Full(in.Now))
@@ -113,13 +135,11 @@ func (e *LLMExtractor) Extract(ctx context.Context, chat llm.ChatProvider, in Ex
 		},
 	})
 	if err != nil {
-		return nil, llm.Usage{}, fmt.Errorf("调用记忆提取模型: %w", err)
+		return Extraction{}, fmt.Errorf("调用记忆提取模型: %w", err)
 	}
-	cands, err := ParseCandidates(resp.Content)
-	if err != nil {
-		return nil, resp.Usage, err
-	}
-	return cands, resp.Usage, nil
+	ex, err := ParseExtraction(resp.Content)
+	ex.Usage = resp.Usage
+	return ex, err
 }
 
 func speaker(role string) string {
@@ -129,8 +149,14 @@ func speaker(role string) string {
 	return "用户"
 }
 
-// ParseCandidates 解析并校验模型输出，丢弃不合法的条目。
+// ParseCandidates 解析并校验模型输出中的记忆，丢弃不合法的条目。
 func ParseCandidates(raw string) ([]Candidate, error) {
+	ex, err := ParseExtraction(raw)
+	return ex.Candidates, err
+}
+
+// ParseExtraction 解析模型输出：记忆与情绪评价。
+func ParseExtraction(raw string) (Extraction, error) {
 	raw = strings.TrimSpace(raw)
 	// 兼容模型用 ```json 代码块包裹输出的情况。
 	if strings.HasPrefix(raw, "```") {
@@ -141,7 +167,7 @@ func ParseCandidates(raw string) ([]Candidate, error) {
 	if i, j := strings.Index(raw, "{"), strings.LastIndex(raw, "}"); i >= 0 && j > i {
 		raw = raw[i : j+1]
 	} else {
-		return nil, errors.New("记忆提取结果不是 JSON 对象")
+		return Extraction{}, errors.New("记忆提取结果不是 JSON 对象")
 	}
 	var parsed struct {
 		Memories []struct {
@@ -151,11 +177,12 @@ func ParseCandidates(raw string) ([]Candidate, error) {
 			Emotion    json.Number `json:"emotion"`
 			Source     string      `json:"source"`
 		} `json:"memories"`
+		Appraisal *emotion.Appraisal `json:"appraisal"`
 	}
 	dec := json.NewDecoder(strings.NewReader(raw))
 	dec.UseNumber()
 	if err := dec.Decode(&parsed); err != nil {
-		return nil, fmt.Errorf("解析记忆提取结果: %w", err)
+		return Extraction{}, fmt.Errorf("解析记忆提取结果: %w", err)
 	}
 	out := make([]Candidate, 0, len(parsed.Memories))
 	for _, m := range parsed.Memories {
@@ -185,7 +212,10 @@ func ParseCandidates(raw string) ([]Candidate, error) {
 		c.Content = truncate(c.Content, maxMemoryRunes)
 		out = append(out, c)
 	}
-	return out, nil
+	if parsed.Appraisal != nil {
+		parsed.Appraisal.Clamp()
+	}
+	return Extraction{Candidates: out, Appraisal: parsed.Appraisal}, nil
 }
 
 func truncate(s string, n int) string {

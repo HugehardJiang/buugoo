@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { api, ApiError, type Memory } from '../api'
+import EmotionPanel from '../components/EmotionPanel.vue'
 import { dateTime } from '../format'
 import { memoriesUnlocked, setMemoriesUnlocked } from '../memoryLock'
 import { session } from '../session'
@@ -17,6 +18,7 @@ const q = ref('')
 const loading = ref(false)
 const error = ref('')
 const confirming = ref<number | null>(null)
+const tab = ref<'emotion' | 'memory'>('emotion')
 
 const typeOptions = [
   { v: '', l: '全部' },
@@ -76,7 +78,7 @@ const router = useRouter()
 
 function hideAgain() {
   setMemoriesUnlocked(false)
-  toast(`记忆本合上了。${name.value}还是记得，只是不再摊开给你看`)
+  toast(`大脑皮层合上了。${name.value}的记忆和心情都还在，只是不再摊开给你看`)
   router.push('/')
 }
 
@@ -90,17 +92,22 @@ onMounted(() => {
   <main class="main">
     <header class="topbar">
       <div class="topbar__titles">
-        <span class="eyebrow">MEMORY · 记忆</span>
-        <h1>{{ name }}记得的事</h1>
+        <span class="eyebrow">CORTEX · 大脑皮层</span>
+        <h1>{{ name }}的大脑皮层</h1>
       </div>
       <div class="head-actions">
-        <span class="chip-meta">{{ total }} 条</span>
         <button class="btn btn-ghost" @click="hideAgain">重新藏起来</button>
       </div>
     </header>
 
     <div class="page">
       <div class="page__inner">
+        <div class="type-switch tabs" role="tablist" aria-label="大脑皮层">
+          <button type="button" role="tab" :aria-selected="tab === 'emotion'" :class="{ 'is-active': tab === 'emotion' }" @click="tab = 'emotion'">心情</button>
+          <button type="button" role="tab" :aria-selected="tab === 'memory'" :class="{ 'is-active': tab === 'memory' }" @click="tab = 'memory'">记忆 · {{ total }}</button>
+        </div>
+        <EmotionPanel v-if="tab === 'emotion'" />
+        <template v-else>
         <p class="muted intro">
           {{ name }}从聊天里记下的事都在这里。「你说过」是你亲口提到的，「推测」是{{ name }}自己的判断，可能不准。删除后内容会立刻清除，无法恢复。
         </p>
@@ -142,6 +149,7 @@ onMounted(() => {
           <span class="caption">{{ page + 1 }} / {{ pages }}</span>
           <button class="btn" :disabled="page + 1 >= pages" @click="page++">下一页</button>
         </div>
+        </template>
       </div>
     </div>
   </main>
@@ -150,6 +158,7 @@ onMounted(() => {
 <style scoped>
 .head-actions { display: flex; align-items: center; gap: 8px; }
 @media (max-width: 767px) { .head-actions .chip-meta { display: none; } }
+.tabs { max-width: 280px; margin-bottom: 20px; }
 .intro { margin: 0 0 20px; font-size: 15px; line-height: 1.7; }
 .filters { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; margin-bottom: 20px; }
 .filters .type-switch { min-width: 220px; }

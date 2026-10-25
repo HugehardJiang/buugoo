@@ -184,6 +184,41 @@ type Attachment struct {
 	CreatedAt   time.Time
 }
 
+// EmotionState 是布谷对某个用户的情绪状态，每个用户各自一份。各情绪强度为 0-1，Mood 为 -1-1。
+type EmotionState struct {
+	UserID     uint64 `gorm:"primaryKey;autoIncrement:false"`
+	Joy        float64
+	Sadness    float64
+	Anger      float64
+	Worry      float64
+	Surprise   float64
+	Impatience float64
+	Longing    float64
+	// Mood 是缓慢变化的心境（负为低落，正为愉快）。
+	Mood float64
+	// Affinity 是亲近程度，Trust 是信任程度，都随相处缓慢变化。
+	Affinity float64
+	Trust    float64
+	// Cause 是最近一次明显情绪变化的原因（布谷视角）。
+	Cause string `gorm:"size:255"`
+	// Pace 记录最近几条消息的时间与摘要（JSON），用于判断催促与重复提问。
+	Pace          string `gorm:"size:4096"`
+	LastMessageAt *time.Time
+	// UpdatedAt 是情绪最后一次计算的时间（由情绪引擎维护，不让 GORM 自动改写）。
+	UpdatedAt time.Time `gorm:"autoUpdateTime:false"`
+}
+
+// EmotionEvent 是一次情绪变化的记录，用于在「大脑皮层」中展示。
+type EmotionEvent struct {
+	ID     uint64 `gorm:"primaryKey"`
+	UserID uint64 `gorm:"index:idx_emo_user,priority:1;not null"`
+	Kind   string `gorm:"size:16;not null"` // message | absence | pace
+	Cause  string `gorm:"size:255"`
+	// Changes 是各情绪的变化量（JSON 对象）。
+	Changes   string    `gorm:"size:1024"`
+	CreatedAt time.Time `gorm:"index:idx_emo_user,priority:2"`
+}
+
 // 记忆类型。
 const (
 	MemoryEpisodic = "episodic" // 情景记忆：具体发生的事
