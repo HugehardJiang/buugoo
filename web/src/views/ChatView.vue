@@ -15,6 +15,7 @@ import {
 import Icon from '../Icon.vue'
 import AttachmentList from '../components/AttachmentList.vue'
 import Modal from '../components/Modal.vue'
+import FatBird from '../components/FatBird.vue'
 import ToolSteps from '../components/ToolSteps.vue'
 import { dayKey, dayLabel, formatSize, renderMarkdown, shortWhen, timeOf } from '../format'
 import { memoriesUnlocked } from '../memoryLock'
@@ -417,17 +418,11 @@ async function send() {
         },
         onMemories: (m) => (r.memories = m),
         onReasoning: (t) => {
-          if (!r.reasoning) openThinking.value = new Set(openThinking.value).add(r.id)
+          // 思考过程默认折叠，想看时再点开。
           r.reasoning += t
           scrollToBottom()
         },
         onDelta: (t) => {
-          // 正式回复开始后收起思考过程。
-          if (!r.content && openThinking.value.has(r.id)) {
-            const s = new Set(openThinking.value)
-            s.delete(r.id)
-            openThinking.value = s
-          }
           r.content += t
           scrollToBottom()
         },
@@ -579,11 +574,10 @@ onMounted(loadInitial)
               <AttachmentList v-if="row.item.attachments?.length" :items="row.item.attachments" align="end" />
               <div v-if="row.item.role === 'assistant'" class="md body" v-html="renderMarkdown(row.item.content)" />
               <div v-else-if="row.item.content" class="bubble">{{ row.item.content }}</div>
-              <span
-                v-if="row.item.streaming && !row.item.content && !row.item.reasoning && !row.item.tools?.some((t) => t.status === 'running')"
-                class="typing"
-                aria-label="正在回复"
-              ><i /><i /><i /></span>
+              <FatBird
+                v-if="row.item.streaming && !row.item.content && !row.item.tools?.some((t) => t.status === 'running')"
+                :label="row.item.reasoning ? '正在思考' : '正在回复'"
+              />
               <div class="meta">
                 <span>{{ timeOf(row.item.created_at) }}</span>
                 <span v-if="row.item.role === 'assistant' && row.item.model && !row.item.streaming">· {{ row.item.model }}</span>
@@ -799,11 +793,6 @@ onMounted(loadInitial)
 }
 .recalled li { display: flex; align-items: baseline; gap: 8px; }
 .recalled .badge-pill { flex-shrink: 0; background: var(--color-surface); }
-.typing { display: inline-flex; gap: 4px; padding: 8px 0 2px; }
-.typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--color-muted); animation: blink 1.2s infinite ease-in-out; }
-.typing i:nth-child(2) { animation-delay: .2s; }
-.typing i:nth-child(3) { animation-delay: .4s; }
-@keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
 .composer { padding: 10px 32px calc(14px + env(safe-area-inset-bottom)); }
 .composer__box {
   display: flex; flex-direction: column; max-width: 960px; margin: 0 auto; padding: 10px 10px 8px 14px;
