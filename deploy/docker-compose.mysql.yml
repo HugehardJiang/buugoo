@@ -1,0 +1,41 @@
+# 多用户示例（MySQL）。MySQL 已在宿主机运行时，删除 mysql 服务并把 DSN 指向宿主机即可。
+# 使用：复制 deploy/.env.example 为 deploy/.env 并填写密钥，然后在 deploy 目录执行
+#   docker compose -f docker-compose.mysql.yml up -d
+services:
+  buugoo:
+    image: ghcr.io/hugehardjiang/buugoo:latest
+    container_name: buugoo
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    env_file: .env
+    environment:
+      BUUGOO_MODE: multi
+      BUUGOO_DATABASE__DRIVER: mysql
+      BUUGOO_DATABASE__DSN: "buugoo:${MYSQL_PASSWORD}@tcp(mysql:3306)/buugoo?charset=utf8mb4&parseTime=True"
+    volumes:
+      - buugoo-data:/data
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: buugoo
+      MYSQL_USER: buugoo
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  buugoo-data:
+  mysql-data:

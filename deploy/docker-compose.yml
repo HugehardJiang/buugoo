@@ -1,0 +1,22 @@
+# 自部署示例（SQLite，单用户）。
+# 使用：复制 deploy/.env.example 为 deploy/.env 并填写密钥，然后在 deploy 目录执行
+#   docker compose up -d
+# 更新：docker compose pull && docker compose up -d
+services:
+  buugoo:
+    image: ghcr.io/hugehardjiang/buugoo:latest
+    container_name: buugoo
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"   # 只在本机暴露；对外访问请通过反向代理（HTTPS）
+    env_file: .env
+    environment:
+      BUUGOO_MODE: single
+    volumes:
+      - buugoo-data:/data
+      # 可选：挂载自定义配置文件或人格档案
+      # - ./config.yaml:/etc/buugoo/config.yaml:ro
+      # - ./persona.yaml:/etc/buugoo/persona.yaml:ro
+
+volumes:
+  buugoo-data:
