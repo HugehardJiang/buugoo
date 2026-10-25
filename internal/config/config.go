@@ -145,6 +145,8 @@ type ModelConfig struct {
 	ThinkingModel string `koanf:"thinking_model"`
 	// Vision 表示模型能理解图片（多模态）。不能看图的模型收到图片时，先由能看图的模型转述成文字。
 	Vision bool `koanf:"vision"`
+	// ContextTokens 是模型的上下文长度（token），0 表示自动识别（服务商接口 → 常见模型表 → 6.4 万）。
+	ContextTokens int `koanf:"context_tokens"`
 	// Tools 表示模型支持工具调用（联网搜索、运行代码）。
 	Tools bool `koanf:"tools"`
 }
@@ -211,10 +213,15 @@ type VectorCacheConfig struct {
 
 // ChatConfig 是对话编排参数。
 type ChatConfig struct {
-	HistoryMessages  int `koanf:"history_messages"`   // 放进提示词的最近消息条数
-	MaxContextTokens int `koanf:"max_context_tokens"` // 提示词的近似 token 预算
+	// HistoryMessages 与 MaxContextTokens 已不再使用（预算按模型的上下文长度计算），保留只为兼容旧配置文件。
+	HistoryMessages  int `koanf:"history_messages"`
+	MaxContextTokens int `koanf:"max_context_tokens"`
 	// Summarize 为 true 时，长对话中较早的消息由辅助模型整理成摘要放进提示词，而不是直接丢掉。
 	Summarize bool `koanf:"summarize"`
+	// CompactAt：一轮用掉的上下文超过模型上下文长度的这个百分比时，回复照常发出，下一条消息处理前先压缩。
+	CompactAt int `koanf:"compact_at"`
+	// KeepRecent：压缩后最近的消息保留原文，大约占上下文长度的这个百分比，更早的整理进摘要。
+	KeepRecent int `koanf:"keep_recent"`
 }
 
 // UploadsConfig 是文件上传配置。
@@ -492,6 +499,8 @@ func Default() *Config {
 			HistoryMessages:  20,
 			MaxContextTokens: 6000,
 			Summarize:        true,
+			CompactAt:        80,
+			KeepRecent:       20,
 		},
 		Uploads:  UploadsConfig{MaxFileMB: 20, MaxFiles: 8, UserQuotaMB: 500, DocChars: 20000},
 		Admin:    AdminConfig{Password: DefaultAdminPassword},
@@ -709,8 +718,11 @@ func (c *Config) Validate() error {
 	if w.Workers <= 0 || w.QueueSize <= 0 {
 		errs = append(errs, errors.New("memory.write 的 workers 与 queue_size 必须大于 0"))
 	}
-	if c.Chat.HistoryMessages <= 0 {
-		errs = append(errs, errors.New("chat.history_messages 必须大于 0"))
+	if c.Chat.CompactAt < 30 || c.Chat.CompactAt > 95 {
+		errs = append(errs, errors.New("chat.compact_at 必须在 30-95 之间"))
+	}
+	if c.Chat.KeepRecent < 5 || c.Chat.KeepRecent >= c.Chat.CompactAt {
+		errs = append(errs, errors.New("chat.keep_recent 必须不小于 5，并且小于 chat.compact_at"))
 	}
 	if c.Quota.DailyMessages < 0 || c.Quota.DailyTokens < 0 {
 		errs = append(errs, errors.New("quota 不能为负数"))

@@ -40,6 +40,8 @@ type Input struct {
 	Preset *persona.Preset
 	// Summary 是这段对话较早内容的摘要（之后的消息在 History 中原样给出）。
 	Summary string
+	// MaxTokens 是这一轮提示词的 token 预算（按模型的上下文长度计算），0 表示使用组装器的默认预算。
+	MaxTokens int
 }
 
 // ImageTokens 是一张图片的近似 token 数（用于预算估算）。
@@ -97,7 +99,11 @@ const memoryBudgetShare = 0.35
 // Build 组装提示词。人格、情境与本轮消息总是保留；记忆按得分顺序、
 // 历史从最新往前，在预算内尽量多放。
 func (b *Builder) Build(in Input) Prompt {
-	p := Prompt{ContextTokenSize: b.maxTokens}
+	maxTokens := b.maxTokens
+	if in.MaxTokens > 0 {
+		maxTokens = in.MaxTokens
+	}
+	p := Prompt{ContextTokenSize: maxTokens}
 	per := b.Persona()
 	if in.Preset != nil {
 		per = in.Preset.Apply(per)
@@ -129,8 +135,8 @@ func (b *Builder) Build(in Input) Prompt {
 		used += m.Tokens
 	}
 
-	memBudget := int(float64(b.maxTokens) * memoryBudgetShare)
-	memText, memUsed, memTokens := b.memoriesText(in.Memories, max(0, min(memBudget, b.maxTokens-used)))
+	memBudget := int(float64(maxTokens) * memoryBudgetShare)
+	memText, memUsed, memTokens := b.memoriesText(in.Memories, max(0, min(memBudget, maxTokens-used)))
 	p.UsedMemories = memUsed
 	p.DroppedMemories = len(in.Memories) - len(memUsed)
 	used += memTokens
@@ -157,7 +163,7 @@ func (b *Builder) Build(in Input) Prompt {
 	}
 
 	// 历史：从最新往前取，直到预算用完。
-	historyBudget := b.maxTokens - used
+	historyBudget := maxTokens - used
 	start := len(in.History)
 	for i := len(in.History) - 1; i >= 0; i-- {
 		m := in.History[i]
@@ -325,6 +331,7 @@ func replyRulesText(name string) string {
 		"- 像朋友一样自然地聊天，记忆只在相关时自然地带出来，不要逐条复述，也不要说\"根据我的记忆\"这类话\n" +
 		"- 记忆和对方现在说的不一致时，以对方现在说的为准，可以自然地确认一下\n" +
 		"- 不要编造你不记得的事；对方提到你不记得的事时，坦诚地说不记得，请对方再讲讲\n" +
+		"- 历史消息里〔工具记录〕括起来的是你之前用工具得到的结果，只给你参考，对方看不到；回复里不要写这种格式\n" +
 		"- 直接输出" + name + "要说的话，不要加名字前缀或旁白"
 }
 

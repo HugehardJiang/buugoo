@@ -247,3 +247,35 @@ func TestEmbeddingSettings(t *testing.T) {
 		t.Fatalf("changed=%v err=%v", changed, err)
 	}
 }
+
+func TestContextDetect(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" || r.Header.Get("Authorization") != "Bearer k" {
+			w.WriteHeader(404)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"other","context_length":1},{"id":"m1","top_provider":{"context_length":262144}},{"id":"m2"}]}`))
+	}))
+	defer srv.Close()
+	c := newContextCache()
+	ctx := context.Background()
+	if got := c.detect(ctx, srv.URL+"/v1", "k", "m1", false); got.Tokens != 262144 || got.Source != ContextAPI {
+		t.Fatalf("%+v", got)
+	}
+	if got := c.detect(ctx, srv.URL+"/v1", "k", "deepseek-flash", false); got.Tokens != 128000 || got.Source != ContextTable {
+		t.Fatalf("接口里没有时查常见模型表 %+v", got)
+	}
+	if got := c.detect(ctx, srv.URL+"/v1", "k", "moonshot-v1-32k", false); got.Tokens != 32*1024 {
+		t.Fatalf("模型名里的 32k %+v", got)
+	}
+	if got := c.detect(ctx, srv.URL+"/v1", "k", "m2", false); got.Tokens != DefaultContextTokens || got.Source != ContextDefault {
+		t.Fatalf("%+v", got)
+	}
+	// 结果会缓存，不会每次都请求接口。
+	calls := 0
+	c.fetch = func(context.Context, string, string, string, bool) int { calls++; return 0 }
+	c.detect(ctx, srv.URL+"/v1", "k", "m1", false)
+	if calls != 0 {
+		t.Fatal("应使用缓存")
+	}
+}

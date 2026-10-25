@@ -127,3 +127,40 @@ func TestFieldsAndSave(t *testing.T) {
 		t.Fatal("恢复后应回到配置文件中的值，其他网页设置保留")
 	}
 }
+
+// 每个设置项都要在后台的目录里有位置、有中文名；已经不用的设置不显示。
+func TestLayoutComplete(t *testing.T) {
+	cfg := config.Default()
+	cfg.DataDir = t.TempDir()
+	fields, err := Fields(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups := map[string]bool{}
+	for _, g := range Groups {
+		groups[g.Key] = true
+	}
+	for _, f := range fields {
+		if f.Group == "other" {
+			t.Errorf("%s 没有放进 layout", f.Key)
+		}
+		if !groups[f.Group] {
+			t.Errorf("%s 的分类 %s 不存在", f.Key, f.Group)
+		}
+		if f.Label == f.Key {
+			t.Errorf("%s 没有中文名", f.Key)
+		}
+		if hidden[f.Key] {
+			t.Errorf("%s 不应显示", f.Key)
+		}
+	}
+	for k := range places {
+		found := false
+		for _, f := range fields {
+			found = found || f.Key == k
+		}
+		if !found {
+			t.Errorf("layout 里的 %s 不是设置项", k)
+		}
+	}
+}

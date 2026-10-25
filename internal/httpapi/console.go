@@ -130,7 +130,7 @@ func (s *server) consoleSettings(c echo.Context) error {
 	}
 	return c.JSON(http.StatusOK, map[string]any{
 		"fields":           fields,
-		"groups":           settings.GroupLabels,
+		"groups":           settings.Groups,
 		"pending":          pending,
 		"settings_path":    s.Config.SettingsPath(),
 		"config_path":      s.Config.Path(),

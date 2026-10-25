@@ -1,30 +1,17 @@
 <script setup lang="ts">
 // 管理后台：用配置文件中的管理员密码登录，查看与修改全部系统设置。
 // 保存后写入数据目录中的 settings.yaml，管理员需要自己重启服务才会生效。
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ApiError } from '../api'
 import ConsoleChannels from '../components/ConsoleChannels.vue'
 import Modal from '../components/Modal.vue'
+import SettingField, { type Field } from '../components/SettingField.vue'
 import { session } from '../session'
 import { toast } from '../toast'
 
-interface Field {
-  key: string
-  group: string
-  label: string
-  help?: string
-  type: 'string' | 'bool' | 'int' | 'float' | 'duration' | 'list' | 'select' | 'secret'
-  options?: string[]
-  value: unknown
-  saved?: unknown
-  pending: boolean
-  locked: boolean
-  env: boolean
-}
-
 interface SettingsResp {
   fields: Field[]
-  groups: { key: string; label: string }[]
+  groups: { key: string; label: string; help?: string }[]
   pending: number
   settings_path: string
   config_path: string
@@ -42,7 +29,9 @@ const draft = reactive<Record<string, unknown>>({})
 const saving = ref(false)
 const justSaved = ref<string[]>([])
 const query = ref('')
-const tab = ref<'settings' | 'persona' | 'channels'>('settings')
+// tab 是左侧目录中选中的一项：设置分类的 key，或者 persona（人格档案）、channels（聊天软件连接）。
+const tab = ref(location.hash.slice(1) || 'models')
+const showAdvanced = reactive<Record<string, boolean>>({})
 
 interface PersonaResp {
   yaml: string
@@ -106,10 +95,25 @@ async function resetPersona() {
   }
 }
 
-function openTab(t: 'settings' | 'persona' | 'channels') {
+function openTab(t: string) {
   tab.value = t
+  query.value = ''
   if (t === 'persona' && !persona.value) loadPersona()
+  try {
+    history.replaceState(null, '', `#${t}`)
+  } catch {
+    // 忽略
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
+watch(
+  () => data.value,
+  (d) => {
+    if (!d) return
+    if (tab.value === 'persona' && !persona.value) loadPersona()
+    if (tab.value !== 'persona' && tab.value !== 'channels' && !d.groups.some((g) => g.key === tab.value)) tab.value = 'models'
+  },
+)
 
 function read() {
   try {
@@ -197,18 +201,57 @@ function edit(f: Field, v: unknown) {
 
 const dirty = computed(() => Object.keys(draft).length)
 
-const groups = computed(() => {
+function matches(f: Field, q: string) {
+  return f.key.toLowerCase().includes(q) || f.label.toLowerCase().includes(q) || (f.help ?? '').toLowerCase().includes(q) || f.section.includes(q)
+}
+
+interface SectionView {
+  key: string
+  label: string
+  common: Field[]
+  advanced: Field[]
+}
+interface GroupView {
+  key: string
+  label: string
+  help?: string
+  sections: SectionView[]
+  count: number
+}
+
+function sectionsOf(fields: Field[], groupKey: string): SectionView[] {
+  const out: SectionView[] = []
+  for (const f of fields) {
+    let s = out.find((x) => x.label === f.section)
+    if (!s) out.push((s = { key: `${groupKey}/${f.section}`, label: f.section, common: [], advanced: [] }))
+    ;(f.advanced ? s.advanced : s.common).push(f)
+  }
+  return out
+}
+
+// 目录：每个分类和其中待重启、未保存的数量。
+const nav = computed(() =>
+  (data.value?.groups ?? [])
+    .map((g) => {
+      const fs = data.value!.fields.filter((f) => f.group === g.key)
+      return { ...g, total: fs.length, pending: fs.filter((f) => f.pending).length, dirty: fs.filter((f) => f.key in draft).length }
+    })
+    .filter((g) => g.total > 0),
+)
+
+// 正在看的内容：有搜索词时显示所有分类里匹配的设置（高级设置也一起），否则只显示选中的分类。
+const visible = computed<GroupView[]>(() => {
   if (!data.value) return []
   const q = query.value.trim().toLowerCase()
   return data.value.groups
-    .map((g) => ({
-      ...g,
-      fields: data.value!.fields.filter(
-        (f) => f.group === g.key && (!q || f.key.toLowerCase().includes(q) || f.label.toLowerCase().includes(q) || (f.help ?? '').includes(q)),
-      ),
-    }))
-    .filter((g) => g.fields.length)
+    .filter((g) => (q ? true : g.key === tab.value))
+    .map((g) => {
+      const fs = data.value!.fields.filter((f) => f.group === g.key && (!q || matches(f, q)))
+      return { key: g.key, label: g.label, help: g.help, sections: sectionsOf(fs, g.key), count: fs.length }
+    })
+    .filter((g) => g.count > 0)
 })
+const searching = computed(() => query.value.trim() !== '')
 
 async function save() {
   saving.value = true
@@ -217,7 +260,7 @@ async function save() {
     const changes: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(draft)) {
       const f = data.value!.fields.find((x) => x.key === k)!
-      changes[k] = f.type === 'int' || f.type === 'float' ? Number(v) : v
+      changes[k] = f.type === 'int' || f.type === 'float' || f.type === 'context' ? Number(v) : v
     }
     const r = await call<{ changed: string[] }>('PUT', '/settings', { changes })
     justSaved.value = r.changed
@@ -238,13 +281,6 @@ async function discard(f: Field) {
   } catch (e) {
     error.value = e instanceof ApiError ? e.message : '操作失败'
   }
-}
-
-function display(f: Field) {
-  if (f.type === 'secret') return f.value ? '已设置' : '未设置'
-  if (Array.isArray(f.value)) return f.value.join(', ') || '（空）'
-  if (f.value === '' || f.value === null) return '（空）'
-  return String(f.value)
 }
 
 async function copy(text: string) {
@@ -298,13 +334,29 @@ onMounted(() => {
               <button class="btn" @click="copy(data.restart_hint)">复制</button>
             </div>
           </div>
-          <div class="type-switch tabs" role="tablist" aria-label="管理后台">
-            <button type="button" role="tab" :class="{ 'is-active': tab === 'settings' }" @click="openTab('settings')">系统设置</button>
-            <button type="button" role="tab" :class="{ 'is-active': tab === 'persona' }" @click="openTab('persona')">人格</button>
-            <button type="button" role="tab" :class="{ 'is-active': tab === 'channels' }" @click="openTab('channels')">聊天软件</button>
-          </div>
+          <div class="console">
+            <nav class="toc" aria-label="设置目录">
+              <input v-model="query" class="text-input toc__search" type="search" placeholder="搜索设置" aria-label="搜索设置" />
+              <p class="toc__title">系统设置</p>
+              <button
+                v-for="g in nav"
+                :key="g.key"
+                type="button"
+                class="toc__item"
+                :class="{ 'is-active': !searching && tab === g.key }"
+                @click="openTab(g.key)"
+              >
+                <span>{{ g.label }}</span>
+                <span v-if="g.dirty" class="toc__badge toc__badge--dirty" :title="`${g.dirty} 项未保存`">{{ g.dirty }}</span>
+                <span v-else-if="g.pending" class="toc__badge" :title="`${g.pending} 项待重启生效`">{{ g.pending }}</span>
+              </button>
+              <p class="toc__title">其他</p>
+              <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'persona' }" @click="openTab('persona')">人格档案</button>
+              <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'channels' }" @click="openTab('channels')">聊天软件连接</button>
+            </nav>
 
-          <template v-if="tab === 'persona'">
+            <div class="console__body">
+          <template v-if="!searching && tab === 'persona'">
             <section class="panel panel--inset">
               <h2>人格档案</h2>
               <p class="muted intro">
@@ -326,69 +378,58 @@ onMounted(() => {
             </section>
           </template>
 
-          <ConsoleChannels v-else-if="tab === 'channels'" :call="call" />
+          <ConsoleChannels v-else-if="!searching && tab === 'channels'" :call="call" />
 
           <template v-else>
-          <p class="muted intro">
-            这里的修改保存在 <code>{{ data.settings_path }}</code>，覆盖配置文件中的同名设置；环境变量中的设置优先级最高，
-            这里改了也不会生效。管理员密码和加密密钥只能在配置文件中修改。
-          </p>
-          <p v-if="error" class="form-flash form-flash--error">{{ error }}</p>
-
-          <input v-model="query" class="text-input search" placeholder="搜索设置" aria-label="搜索设置" />
-
-          <section v-for="g in groups" :key="g.key" class="panel panel--inset group">
-            <h2>{{ g.label }}</h2>
-            <div v-for="f in g.fields" :key="f.key" class="row" :class="{ 'is-dirty': f.key in draft }">
-              <div class="row__head">
-                <label class="field__label" :for="`s-${f.key}`">{{ f.label }}</label>
-                <code class="row__key">{{ f.key }}</code>
-                <span v-if="f.pending" class="badge-pill pending">待重启生效</span>
-                <span v-if="f.env" class="badge-pill">由环境变量设置</span>
-              </div>
-              <div class="row__input">
-                <select
-                  v-if="f.type === 'select'"
-                  :id="`s-${f.key}`"
-                  class="text-input"
+            <p v-if="error" class="form-flash form-flash--error">{{ error }}</p>
+            <p v-if="searching && !visible.length" class="form-flash">没有找到「{{ query }}」相关的设置</p>
+            <section v-for="g in visible" :key="g.key" class="group">
+              <header class="group__head">
+                <h2>{{ g.label }}</h2>
+                <p v-if="g.help && !searching" class="muted">{{ g.help }}</p>
+              </header>
+              <section v-for="sec in g.sections" :key="sec.key" class="panel panel--inset section">
+                <h3 class="section__title">{{ sec.label }}</h3>
+                <SettingField
+                  v-for="f in sec.common"
+                  :key="f.key"
+                  :field="f"
                   :value="shown(f)"
-                  :disabled="f.locked || f.env"
-                  @change="edit(f, ($event.target as HTMLSelectElement).value)"
-                >
-                  <option v-for="o in f.options" :key="o" :value="o">{{ o || '（沿用聊天模型）' }}</option>
-                </select>
-                <label v-else-if="f.type === 'bool'" class="check-row">
-                  <input
-                    :id="`s-${f.key}`"
-                    type="checkbox"
-                    :checked="Boolean(shown(f))"
-                    :disabled="f.locked || f.env"
-                    @change="edit(f, ($event.target as HTMLInputElement).checked)"
-                  />
-                  <span>{{ shown(f) ? '开启' : '关闭' }}</span>
-                </label>
-                <input
-                  v-else
-                  :id="`s-${f.key}`"
-                  class="text-input"
-                  :type="f.type === 'secret' ? 'password' : f.type === 'int' || f.type === 'float' ? 'number' : 'text'"
-                  :step="f.type === 'float' ? 'any' : undefined"
-                  autocomplete="off"
-                  :value="shown(f)"
-                  :placeholder="f.type === 'secret' ? (f.value ? '已设置，留空表示不修改' : '未设置') : ''"
-                  :disabled="f.locked || f.env"
-                  @input="edit(f, ($event.target as HTMLInputElement).value)"
+                  :dirty="f.key in draft"
+                  @edit="(v) => edit(f, v)"
+                  @discard="discard(f)"
                 />
-              </div>
-              <p class="field__hint">
-                <template v-if="f.help">{{ f.help }}</template>
-                <template v-if="f.pending"> 正在运行的值：{{ display(f) }}。</template>
-                <button v-if="f.saved !== undefined && f.saved !== null" type="button" class="text-btn" @click="discard(f)">恢复为配置文件中的设置</button>
-              </p>
-            </div>
-          </section>
-
+                <template v-if="sec.advanced.length">
+                  <template v-if="searching || showAdvanced[sec.key] || !sec.common.length">
+                    <SettingField
+                      v-for="f in sec.advanced"
+                      :key="f.key"
+                      :field="f"
+                      :value="shown(f)"
+                      :dirty="f.key in draft"
+                      @edit="(v) => edit(f, v)"
+                      @discard="discard(f)"
+                    />
+                  </template>
+                  <button
+                    v-if="!searching && sec.common.length"
+                    type="button"
+                    class="adv-toggle"
+                    :aria-expanded="!!showAdvanced[sec.key]"
+                    @click="showAdvanced[sec.key] = !showAdvanced[sec.key]"
+                  >
+                    {{ showAdvanced[sec.key] ? '收起高级设置' : `高级设置（${sec.advanced.length}）` }}
+                  </button>
+                </template>
+              </section>
+            </section>
+            <p class="muted foot">
+              这里的修改保存在 <code>{{ data.settings_path }}</code>，覆盖配置文件中的同名设置，<strong>重启服务后生效</strong>；
+              环境变量中的设置优先级最高。管理员密码和加密密钥只能在配置文件中修改。
+            </p>
           </template>
+            </div>
+          </div>
 
           <Modal :open="confirmReset" title="恢复默认人格？" subtitle="管理后台保存的人格会被删除，恢复为配置文件指定的或内置的人格，立即生效。" @close="confirmReset = false">
             <div class="modal-actions">
@@ -397,7 +438,7 @@ onMounted(() => {
             </div>
           </Modal>
 
-          <div v-if="dirty && tab === 'settings'" class="savebar">
+          <div v-if="dirty" class="savebar">
             <span>{{ dirty }} 项修改未保存</span>
             <button class="btn btn-ghost" @click="load">放弃</button>
             <button class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? '正在保存' : '保存' }}</button>
@@ -410,7 +451,35 @@ onMounted(() => {
 
 <style scoped>
 .login { max-width: 460px; margin: 6vh auto 0; }
-.tabs { max-width: 400px; margin-bottom: 20px; }
+.console { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 28px; align-items: start; }
+.toc { position: sticky; top: 16px; display: grid; gap: 2px; }
+.toc__search { margin-bottom: 10px; }
+.toc__title { margin: 12px 10px 4px; color: var(--color-muted); font-size: 12px; letter-spacing: .04em; }
+.toc__title:first-of-type { margin-top: 0; }
+.toc__item {
+  display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 10px; border-radius: var(--radius-md);
+  color: var(--color-text-secondary); font-size: 14px; text-align: left; transition: background-color .15s ease, color .15s ease;
+}
+.toc__item span:first-child { flex: 1; }
+.toc__item:hover { background: var(--color-hover-wash); color: var(--color-ink); }
+.toc__item.is-active { background: var(--color-surface); color: var(--color-ink); font-weight: 500; box-shadow: 0 1px 3px rgba(20, 20, 19, .08), 0 0 0 1px rgba(20, 20, 19, .04); }
+.toc__badge { min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--color-warning); color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
+.toc__badge--dirty { background: var(--color-accent); }
+.group + .group { margin-top: 28px; }
+.group__head { margin-bottom: 12px; }
+.group__head h2 { margin: 0; }
+.group__head p { margin: 4px 0 0; font-size: 14px; }
+.section { margin-bottom: 16px; }
+.section__title { margin: 0 0 4px; color: var(--color-ink); font-size: 15px; font-weight: 600; }
+.adv-toggle { margin-top: 6px; padding: 6px 0; color: var(--color-accent-active); font-size: 13px; }
+.foot { margin: 8px 0 0; font-size: 13px; line-height: 1.7; }
+@media (max-width: 900px) {
+  .console { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .toc { position: static; display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+  .toc__search { flex: 0 0 160px; margin: 0; }
+  .toc__title { display: none; }
+  .toc__item { flex: 0 0 auto; white-space: nowrap; border: 1px solid var(--color-divider); }
+}
 .guide { margin: 0 0 12px; padding-left: 18px; line-height: 1.7; }
 .persona-editor {
   min-height: 520px; font-family: var(--font-mono); font-size: 13px; line-height: 1.65; tab-size: 2; white-space: pre; overflow-x: auto;
@@ -422,18 +491,6 @@ onMounted(() => {
 .restart p { margin: 0 0 8px; }
 .cmd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cmd code { padding: 6px 10px; border-radius: var(--radius-sm); background: var(--color-canvas-soft); font-size: 13px; }
-.search { margin-bottom: 20px; }
-.group h2 { margin-bottom: 4px; }
-.row { padding: 14px 0; border-top: 1px solid var(--color-divider); }
-.group h2 + .row { border-top: 0; }
-.row.is-dirty .field__label { color: var(--color-accent-active); }
-.row__head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 7px; }
-.row__key { color: var(--color-muted); }
-.pending { border-color: var(--color-warning); color: var(--color-warning); }
-.row__input { max-width: 520px; }
-.row .check-row { margin: 0; }
-.row .field__hint { margin-top: 6px; }
-.text-btn { margin-left: 6px; padding: 0; color: var(--color-accent-active); font-size: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .savebar {
   position: sticky; bottom: 16px; display: flex; align-items: center; gap: 8px; margin-top: 20px; padding: 12px 16px;
   border: 1px solid var(--color-divider); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-float);

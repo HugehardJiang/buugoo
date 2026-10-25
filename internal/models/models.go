@@ -63,10 +63,13 @@ type View struct {
 	MaxTokens     int     `json:"max_tokens"`
 	Vision        bool    `json:"vision"`
 	Tools         bool    `json:"tools"`
-	Scope         string  `json:"scope"`
-	IsDefault     bool    `json:"is_default"`
-	KeyMask       string  `json:"key_mask"`
-	Editable      bool    `json:"editable"`
+	// ContextTokens 是手动填写的上下文长度，0 表示自动识别；Context 是实际使用的长度与来源。
+	ContextTokens int         `json:"context_tokens"`
+	Context       ContextInfo `json:"context"`
+	Scope         string      `json:"scope"`
+	IsDefault     bool        `json:"is_default"`
+	KeyMask       string      `json:"key_mask"`
+	Editable      bool        `json:"editable"`
 }
 
 // Input 是新增或修改模型的参数。修改时 APIKey 为空表示保持不变。
@@ -81,6 +84,8 @@ type Input struct {
 	MaxTokens     int     `json:"max_tokens"`
 	Vision        bool    `json:"vision"`
 	Tools         bool    `json:"tools"`
+	// ContextTokens 是上下文长度（token），0 表示自动识别。
+	ContextTokens int `json:"context_tokens"`
 	// Public 为 true 时添加为公共模型（仅管理员；single 模式下总是公共模型）。
 	Public bool `json:"public"`
 }
@@ -101,6 +106,10 @@ type Resolved struct {
 	// BaseURL 与 APIKey 供同一服务商的其他接口使用（例如 DeepSeek 的搜索与抓取），不对外展示。
 	BaseURL string
 	APIKey  string
+	// ContextTokens 是模型的上下文长度（token）。
+	ContextTokens int
+	// MaxTokens 是回复的最大长度（为空时由服务商决定），预算时要给回复留出空间。
+	MaxTokens int
 }
 
 // ModelFor 返回指定思考等级下实际调用的模型名（「换用推理模型」开启思考时为推理模型）。
@@ -118,6 +127,8 @@ type Service struct {
 	cfg   *config.Config
 	log   *slog.Logger
 	emb   *DynamicEmbedding
+	// contexts 缓存自动识别的上下文长度。
+	contexts *contextCache
 	// newChat 便于测试替换。publicOnly 为 true 时只允许连接公网地址。
 	newChat func(c config.ModelConfig, publicOnly bool) llm.ChatProvider
 }
@@ -127,7 +138,7 @@ func NewService(ctx context.Context, s store.Store, box *secret.Box, cfg *config
 	if log == nil {
 		log = slog.Default()
 	}
-	svc := &Service{store: s, box: box, cfg: cfg, log: log.With("component", "models"),
+	svc := &Service{store: s, box: box, cfg: cfg, log: log.With("component", "models"), contexts: newContextCache(),
 		newChat: func(c config.ModelConfig, publicOnly bool) llm.ChatProvider {
 			if publicOnly {
 				return openai.NewPublicOnlyChat(c)
@@ -155,6 +166,9 @@ func (s *Service) builtinAvailable() bool { return s.cfg.LLM.Chat.APIKey != "" }
 
 func (s *Service) builtinView(isDefault bool) View {
 	c := s.cfg.LLM.Chat
+	if c.ContextTokens == 0 {
+		s.contexts.warm(c.BaseURL, c.APIKey, c.Model, false)
+	}
 	style := c.ThinkingStyle
 	if style == "" {
 		style = store.ThinkingStyleNone
@@ -163,6 +177,7 @@ func (s *Service) builtinView(isDefault bool) View {
 		ID: BuiltinID, Name: c.Model, BaseURL: c.BaseURL, Model: c.Model,
 		ThinkingStyle: style, ThinkingModel: c.ThinkingModel, Temperature: float64(c.Temperature), MaxTokens: c.MaxTokens,
 		Vision: c.Vision, Tools: c.Tools, Scope: ScopeBuiltin, IsDefault: isDefault, KeyMask: secret.Mask(c.APIKey),
+		ContextTokens: c.ContextTokens, Context: peekOr(c.ContextTokens, s.contexts.peek(c.BaseURL, c.Model)),
 	}
 }
 
@@ -174,6 +189,9 @@ func (s *Service) view(m *store.ModelConfig, u User, isDefault bool) View {
 	mask := "已加密保存"
 	if key, err := s.box.Open(m.APIKey); err == nil {
 		mask = secret.Mask(key)
+		if m.ContextTokens == 0 {
+			s.contexts.warm(m.BaseURL, key, m.Model, !m.Public() && s.untrusted(u))
+		}
 	} else if m.APIKey != "" {
 		mask = "无法解密，请重新填写"
 	}
@@ -181,6 +199,7 @@ func (s *Service) view(m *store.ModelConfig, u User, isDefault bool) View {
 		ID: m.ID, Name: m.Name, BaseURL: m.BaseURL, Model: m.Model, ThinkingStyle: m.ThinkingStyle,
 		ThinkingModel: m.ThinkingModel, Temperature: m.Temperature, MaxTokens: m.MaxTokens,
 		Vision: m.Vision, Tools: m.Tools, Scope: scope, IsDefault: isDefault, KeyMask: mask, Editable: s.canEdit(m, u),
+		ContextTokens: m.ContextTokens, Context: peekOr(m.ContextTokens, s.contexts.peek(m.BaseURL, m.Model)),
 	}
 }
 
@@ -276,7 +295,8 @@ func (s *Service) resolveID(ctx context.Context, u User, id uint64) (*Resolved, 
 		c := s.cfg.LLM.Chat
 		return &Resolved{ID: BuiltinID, Name: s.builtinView(false).Name, Model: c.Model,
 			ThinkingStyle: c.ThinkingStyle, ThinkingModel: c.ThinkingModel, Chat: s.newChat(c, false),
-			Vision: c.Vision, Tools: c.Tools, BaseURL: c.BaseURL, APIKey: c.APIKey}, nil
+			Vision: c.Vision, Tools: c.Tools, BaseURL: c.BaseURL, APIKey: c.APIKey, MaxTokens: c.MaxTokens,
+			ContextTokens: s.contextOf(ctx, c.ContextTokens, c.BaseURL, c.APIKey, c.Model, false).Tokens}, nil
 	}
 	m, err := s.store.Models().Get(ctx, id)
 	if err != nil {
@@ -286,11 +306,13 @@ func (s *Service) resolveID(ctx context.Context, u User, id uint64) (*Resolved, 
 	if err != nil {
 		return nil, fmt.Errorf("模型「%s」: %w", m.Name, err)
 	}
+	publicOnly := !m.Public() && s.untrusted(u)
 	return &Resolved{
 		ID: m.ID, Name: m.Name, Model: m.Model, ThinkingStyle: m.ThinkingStyle, ThinkingModel: m.ThinkingModel,
-		Chat:     s.newChat(s.chatConfig(m, key), !m.Public() && s.untrusted(u)),
+		Chat:     s.newChat(s.chatConfig(m, key), publicOnly),
 		Personal: !m.Public() && !s.singleMode(),
-		Vision:   m.Vision, Tools: m.Tools, BaseURL: m.BaseURL, APIKey: key,
+		Vision:   m.Vision, Tools: m.Tools, BaseURL: m.BaseURL, APIKey: key, MaxTokens: m.MaxTokens,
+		ContextTokens: s.contextOf(ctx, m.ContextTokens, m.BaseURL, key, m.Model, publicOnly).Tokens,
 	}, nil
 }
 
@@ -328,6 +350,8 @@ func validateInput(in *Input, requireKey bool) error {
 		return &InvalidError{"「换用推理模型」需要填写推理模型名，例如 deepseek-reasoner"}
 	case in.Temperature < 0 || in.Temperature > 2:
 		return &InvalidError{"temperature 需在 0-2 之间"}
+	case in.ContextTokens < 0 || in.ContextTokens > 20_000_000:
+		return &InvalidError{"上下文长度需在 0（自动识别）到 2000 万之间"}
 	case in.MaxTokens < 0 || in.MaxTokens > 65536:
 		return &InvalidError{"最大输出长度需在 0-65536 之间（0 表示使用服务默认值）"}
 	}
@@ -358,7 +382,7 @@ func (s *Service) Create(ctx context.Context, u User, in Input) (View, error) {
 	m := &store.ModelConfig{
 		OwnerID: owner, Name: in.Name, BaseURL: in.BaseURL, APIKey: sealed, Model: in.Model,
 		ThinkingStyle: in.ThinkingStyle, ThinkingModel: in.ThinkingModel,
-		Temperature: in.Temperature, MaxTokens: in.MaxTokens, Vision: in.Vision, Tools: in.Tools,
+		Temperature: in.Temperature, MaxTokens: in.MaxTokens, Vision: in.Vision, Tools: in.Tools, ContextTokens: in.ContextTokens,
 	}
 	if err := s.store.Models().Create(ctx, m); err != nil {
 		return View{}, err
@@ -399,7 +423,7 @@ func (s *Service) Update(ctx context.Context, u User, id uint64, in Input) (View
 	}
 	m.Name, m.BaseURL, m.Model = in.Name, in.BaseURL, in.Model
 	m.ThinkingStyle, m.ThinkingModel = in.ThinkingStyle, in.ThinkingModel
-	m.Temperature, m.MaxTokens = in.Temperature, in.MaxTokens
+	m.Temperature, m.MaxTokens, m.ContextTokens = in.Temperature, in.MaxTokens, in.ContextTokens
 	m.Vision, m.Tools = in.Vision, in.Tools
 	if err := s.store.Models().Update(ctx, m); err != nil {
 		return View{}, err

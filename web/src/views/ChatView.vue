@@ -17,6 +17,7 @@ import {
 import Icon from '../Icon.vue'
 import AttachmentList from '../components/AttachmentList.vue'
 import Modal from '../components/Modal.vue'
+import ContextMeter from '../components/ContextMeter.vue'
 import FatBird from '../components/FatBird.vue'
 import ToolSteps from '../components/ToolSteps.vue'
 import { splitBubbles } from '../bubbles'
@@ -494,6 +495,8 @@ async function send() {
     sending.value = false
     controller = null
     scrollToBottom()
+    // 上下文用量变了（可能刚压缩过，或者这一轮超过了阈值）。
+    meter.value?.refresh()
     // 上传了文件或代码画了图，更新空间用量。
     if (attachments.length || r.tools?.some((t) => t.images?.length || t.files?.length)) refreshUsage()
     // 对话的最近时间与标题变了，重新排序。
@@ -515,6 +518,10 @@ function onKeydown(e: KeyboardEvent) {
     send()
   }
 }
+
+// 上下文用量环：超过阈值后，下一条消息会先压缩，等待时提示一下。
+const meter = ref<InstanceType<typeof ContextMeter> | null>(null)
+const compactPending = ref(false)
 
 // 代码生成的图片显示在回复正文下方，发给用户的文件显示为可以下载的文件。
 function toolImages(m: Item): Attachment[] {
@@ -584,6 +591,7 @@ async function checkNew() {
     const wasAtBottom = nearBottom()
     items.value = [...items.value, ...fresh]
     if (wasAtBottom) scrollToBottom(true, true)
+    meter.value?.refresh()
     const c = convs.value.find((x) => x.id === id)
     if (c) {
       c.last_message_at = fresh[fresh.length - 1].created_at
@@ -645,6 +653,7 @@ onBeforeUnmount(() => {
           <h1 class="conv-title">{{ title }}</h1>
         </div>
         <div v-if="current" class="topbar__actions">
+          <ContextMeter ref="meter" :conversation-id="currentId" :busy="sending" @status="(s) => (compactPending = !!s?.pending)" />
           <button class="icon-btn" aria-label="重命名对话" title="重命名" @click="startRename"><Icon name="edit" :size="18" /></button>
           <button class="icon-btn" aria-label="删除对话" title="删除" :disabled="sending" @click="deleting = true"><Icon name="trash" :size="18" /></button>
         </div>
@@ -712,7 +721,7 @@ onBeforeUnmount(() => {
               <AttachmentList v-if="toolFiles(row.item).length" :items="toolFiles(row.item)" />
               <FatBird
                 v-if="row.item.streaming && !row.item.content && !row.item.tools?.some((t) => t.status === 'running')"
-                :label="row.item.reasoning ? '正在思考' : '正在回复'"
+                :label="row.item.reasoning ? '正在思考' : compactPending ? '先整理一下之前聊的' : '正在回复'"
               />
               <div class="meta">
                 <span>{{ timeOf(row.item.created_at) }}</span>

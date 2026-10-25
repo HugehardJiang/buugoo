@@ -172,3 +172,29 @@ func (s *server) latestMessage(c echo.Context) error {
 	}
 	return c.JSON(http.StatusOK, map[string]any{"latest_id": latest})
 }
+
+// conversationContext 处理 GET /api/v1/conversations/:id/context：上下文用了多少、是否会在下一条消息前压缩、现在的前情提要。
+func (s *server) conversationContext(c echo.Context) error {
+	id, err := pathID(c)
+	if err != nil {
+		return err
+	}
+	st, err := s.Chat.Context(c.Request().Context(), currentUser(c), id)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, st)
+}
+
+// compactConversation 处理 POST /api/v1/conversations/:id/compact：立即压缩上下文。
+func (s *server) compactConversation(c echo.Context) error {
+	id, err := pathID(c)
+	if err != nil {
+		return err
+	}
+	st, err := s.Chat.Compact(c.Request().Context(), currentUser(c), id)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, st)
+}

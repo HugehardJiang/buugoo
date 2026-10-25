@@ -149,6 +149,8 @@ func New(d Deps) http.Handler {
 	priv.POST("/reminders/:id/resume", s.pauseReminder(false))
 	priv.DELETE("/reminders/:id", s.cancelReminder)
 	priv.GET("/conversations/:id/latest", s.latestMessage)
+	priv.GET("/conversations/:id/context", s.conversationContext)
+	priv.POST("/conversations/:id/compact", s.compactConversation)
 	priv.GET("/persona/presets", s.listPresets)
 	priv.PUT("/persona/preset", s.setPreset)
 	priv.GET("/conversations", s.listConversations)
@@ -327,6 +329,8 @@ func toAPIError(err error) *apiError {
 			status = http.StatusRequestEntityTooLarge
 		}
 		return &apiError{Status: status, Code: code, Message: ue.Msg}
+	case errors.Is(err, chat.ErrNothingToCompact), errors.Is(err, chat.ErrCompacting), errors.Is(err, chat.ErrSummaryDisabled):
+		return &apiError{Status: http.StatusConflict, Code: "cannot_compact", Message: err.Error()}
 	case errors.Is(err, chat.ErrAttachmentNotFound), errors.Is(err, chat.ErrTooManyFiles),
 		errors.Is(err, chat.ErrUploadsDisabled), errors.Is(err, chat.ErrImagesUnsupported):
 		return &apiError{Status: http.StatusBadRequest, Code: "invalid_attachment", Message: err.Error()}

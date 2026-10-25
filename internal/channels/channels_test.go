@@ -78,6 +78,10 @@ func (f *fakeChat) CreateConversation(ctx context.Context, u *store.User, p chat
 	return c, f.db.Conversations().Create(ctx, c)
 }
 
+func (f *fakeChat) Compact(context.Context, *store.User, uint64) (*chat.ContextStatus, error) {
+	return &chat.ContextStatus{Percent: 12}, nil
+}
+
 func waitFor(t *testing.T, cond func() bool) {
 	t.Helper()
 	for i := 0; i < 300; i++ {

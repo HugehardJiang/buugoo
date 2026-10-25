@@ -26,6 +26,7 @@ import (
 type ChatService interface {
 	Send(ctx context.Context, u *store.User, in chat.SendInput, sink chat.Sink) (*chat.Result, error)
 	CreateConversation(ctx context.Context, u *store.User, p chat.ConversationPatch) (*store.Conversation, error)
+	Compact(ctx context.Context, u *store.User, convID uint64) (*chat.ContextStatus, error)
 }
 
 // 节奏。
@@ -287,8 +288,24 @@ func (h *Hub) process(ctx context.Context, in Inbound) {
 		_ = h.store.Bindings().Delete(ctx, u.ID, b.ID)
 		h.say(ctx, c, in.PeerID, "已经解绑啦，想再聊的话重新发绑定码就行")
 		return
+	case "/compact", "压缩", "压缩上下文":
+		if b.ConversationID == nil {
+			h.say(ctx, c, in.PeerID, "还没聊几句呢，不用压缩")
+			return
+		}
+		st, err := h.chat.Compact(ctx, u, *b.ConversationID)
+		switch {
+		case err != nil && (errors.Is(err, chat.ErrNothingToCompact) || errors.Is(err, chat.ErrCompacting) || errors.Is(err, chat.ErrSummaryDisabled)):
+			h.say(ctx, c, in.PeerID, err.Error())
+		case err != nil:
+			h.log.Warn("压缩上下文失败", "err", err)
+			h.say(ctx, c, in.PeerID, "压缩失败了，稍后再试试")
+		default:
+			h.say(ctx, c, in.PeerID, fmt.Sprintf("好，之前聊的我整理成要点记下了，现在上下文用了大约 %d%%", st.Percent))
+		}
+		return
 	case "/help", "帮助":
-		h.say(ctx, c, in.PeerID, "直接和我聊天就行，发图片、文件也可以\n发「新对话」换个话题，发「解绑」解除绑定")
+		h.say(ctx, c, in.PeerID, "直接和我聊天就行，发图片、文件也可以\n发「新对话」换个话题，发「压缩」整理之前的聊天，发「解绑」解除绑定")
 		return
 	}
 	h.reply(ctx, c, b, u, in)

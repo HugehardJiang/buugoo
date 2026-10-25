@@ -74,6 +74,8 @@ llm:
     thinking_model: ""
     # 模型能否理解图片。不能看图的模型收到图片时，会先用一个能看图的模型把图片转述成文字。
     vision: true
+    # 上下文长度（token），0 表示自动识别（服务商接口 → 常见模型表 → 64000）
+    context_tokens: 0
   # 后台任务模型（记忆提取与打分），留空的字段沿用 chat 的配置，可换成更便宜的模型
   utility:
     provider: ""
@@ -211,10 +213,11 @@ memory:
     ttl: 30m
 
 chat:
-  history_messages: 20      # 提示词中带上的最近消息条数
-  max_context_tokens: 6000  # 提示词的近似 token 预算
-  # 长对话中较早的消息由辅助模型整理成摘要放进提示词，聊久了也记得前面说过什么
+  # 提示词的预算按模型的上下文长度（llm.chat.context_tokens）计算。
+  # 长对话压缩：上下文快用满时，较早的消息由辅助模型整理成摘要，聊久了也记得前面说过什么
   summarize: true
+  compact_at: 80   # 一轮用掉的上下文超过这个百分比时，下一条消息处理前先压缩
+  keep_recent: 20  # 压缩后最近约这个百分比的消息保留原文
 
 persona:
   # 人格档案文件，留空使用内置的"布谷"

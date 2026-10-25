@@ -109,6 +109,7 @@ type fakeModels struct {
 	tools    bool
 	style    string
 	helper   *models.Resolved
+	context  int
 }
 
 func (f *fakeModels) Resolve(_ context.Context, _ models.User, id *uint64) (*models.Resolved, error) {
@@ -117,7 +118,7 @@ func (f *fakeModels) Resolve(_ context.Context, _ models.User, id *uint64) (*mod
 		rid = *id
 	}
 	return &models.Resolved{ID: rid, Name: "测试模型", Model: "fake-chat", Chat: f.chat, Personal: f.personal,
-		Vision: f.vision, Tools: f.tools, ThinkingStyle: f.style}, nil
+		Vision: f.vision, Tools: f.tools, ThinkingStyle: f.style, ContextTokens: f.context}, nil
 }
 
 func (f *fakeModels) VisionHelper(context.Context, models.User) (*models.Resolved, error) {
@@ -701,40 +702,98 @@ func TestConversationSummary(t *testing.T) {
 	e := newEnv(t, config.QuotaConfig{})
 	fs := &fakeSummarizer{}
 	e.svc.summarizer = fs
-	e.svc.cfg.HistoryMessages = 4
+	e.models.context = 8000 // 上下文 8000：用到 6400（80%）后压缩，保留约 1600 的原文
+	long := strings.Repeat("长", 500)
 	var convID uint64
-	// 每轮 2 条消息：第 6 轮后未整理的消息有 12 条（≥ 4 + 8），把较早的 8 条整理进摘要。
-	for i := 1; i <= 6; i++ {
-		res, err := e.svc.Send(ctx, e.user, SendInput{ConversationID: convID, Content: fmt.Sprintf("第%d句", i)}, &recordSink{})
+	rounds := 0
+	for ; rounds < 20; rounds++ {
+		res, err := e.svc.Send(ctx, e.user, SendInput{ConversationID: convID, Content: fmt.Sprintf("第%d句%s", rounds+1, long)}, &recordSink{})
 		if err != nil {
 			t.Fatal(err)
 		}
 		convID = res.Conversation.ID
-		e.svc.Wait()
+		if c, _ := e.db.Conversations().Get(ctx, e.user.ID, convID); c.CompactPending {
+			break
+		}
 	}
-	if len(fs.calls) != 1 || len(fs.calls[0]) != 8 || fs.prev[0] != "" {
+	if len(fs.calls) != 0 || rounds < 5 {
+		t.Fatalf("超过阈值的这一轮照常回复，不应压缩：rounds=%d calls=%d", rounds, len(fs.calls))
+	}
+	st, _ := e.svc.Context(ctx, e.user, convID)
+	if !st.Pending || st.Size != 8000 || st.Percent < 70 || st.CompactAt != 80 {
+		t.Fatalf("%+v", st)
+	}
+	// 下一条消息处理前先压缩：较早的整理进摘要，最近约 20% 保留原文。
+	if _, err := e.svc.Send(ctx, e.user, SendInput{ConversationID: convID, Content: "接着说"}, &recordSink{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(fs.calls) != 1 || fs.prev[0] != "" {
 		t.Fatalf("calls=%d", len(fs.calls))
 	}
 	conv, _ := e.db.Conversations().Get(ctx, e.user.ID, convID)
-	if conv.Summary == "" || conv.SummaryUntil != fs.calls[0][7].ID {
+	folded := fs.calls[0]
+	if conv.Summary == "" || conv.SummaryUntil != folded[len(folded)-1].ID || conv.CompactPending {
 		t.Fatalf("conv=%+v", conv)
 	}
-	// 下一轮：提示词带上摘要，已经整理的消息不再出现。
-	if _, err := e.svc.Send(ctx, e.user, SendInput{ConversationID: convID, Content: "第7句"}, &recordSink{}); err != nil {
-		t.Fatal(err)
-	}
-	e.svc.Wait()
 	req := e.chat.reqs[len(e.chat.reqs)-1]
 	if !strings.Contains(req.Messages[0].Content, "这段对话之前聊过的") || !strings.Contains(req.Messages[0].Content, conv.Summary) {
 		t.Fatal("系统提示词应带上摘要")
 	}
-	for _, m := range req.Messages[1:] {
-		if m.Content == "第1句" || m.Content == "第4句" {
-			t.Fatalf("已整理的消息不应出现: %q", m.Content)
+	if hasPrefix(req.Messages, "第1句") {
+		t.Fatal("已整理的消息不应出现")
+	}
+	if !hasPrefix(req.Messages, fmt.Sprintf("第%d句", rounds+1)) || req.Messages[len(req.Messages)-1].Content != "接着说" {
+		t.Fatal("最近的消息应原样保留")
+	}
+	// 手动压缩：只剩最近的消息时没有可压缩的。
+	if _, err := e.svc.Compact(ctx, e.user, convID); err != nil && !errors.Is(err, ErrNothingToCompact) {
+		t.Fatal(err)
+	}
+	if st, _ := e.svc.Context(ctx, e.user, convID); !st.Summarized || st.Summary != conv.Summary && len(fs.calls) == 1 {
+		t.Fatalf("%+v", st)
+	}
+	// 关掉摘要时不能压缩。
+	e.svc.summarizer = nil
+	if _, err := e.svc.Compact(ctx, e.user, convID); !errors.Is(err, ErrSummaryDisabled) {
+		t.Fatal(err)
+	}
+}
+
+func hasPrefix(msgs []llm.Message, s string) bool {
+	for _, m := range msgs {
+		if strings.HasPrefix(m.Content, s) {
+			return true
 		}
 	}
-	if req.Messages[len(req.Messages)-1].Content != "第7句" || !hasContent(req.Messages, "第5句") {
-		t.Fatalf("未整理的消息应原样保留: %+v", req.Messages)
+	return false
+}
+
+// 工具记录的要点放回历史：下一轮还能用上当时的结果。
+func TestToolNotesInHistory(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, config.QuotaConfig{})
+	e.models.tools = true
+	e.chat.script = []*fakeStream{
+		{chunks: []llm.Chunk{{ToolCalls: []llm.ToolCallDelta{{Index: 0, ID: "c1", Name: "run_python", Arguments: `{"code":"print(1111*1111)"}`}}}}},
+		{chunks: []llm.Chunk{{Delta: "算好了"}}},
+	}
+	res, err := e.svc.Send(ctx, e.user, SendInput{Content: "算一下"}, &recordSink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.chat.script = nil
+	if _, err := e.svc.Send(ctx, e.user, SendInput{ConversationID: res.Conversation.ID, Content: "刚才结果是多少"}, &recordSink{}); err != nil {
+		t.Fatal(err)
+	}
+	req := e.chat.reqs[len(e.chat.reqs)-1]
+	var asst string
+	for _, m := range req.Messages {
+		if m.Role == llm.RoleAssistant && strings.Contains(m.Content, "算好了") {
+			asst = m.Content
+		}
+	}
+	if !strings.Contains(asst, "〔工具记录") || !strings.Contains(asst, "运行代码「print(1111*1111)」") || !strings.Contains(asst, "1234567") {
+		t.Fatalf("%q", asst)
 	}
 }
 

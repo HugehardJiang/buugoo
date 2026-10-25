@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api, ApiError, type ModelInput, type ModelView, type TestResult, type ThinkingStyle } from '../api'
 import { session } from '../session'
 import { toast } from '../toast'
@@ -30,8 +30,19 @@ const blank = (): ModelInput => ({
   thinking_model: '',
   temperature: 0.8,
   max_tokens: 0,
+  context_tokens: 0,
   public: false,
 })
+// 上下文长度在表单里以十万 token 为单位填写，留空表示自动识别。
+const contextUnits = ref('')
+watch(contextUnits, (v) => {
+  const n = parseFloat(v)
+  form.context_tokens = v.trim() === '' || !(n > 0) ? 0 : Math.round(n * 100000)
+})
+const sourceLabels: Record<string, string> = { manual: '手动填写', api: '服务商接口', table: '常见模型表', default: '识别不出，按默认' }
+function wan(n: number) {
+  return n >= 10000 ? `${Math.round(n / 1000) / 10} 万` : String(n)
+}
 const form = reactive<ModelInput>(blank())
 
 // 常见服务的预设，选中后自动填写地址、模型名与思考方式，仍可修改。
@@ -76,9 +87,10 @@ function openForm(m: ModelView | null) {
     Object.assign(form, {
       name: m.name, base_url: m.base_url, model: m.model, thinking_style: m.thinking_style,
       thinking_model: m.thinking_model, temperature: m.temperature, max_tokens: m.max_tokens, public: m.scope === 'public',
-      vision: m.vision, tools: m.tools,
+      vision: m.vision, tools: m.tools, context_tokens: m.context_tokens,
     })
   }
+  contextUnits.value = form.context_tokens > 0 ? String(form.context_tokens / 100000) : ''
   testResult.value = null
   formError.value = ''
   formOpen.value = true
@@ -198,7 +210,7 @@ defineExpose({ load })
           <span v-if="scopeLabel(m)" class="badge-pill">{{ scopeLabel(m) }}</span>
         </div>
         <p class="caption">
-          {{ m.model }}<template v-if="m.thinking_style !== 'none'"> · 可调思考</template><template v-if="m.vision"> · 能看图</template><template v-if="m.tools"> · 可用工具</template> · {{ m.base_url }} · Key {{ m.key_mask || '未填写' }}
+          {{ m.model }} · 上下文 {{ wan(m.context.tokens) }}<template v-if="m.thinking_style !== 'none'"> · 可调思考</template><template v-if="m.vision"> · 能看图</template><template v-if="m.tools"> · 可用工具</template> · {{ m.base_url }} · Key {{ m.key_mask || '未填写' }}
         </p>
         <p v-if="rowTest[m.id]" class="caption test-line">{{ rowTest[m.id] }}</p>
       </div>
@@ -277,6 +289,17 @@ defineExpose({ load })
             <p class="field__hint">0 表示使用服务的默认值。</p>
           </div>
         </div>
+        <div class="field">
+          <label class="field__label" for="m-ctx">上下文长度</label>
+          <div class="ctx-row">
+            <input id="m-ctx" v-model="contextUnits" class="text-input" type="number" min="0" step="0.01" placeholder="留空自动识别" />
+            <span class="caption">× 10 万 token<template v-if="form.context_tokens"> = {{ wan(form.context_tokens) }}</template></span>
+          </div>
+          <p class="field__hint">
+            例如 1.28 表示 12.8 万。留空时自动识别（先问服务商接口，再查常见模型表），识别不出按 6.4 万算。
+            <template v-if="editing && !form.context_tokens">现在识别的是 {{ wan(editing.context.tokens) }}（{{ sourceLabels[editing.context.source] }}）。</template>
+          </p>
+        </div>
         <label class="check-row">
           <input v-model="form.vision" type="checkbox" />
           <span>能看图（多模态）：图片直接交给这个模型；不勾选时，图片会先由其他能看图的模型转述成文字</span>
@@ -314,6 +337,8 @@ defineExpose({ load })
 </template>
 
 <style scoped>
+.ctx-row { display: flex; align-items: center; gap: 10px; }
+.ctx-row .text-input { max-width: 160px; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .panel-head h2 { margin: 0; }
 .intro { margin: 0 0 16px; font-size: 14px; line-height: 1.65; }

@@ -22,12 +22,17 @@ import (
 
 // Field 是一个设置项。
 type Field struct {
-	Key     string   `json:"key"`
-	Group   string   `json:"group"`
-	Label   string   `json:"label"`
-	Help    string   `json:"help,omitempty"`
-	Type    string   `json:"type"` // string | bool | int | float | duration | list | select | secret
-	Options []string `json:"options,omitempty"`
+	Key   string `json:"key"`
+	Group string `json:"group"`
+	Label string `json:"label"`
+	Help  string `json:"help,omitempty"`
+	Type  string `json:"type"` // string | bool | int | float | duration | list | select | secret | context
+	// Section 是所在的小节，Advanced 表示是不常用的高级设置（默认折叠），Order 是排列顺序，Unit 是数字的单位。
+	Section  string   `json:"section"`
+	Advanced bool     `json:"advanced,omitempty"`
+	Order    int      `json:"order"`
+	Unit     string   `json:"unit,omitempty"`
+	Options  []string `json:"options,omitempty"`
 	// Value 是当前生效（正在运行）的值；密钥类只给出是否已设置。
 	Value any `json:"value"`
 	// Saved 是网页设置文件中保存的值（与运行中不同表示待重启生效）。
@@ -85,6 +90,8 @@ func fieldType(key string, f reflect.Value) string {
 		return "secret"
 	case f.Type() == durationType:
 		return "duration"
+	case strings.HasSuffix(key, ".context_tokens"):
+		return "context" // 上下文长度：网页上以十万 token 为单位填写
 	}
 	if m, ok := meta[key]; ok && len(m.options) > 0 {
 		return "select"
@@ -117,7 +124,9 @@ func display(key string, f reflect.Value) any {
 		}
 		return out
 	case f.Kind() == reflect.Float32:
-		return float64(float32(f.Float()))
+		// float32 转成 float64 会带出 0.800000011920929 这样的尾巴，按 float32 的精度取整。
+		v, _ := strconv.ParseFloat(strconv.FormatFloat(f.Float(), 'g', -1, 32), 64)
+		return v
 	}
 	return f.Interface()
 }
@@ -130,9 +139,13 @@ func Fields(cfg *config.Config) ([]Field, error) {
 	}
 	var out []Field
 	walk(reflect.ValueOf(cfg).Elem(), "", func(key string, f reflect.Value) {
+		if hidden[key] {
+			return
+		}
 		m := meta[key]
-		fd := Field{Key: key, Group: groupOf(key), Label: m.label, Help: m.help, Type: fieldType(key, f),
-			Options: m.options, Value: display(key, f), Env: cfg.FromEnv(key)}
+		p := placeOf(key)
+		fd := Field{Key: key, Group: p.group, Section: p.section, Advanced: p.advanced, Order: p.order, Unit: units[key],
+			Label: m.label, Help: m.help, Type: fieldType(key, f), Options: m.options, Value: display(key, f), Env: cfg.FromEnv(key)}
 		if fd.Label == "" {
 			fd.Label = key
 		}
@@ -152,16 +165,8 @@ func Fields(cfg *config.Config) ([]Field, error) {
 		}
 		out = append(out, fd)
 	})
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Order < out[j].Order })
 	return out, nil
-}
-
-func groupOf(key string) string {
-	top := strings.SplitN(key, ".", 2)[0]
-	switch key {
-	case "mode", "data_dir", "timezone":
-		top = "general"
-	}
-	return top
 }
 
 // sameValue 比较运行中的值与保存的值。
@@ -255,7 +260,9 @@ func yamlValue(f reflect.Value) any {
 	case f.Type() == durationType:
 		return time.Duration(f.Int()).String()
 	case f.Kind() == reflect.Float32:
-		return float64(float32(f.Float()))
+		// float32 转成 float64 会带出 0.800000011920929 这样的尾巴，按 float32 的精度取整。
+		v, _ := strconv.ParseFloat(strconv.FormatFloat(f.Float(), 'g', -1, 32), 64)
+		return v
 	}
 	return f.Interface()
 }

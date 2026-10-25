@@ -226,24 +226,14 @@ type turnInput struct {
 }
 
 func (s *Service) prepare(ctx context.Context, u *store.User, conv *store.Conversation, in turnInput) (*prepared, error) {
-	// 已经整理进摘要的消息不再原样放进提示词；未整理的最多比历史条数多 summarySlack 条。
-	limit := s.cfg.HistoryMessages
-	if s.summarizer != nil {
-		limit += summarySlack
-	}
-	history, err := s.store.Messages().Recent(ctx, u.ID, conv.ID, limit)
+	// 已经整理进摘要的消息不再原样放进提示词；之后的消息全部放进去，按模型的上下文长度预算（超出时舍弃最早的）。
+	history, err := s.unsummarized(ctx, u, conv)
 	if err != nil {
 		return nil, fmt.Errorf("读取对话历史: %w", err)
 	}
-	if conv.SummaryUntil > 0 {
-		i := 0
-		for i < len(history) && history[i].ID <= conv.SummaryUntil {
-			i++
-		}
-		history = history[i:]
-	}
 	vision := in.model != nil && in.model.Vision
-	history, histImages := s.renderHistory(ctx, u, history, vision)
+	history, histImages := s.renderHistory(ctx, u, withToolNotes(history), vision)
+	_, budget := contextSize(in.model)
 	userText, images, err := s.renderAttachments(in.content, in.attachments, vision, s.docChars())
 	if err != nil {
 		return nil, err
@@ -262,6 +252,7 @@ func (s *Service) prepare(ctx context.Context, u *store.User, conv *store.Conver
 		Emotion:       in.emotion,
 		Preset:        persona.Find(u.PersonaPreset, s.disabled),
 		Summary:       conv.Summary,
+		MaxTokens:     budget,
 	})
 	return &prepared{conv: conv, history: history, prompt: p, userText: userText, images: images}, nil
 }
@@ -340,6 +331,12 @@ func (s *Service) Send(ctx context.Context, u *store.User, in SendInput, sink Si
 	if err != nil {
 		return nil, err
 	}
+	// 上一轮用的上下文超过了阈值：先压缩，再处理这条消息。压缩失败不影响聊天（超出预算时会舍弃最早的消息）。
+	if conv.CompactPending && s.summarizer != nil {
+		if err := s.compact(ctx, u, conv, model); err != nil && !errors.Is(err, ErrNothingToCompact) && !errors.Is(err, ErrCompacting) {
+			s.log.Warn("自动压缩上下文失败", "user_id", u.ID, "conversation_id", conv.ID, "err", err)
+		}
+	}
 	if err := s.describeImages(ctx, u, model, atts); err != nil {
 		return nil, err
 	}
@@ -410,6 +407,10 @@ func (s *Service) Send(ctx context.Context, u *store.User, in SendInput, sink Si
 	reply.PromptTokens, reply.CompletionTokens = res.Usage.PromptTokens, res.Usage.CompletionTokens
 	if err := s.store.Messages().Finish(bg, reply); err != nil {
 		return res, errors.Join(genErr, fmt.Errorf("保存回复: %w", err))
+	}
+	if reply.Content != "" {
+		// 这一轮大约用了多少上下文：提示词 + 工具结果 + 回复。超过阈值时下一条消息前先压缩。
+		s.recordContext(bg, u, conv, model, p.prompt.EstimatedTokens+t.toolTokens+prompt.EstimateTokens(reply.Content), p.prompt.DroppedHistory > 0)
 	}
 	s.afterReply(bg, u, p, model, userMsg, reply, atts, res.Usage)
 	if genErr != nil {
@@ -709,13 +710,6 @@ func (s *Service) afterReply(ctx context.Context, u *store.User, p *prepared, mo
 	}
 	if reply.Status != store.MessageComplete {
 		return
-	}
-	if s.summarizer != nil {
-		s.bg.Add(1)
-		go func() {
-			defer s.bg.Done()
-			s.maybeSummarize(context.WithoutCancel(ctx), u, p.conv.ID)
-		}()
 	}
 	known := make([]string, 0, len(p.prompt.UsedMemories))
 	for _, m := range p.prompt.UsedMemories {

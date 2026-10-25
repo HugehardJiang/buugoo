@@ -152,6 +152,20 @@ export interface Conversation {
   channel?: 'weixin' | 'qq' | 'telegram'
 }
 
+// ContextStatus 是一段对话的上下文用量。
+export interface ContextStatus {
+  used: number
+  size: number
+  percent: number
+  compact_at: number
+  keep_recent: number
+  pending: boolean
+  summary: string
+  summarized: boolean
+  enabled: boolean
+  model: string
+}
+
 export interface ModelView {
   id: number
   name: string
@@ -163,6 +177,9 @@ export interface ModelView {
   max_tokens: number
   vision: boolean
   tools: boolean
+  // context_tokens 是手动填写的上下文长度（0 自动识别），context 是实际使用的长度与来源
+  context_tokens: number
+  context: { tokens: number; source: 'manual' | 'api' | 'table' | 'default' }
   scope: 'builtin' | 'public' | 'personal'
   is_default: boolean
   key_mask: string
@@ -180,6 +197,7 @@ export interface ModelInput {
   max_tokens: number
   vision: boolean
   tools: boolean
+  context_tokens: number
   public: boolean
 }
 
@@ -460,6 +478,8 @@ export const api = {
   pauseReminder: (id: number, pause: boolean) => request<Reminder>('POST', `/reminders/${id}/${pause ? 'pause' : 'resume'}`),
   cancelReminder: (id: number) => request<void>('DELETE', `/reminders/${id}`),
   setProactive: (on: boolean) => request<{ on: boolean }>('PUT', '/me/proactive', { on }),
+  context: (conversationId: number) => request<ContextStatus>('GET', `/conversations/${conversationId}/context`),
+  compact: (conversationId: number) => request<ContextStatus>('POST', `/conversations/${conversationId}/compact`),
   latestMessage: (conversationId: number) => request<{ latest_id: number }>('GET', `/conversations/${conversationId}/latest`),
   channels: () => request<{ channels: ChannelInfo[]; bindings: Binding[]; weixin: WeixinUser | null }>('GET', '/channels'),
   weixinLogin: () => request<WeixinLogin>('POST', '/channels/weixin/login'),

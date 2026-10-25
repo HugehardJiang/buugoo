@@ -37,6 +37,7 @@ var meta = map[string]struct {
 	"llm.chat.thinking_model": {"推理模型名", "思考方式为 model_switch 时使用", nil},
 	"llm.chat.vision":         {"能看图", "", nil},
 	"llm.chat.tools":          {"支持工具调用", "联网搜索、读取网页、运行代码", nil},
+	"llm.chat.context_tokens": {"上下文长度", "以 10 万 token 为单位，例如 1.28 表示 12.8 万；留空自动识别（服务商接口 → 常见模型表 → 6.4 万）", nil},
 
 	"llm.utility.provider":       {"协议", "留空的项沿用聊天模型", []string{"", "openai", "anthropic"}},
 	"llm.utility.base_url":       {"Base URL", "留空沿用聊天模型", nil},
@@ -49,6 +50,7 @@ var meta = map[string]struct {
 	"llm.utility.thinking_model": {"推理模型名", "", nil},
 	"llm.utility.vision":         {"能看图", "", nil},
 	"llm.utility.tools":          {"支持工具调用", "", nil},
+	"llm.utility.context_tokens": {"上下文长度", "以 10 万 token 为单位；留空自动识别。整理摘要时会分段，一般不用填", nil},
 
 	"llm.embedding.provider":   {"协议", "", []string{"openai"}},
 	"llm.embedding.base_url":   {"Base URL", "网页「设置 → 向量模型」中保存的设置优先", nil},
@@ -75,9 +77,9 @@ var meta = map[string]struct {
 	"memory.cache.max_bytes":            {"向量缓存大小（字节）", "", nil},
 	"memory.cache.ttl":                  {"向量缓存有效期", "", nil},
 
-	"chat.history_messages":   {"历史消息条数", "每轮放进提示词的最近消息数", nil},
-	"chat.max_context_tokens": {"提示词预算（token）", "", nil},
-	"chat.summarize":          {"长对话摘要", "较早的消息由辅助模型整理成摘要放进提示词，聊久了也记得前面说过什么", nil},
+	"chat.summarize":   {"长对话压缩", "上下文快用满时，较早的消息由辅助模型整理成摘要，聊久了也记得前面说过什么；关掉后放不下的旧消息直接丢掉", nil},
+	"chat.compact_at":  {"自动压缩阈值", "一轮用掉的上下文超过模型上下文长度的这个比例时，这条回复照常发出，下一条消息处理前先压缩（30-95）", nil},
+	"chat.keep_recent": {"压缩后保留原文", "压缩时最近的消息原样保留，大约占上下文长度的这个比例，更早的整理进摘要（5 到自动压缩阈值之间）", nil},
 
 	"persona.file":             {"人格档案文件", "留空使用内置的布谷；管理后台「人格」中保存的人格优先于这里", nil},
 	"persona.disabled_presets": {"关掉的预设性格", "用户不能再选这些预设：gentle 温柔治愈、snarky 毒舌损友、strategist 理性军师、bubbly 元气话痨；已经选了的用户改用默认人格", nil},
@@ -153,31 +155,4 @@ var meta = map[string]struct {
 	"emotion.empathy":        {"共情", "0-3，越大越容易被对方的情绪感染", nil},
 
 	"admin.password": {"管理后台密码", "", nil},
-}
-
-// GroupLabels 是设置分组的中文名，按展示顺序排列。
-var GroupLabels = []struct {
-	Key   string `json:"key"`
-	Label string `json:"label"`
-}{
-	{"general", "基本"},
-	{"server", "网络服务"},
-	{"auth", "登录与注册"},
-	{"llm", "模型（配置文件）"},
-	{"memory", "记忆"},
-	{"emotion", "情绪"},
-	{"chat", "对话"},
-	{"persona", "人格"},
-	{"quota", "每日限额"},
-	{"uploads", "文件上传"},
-	{"tools", "工具"},
-	{"proactive", "主动消息"},
-	{"channels", "聊天软件"},
-	{"security", "安全"},
-	{"database", "数据库"},
-	{"scheduler", "定时任务"},
-	{"update", "更新"},
-	{"log", "日志"},
-	{"debug", "调试"},
-	{"admin", "管理后台"},
 }

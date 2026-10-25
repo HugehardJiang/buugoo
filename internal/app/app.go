@@ -135,7 +135,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 			log.Warn("更新情绪失败", "user_id", job.UserID, "err", err)
 		}
 	})
-	builder := prompt.NewBuilder(p, cfg.Chat.MaxContextTokens)
+	builder := prompt.NewBuilder(p, models.DefaultContextTokens)
 	// 管理员在网页上修改人格后立即生效。
 	personas.OnChange(builder.SetPersona)
 	var summarizer chat.Summarizer

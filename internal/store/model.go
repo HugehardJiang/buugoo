@@ -87,6 +87,10 @@ type Conversation struct {
 	SummaryUntil uint64 `gorm:"not null;default:0"`
 	// Channel 是这段对话来自哪个聊天软件（weixin、qq、telegram），网页上的对话为空。
 	Channel string `gorm:"size:16;not null;default:''"`
+	// ContextUsed 是最近一轮大约用了多少上下文（token）；超过压缩阈值时 CompactPending 为 true，
+	// 下一条消息处理前先压缩。
+	ContextUsed    int  `gorm:"not null;default:0"`
+	CompactPending bool `gorm:"not null;default:false"`
 }
 
 // 消息角色。
@@ -159,10 +163,12 @@ type ModelConfig struct {
 	// Vision 表示模型能理解图片。
 	Vision bool `gorm:"not null;default:false"`
 	// Tools 表示模型支持工具调用（联网搜索、运行代码）。
-	Tools     bool `gorm:"not null;default:true"`
-	IsDefault bool `gorm:"not null;default:false"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Tools bool `gorm:"not null;default:true"`
+	// ContextTokens 是上下文长度（token），0 表示自动识别。
+	ContextTokens int  `gorm:"not null;default:0"`
+	IsDefault     bool `gorm:"not null;default:false"`
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // Public 报告是否为公共模型。
