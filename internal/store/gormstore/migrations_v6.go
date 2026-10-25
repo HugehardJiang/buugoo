@@ -9,7 +9,7 @@ import (
 // 以下为 v6 的快照结构体，不得修改。
 
 type v6Conversation struct {
-	Summary      string `gorm:"size:16384"`
+	Summary      string `gorm:"size:4000"`
 	SummaryUntil uint64 `gorm:"not null;default:0"`
 }
 

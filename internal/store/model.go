@@ -83,7 +83,7 @@ type Conversation struct {
 	UpdatedAt     time.Time
 	LastMessageAt *time.Time `gorm:"index:idx_conv_user_last,priority:2"`
 	// Summary 是较早消息的摘要，SummaryUntil 是已经整理进摘要的最后一条消息 ID（之后的消息原样放进提示词）。
-	Summary      string `gorm:"size:16384"`
+	Summary      string `gorm:"size:4000"`
 	SummaryUntil uint64 `gorm:"not null;default:0"`
 }
 
