@@ -25,7 +25,18 @@ type Input struct {
 	Memories    []memory.Scored
 	History     []store.Message // 按时间正序，不含本轮用户消息
 	UserMessage string
+	// UserImages 是本轮随消息发送的图片（只在模型能看图时提供）。
+	UserImages []llm.Image
+	// HistoryImages 是历史消息附带的图片，按消息 ID 索引。
+	HistoryImages map[uint64][]llm.Image
+	// KeepReasoning 为 true 时历史中的助手消息带上思考过程（DeepSeek 使用工具时要求回传）。
+	KeepReasoning bool
+	// ToolHints 是可用工具的使用说明，为空表示没有工具。
+	ToolHints string
 }
+
+// ImageTokens 是一张图片的近似 token 数（用于预算估算）。
+const ImageTokens = 800
 
 // Section 是系统提示词中的一段，用于调试展示。
 type Section struct {
@@ -74,7 +85,11 @@ func (b *Builder) Build(in Input) Prompt {
 		b.section("情境", situationText(in)),
 		b.section("回复要求", replyRulesText(b.persona.Name)),
 	}
-	used := EstimateTokens(in.UserMessage)
+	if in.ToolHints != "" {
+		fixed[2].Content += "\n\n" + in.ToolHints
+		fixed[2].Tokens = EstimateTokens(fixed[2].Content)
+	}
+	used := EstimateTokens(in.UserMessage) + ImageTokens*len(in.UserImages)
 	for _, s := range fixed {
 		used += s.Tokens
 	}
@@ -108,7 +123,10 @@ func (b *Builder) Build(in Input) Prompt {
 		if m.Role != store.RoleUser && m.Role != store.RoleAssistant {
 			continue
 		}
-		cost := EstimateTokens(m.Content) + 4
+		cost := EstimateTokens(m.Content) + 4 + ImageTokens*len(in.HistoryImages[m.ID])
+		if in.KeepReasoning {
+			cost += EstimateTokens(m.Reasoning)
+		}
 		if cost > historyBudget {
 			break
 		}
@@ -124,11 +142,15 @@ func (b *Builder) Build(in Input) Prompt {
 		if strings.TrimSpace(m.Content) == "" {
 			continue
 		}
-		msgs = append(msgs, llm.Message{Role: m.Role, Content: m.Content})
+		msg := llm.Message{Role: m.Role, Content: m.Content, Images: in.HistoryImages[m.ID]}
+		if in.KeepReasoning && m.Role == store.RoleAssistant {
+			msg.Reasoning = m.Reasoning
+		}
+		msgs = append(msgs, msg)
 		p.HistoryIncluded++
 	}
 	p.DroppedHistory = start
-	msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: in.UserMessage})
+	msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: in.UserMessage, Images: in.UserImages})
 	p.Messages = msgs
 	p.EstimatedTokens = used
 	return p
@@ -286,6 +308,9 @@ func (p Prompt) Render() string {
 	}
 	for _, m := range p.Messages {
 		fmt.Fprintf(&s, "\n===== %s =====\n%s\n", m.Role, m.Content)
+		for _, img := range m.Images {
+			fmt.Fprintf(&s, "[图片：%s]\n", img.Name)
+		}
 	}
 	return s.String()
 }

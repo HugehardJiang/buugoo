@@ -23,6 +23,7 @@ import (
 //	start     {"conversation": {...}, "user_message", "assistant_message_id", "model": {"id", "name"}}
 //	memories  {"memories": [...]}  本轮使用的记忆及得分
 //	reasoning {"text": "..."}      思考过程增量（开启思考时），可能有多个
+//	tool      {"id", "name", "label", "status", "input", "summary", "detail"}  工具调用的开始（running）与结果（done/error）
 //	delta     {"text": "..."}      回复增量，可能有多个
 //	done      {"message": {...}, "usage": {...}}
 //	error     {"error": {"code", "message"}}  出错时代替 done
@@ -30,16 +31,17 @@ import (
 // conversation_id 为空时使用最近的对话。stream 为 false 时一次性返回 JSON。
 func (s *server) chat(c echo.Context) error {
 	var req struct {
-		ConversationID uint64 `json:"conversation_id"`
-		Content        string `json:"content"`
-		Stream         *bool  `json:"stream"`
+		ConversationID uint64   `json:"conversation_id"`
+		Content        string   `json:"content"`
+		AttachmentIDs  []uint64 `json:"attachment_ids"`
+		Stream         *bool    `json:"stream"`
 	}
 	if err := bind(c, &req); err != nil {
 		return err
 	}
 	ctx := c.Request().Context()
 	u := currentUser(c)
-	in := chat.SendInput{ConversationID: req.ConversationID, Content: req.Content}
+	in := chat.SendInput{ConversationID: req.ConversationID, Content: req.Content, AttachmentIDs: req.AttachmentIDs}
 
 	if req.Stream != nil && !*req.Stream {
 		res, err := s.Chat.Send(ctx, u, in, nopSink{})
@@ -51,7 +53,7 @@ func (s *server) chat(c echo.Context) error {
 		}
 		return c.JSON(http.StatusOK, map[string]any{
 			"conversation_id": res.Conversation.ID,
-			"user_message":    toMessage(res.UserMessage),
+			"user_message":    userMessage(res.UserMessage, res.Attachments),
 			"message":         toMessage(res.Reply),
 			"memories":        toUsedMemories(res.Memories),
 			"usage":           res.Usage,
@@ -100,6 +102,15 @@ func (nopSink) Start(*store.Conversation, *store.Message, *store.Message, *model
 func (nopSink) Memories([]memory.Scored) error { return nil }
 func (nopSink) Reasoning(string) error         { return nil }
 func (nopSink) Delta(string) error             { return nil }
+func (nopSink) Tool(chat.ToolEvent) error      { return nil }
+
+func userMessage(m *store.Message, atts []store.Attachment) messageDTO {
+	d := toMessage(m)
+	if len(atts) > 0 {
+		d.Attachments = toAttachments(atts)
+	}
+	return d
+}
 
 // sseWriter 实现 chat.Sink，把事件写为 Server-Sent Events，并定时发送心跳。
 type sseWriter struct {
@@ -142,6 +153,10 @@ func (s *sseWriter) Reasoning(text string) error {
 
 func (s *sseWriter) Delta(text string) error {
 	return s.send("delta", map[string]string{"text": text})
+}
+
+func (s *sseWriter) Tool(ev chat.ToolEvent) error {
+	return s.send("tool", ev)
 }
 
 func (s *sseWriter) send(event string, data any) error {

@@ -46,18 +46,44 @@ func toSession(s *auth.Session) sessionDTO {
 }
 
 type messageDTO struct {
-	ID        uint64    `json:"id"`
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	Reasoning string    `json:"reasoning,omitempty"`
-	Model     string    `json:"model,omitempty"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
+	ID          uint64           `json:"id"`
+	Role        string           `json:"role"`
+	Content     string           `json:"content"`
+	Reasoning   string           `json:"reasoning,omitempty"`
+	Model       string           `json:"model,omitempty"`
+	Status      string           `json:"status"`
+	Attachments []attachmentDTO  `json:"attachments,omitempty"`
+	Tools       []chat.ToolEvent `json:"tools,omitempty"`
+	CreatedAt   time.Time        `json:"created_at"`
 }
 
 func toMessage(m *store.Message) messageDTO {
-	return messageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Reasoning: m.Reasoning, Model: m.Model,
+	d := messageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Reasoning: m.Reasoning, Model: m.Model,
 		Status: m.Status, CreatedAt: m.CreatedAt}
+	if m.ToolLog != "" {
+		_ = json.Unmarshal([]byte(m.ToolLog), &d.Tools)
+	}
+	return d
+}
+
+type attachmentDTO struct {
+	ID       uint64 `json:"id"`
+	Kind     string `json:"kind"`
+	Filename string `json:"filename"`
+	MIME     string `json:"mime"`
+	Size     int64  `json:"size"`
+}
+
+func toAttachment(a *store.Attachment) attachmentDTO {
+	return attachmentDTO{ID: a.ID, Kind: a.Kind, Filename: a.Filename, MIME: a.MIME, Size: a.Size}
+}
+
+func toAttachments(list []store.Attachment) []attachmentDTO {
+	out := make([]attachmentDTO, len(list))
+	for i := range list {
+		out[i] = toAttachment(&list[i])
+	}
+	return out
 }
 
 type conversationDTO struct {
@@ -339,13 +365,18 @@ func (s *server) messages(c echo.Context, convID uint64) error {
 			return badRequest("before_id 无效")
 		}
 	}
-	conv, msgs, err := s.Chat.History(c.Request().Context(), currentUser(c), convID, before, limit)
+	ctx, u := c.Request().Context(), currentUser(c)
+	conv, msgs, err := s.Chat.History(ctx, u, convID, before, limit)
 	if err != nil {
 		return err
 	}
+	atts := s.Chat.MessageAttachments(ctx, u, msgs)
 	out := make([]messageDTO, len(msgs))
 	for i := range msgs {
 		out[i] = toMessage(&msgs[i])
+		if list := atts[msgs[i].ID]; len(list) > 0 {
+			out[i].Attachments = toAttachments(list)
+		}
 	}
 	return c.JSON(http.StatusOK, map[string]any{
 		"conversation_id": conv.ID,

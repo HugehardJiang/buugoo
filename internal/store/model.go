@@ -104,9 +104,12 @@ type Message struct {
 	PromptTokens     int    `gorm:"not null;default:0"`
 	CompletionTokens int    `gorm:"not null;default:0"`
 	Status           string `gorm:"size:16;not null;default:'complete'"`
-	// Reasoning 是模型的思考过程，只用于展示，不会放进之后的提示词，也不参与记忆提取。
+	// Reasoning 是模型的思考过程，用于展示；DeepSeek 使用工具时按要求回传，其他情况不放进之后的提示词。
+	// 不参与记忆提取。
 	Reasoning string  `gorm:"size:65536"`
 	ModelID   *uint64 ``
+	// ToolLog 是本轮回复中的工具调用记录（JSON 数组，见 chat.ToolRecord），用于展示。
+	ToolLog   string `gorm:"size:65536"`
 	CreatedAt time.Time
 }
 
@@ -115,13 +118,14 @@ const (
 	ThinkingStyleNone      = "none"             // 不支持
 	ThinkingStyleEffort    = "reasoning_effort" // OpenAI 风格：reasoning_effort = low | medium | high
 	ThinkingStyleEnable    = "enable_thinking"  // 通义千问 / 硅基流动风格：enable_thinking + thinking_budget
-	ThinkingStyleSwitchMod = "model_switch"     // 换用单独的推理模型（如 DeepSeek 的 deepseek-reasoner）
+	ThinkingStyleSwitchMod = "model_switch"     // 换用单独的推理模型（旧版 DeepSeek 的 deepseek-reasoner）
+	ThinkingStyleDeepSeek  = "deepseek"         // DeepSeek：thinking.type + reasoning_effort = low | high | max
 )
 
 // ValidThinkingStyle 报告思考参数格式是否合法。
 func ValidThinkingStyle(s string) bool {
 	switch s {
-	case ThinkingStyleNone, ThinkingStyleEffort, ThinkingStyleEnable, ThinkingStyleSwitchMod:
+	case ThinkingStyleNone, ThinkingStyleEffort, ThinkingStyleEnable, ThinkingStyleSwitchMod, ThinkingStyleDeepSeek:
 		return true
 	}
 	return false
@@ -142,13 +146,43 @@ type ModelConfig struct {
 	ThinkingModel string  `gorm:"size:128;not null;default:''"`
 	Temperature   float64 `gorm:"not null;default:0.8"`
 	MaxTokens     int     `gorm:"not null;default:1024"`
-	IsDefault     bool    `gorm:"not null;default:false"`
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	// Vision 表示模型能理解图片。
+	Vision bool `gorm:"not null;default:false"`
+	// Tools 表示模型支持工具调用（联网搜索、运行代码）。
+	Tools     bool `gorm:"not null;default:true"`
+	IsDefault bool `gorm:"not null;default:false"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Public 报告是否为公共模型。
 func (m *ModelConfig) Public() bool { return m.OwnerID == PublicOwner }
+
+// 附件类型。
+const (
+	AttachmentImage    = "image"
+	AttachmentDocument = "document"
+)
+
+// Attachment 是聊天中上传的文件。上传后先处于未发送状态（MessageID 为空），随消息发送后关联到用户消息。
+// 文件本身存放在上传目录中，Path 是相对路径。
+type Attachment struct {
+	ID             uint64  `gorm:"primaryKey"`
+	UserID         uint64  `gorm:"index;not null"`
+	ConversationID *uint64 `gorm:"index"`
+	MessageID      *uint64 `gorm:"index"`
+	Kind           string  `gorm:"size:16;not null"`
+	Filename       string  `gorm:"size:255;not null"`
+	MIME           string  `gorm:"column:mime;size:128;not null"`
+	Size           int64   `gorm:"not null"`
+	Path           string  `gorm:"size:512;not null"`
+	SHA256         string  `gorm:"column:sha256;size:64;not null"`
+	// Text 是从文档中提取的文字（图片为空）。
+	Text string `gorm:"size:16777215"`
+	// Description 是看图模型对图片的文字描述，供不能看图的模型和记忆提取使用；生成后缓存。
+	Description string `gorm:"size:8192"`
+	CreatedAt   time.Time
+}
 
 // 记忆类型。
 const (

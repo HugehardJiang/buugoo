@@ -199,8 +199,10 @@ type chatRequest struct {
 	Model           string         `json:"model"`
 	ReasoningEffort string         `json:"reasoning_effort,omitempty"`
 	EnableThinking  *bool          `json:"enable_thinking,omitempty"`
+	Thinking        *thinkingParam `json:"thinking,omitempty"`
 	ThinkingBudget  int            `json:"thinking_budget,omitempty"`
-	Messages        []llm.Message  `json:"messages"`
+	Messages        []wireMessage  `json:"messages"`
+	Tools           []wireTool     `json:"tools,omitempty"`
 	Temperature     *float32       `json:"temperature,omitempty"`
 	MaxTokens       int            `json:"max_tokens,omitempty"`
 	Stream          bool           `json:"stream,omitempty"`
@@ -216,10 +218,80 @@ type respFormat struct {
 	Type string `json:"type"`
 }
 
+// wireMessage 是 OpenAI 格式的消息。Content 为字符串，或带图片时为内容块数组。
+type wireMessage struct {
+	Role             string         `json:"role"`
+	Content          any            `json:"content"`
+	ReasoningContent string         `json:"reasoning_content,omitempty"`
+	ToolCalls        []wireToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string         `json:"tool_call_id,omitempty"`
+}
+
+type wirePart struct {
+	Type     string    `json:"type"`
+	Text     string    `json:"text,omitempty"`
+	ImageURL *imageURL `json:"image_url,omitempty"`
+}
+
+type imageURL struct {
+	URL string `json:"url"`
+}
+
+type wireToolCall struct {
+	Index    *int         `json:"index,omitempty"`
+	ID       string       `json:"id,omitempty"`
+	Type     string       `json:"type,omitempty"`
+	Function wireFunction `json:"function"`
+}
+
+type wireFunction struct {
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments"`
+}
+
+type wireTool struct {
+	Type     string      `json:"type"`
+	Function wireToolDef `json:"function"`
+}
+
+type wireToolDef struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"`
+}
+
+// wireMessages 转换为 OpenAI 格式。思考过程只在 DeepSeek 格式下回传（DeepSeek 使用工具时要求回传，
+// 其他服务可能不接受这个字段）。
+func (c *Chat) wireMessages(msgs []llm.Message) []wireMessage {
+	out := make([]wireMessage, 0, len(msgs))
+	for _, m := range msgs {
+		w := wireMessage{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID}
+		if len(m.Images) > 0 {
+			parts := make([]wirePart, 0, len(m.Images)+1)
+			if m.Content != "" {
+				parts = append(parts, wirePart{Type: "text", Text: m.Content})
+			}
+			for _, img := range m.Images {
+				parts = append(parts, wirePart{Type: "image_url", ImageURL: &imageURL{URL: img.URL}})
+			}
+			w.Content = parts
+		}
+		if c.cfg.ThinkingStyle == "deepseek" {
+			w.ReasoningContent = m.Reasoning
+		}
+		for _, tc := range m.ToolCalls {
+			w.ToolCalls = append(w.ToolCalls, wireToolCall{ID: tc.ID, Type: "function",
+				Function: wireFunction{Name: tc.Name, Arguments: tc.Arguments}})
+		}
+		out = append(out, w)
+	}
+	return out
+}
+
 func (c *Chat) build(req llm.ChatRequest, stream bool) chatRequest {
 	r := chatRequest{
 		Model:       req.Model,
-		Messages:    req.Messages,
+		Messages:    c.wireMessages(req.Messages),
 		Temperature: req.Temperature,
 		MaxTokens:   req.MaxTokens,
 		Stream:      stream,
@@ -240,9 +312,20 @@ func (c *Chat) build(req llm.ChatRequest, stream bool) chatRequest {
 	if req.JSON {
 		r.ResponseFormat = &respFormat{Type: "json_object"}
 	}
+	for _, t := range req.Tools {
+		r.Tools = append(r.Tools, wireTool{Type: "function", Function: wireToolDef{Name: t.Name, Description: t.Description, Parameters: t.Parameters}})
+	}
 	c.applyThinking(&r, req.Thinking)
 	return r
 }
+
+// thinkingParam 是 DeepSeek 的思考开关：{"type": "enabled" | "disabled"}。
+type thinkingParam struct {
+	Type string `json:"type"`
+}
+
+// deepseekEffort 把思考等级映射为 DeepSeek 的 reasoning_effort（只有 low、high、max 三档）。
+var deepseekEffort = map[string]string{"low": "low", "medium": "high", "high": "max"}
 
 // thinkingBudget 是 enable_thinking 方式下各等级的思考 token 预算。
 var thinkingBudget = map[string]int{"low": 1024, "medium": 4096, "high": 16384}
@@ -266,6 +349,19 @@ func (c *Chat) applyThinking(r *chatRequest, level string) {
 				r.MaxTokens += r.ThinkingBudget
 			}
 		}
+	case "deepseek":
+		// DeepSeek 默认开启思考，关闭时必须显式传 disabled。思考模式下 temperature 不生效。
+		if !on {
+			r.Thinking = &thinkingParam{Type: "disabled"}
+			return
+		}
+		r.Thinking = &thinkingParam{Type: "enabled"}
+		r.ReasoningEffort = deepseekEffort[level]
+		if r.ReasoningEffort == "" {
+			r.ReasoningEffort = "high"
+		}
+		r.Temperature = nil
+		r.MaxTokens = 0
 	case "model_switch":
 		if on && c.cfg.ThinkingModel != "" {
 			r.Model = c.cfg.ThinkingModel
@@ -279,8 +375,9 @@ type respMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 	// DeepSeek、通义千问、硅基流动使用 reasoning_content；OpenRouter 等使用 reasoning。
-	ReasoningContent string `json:"reasoning_content"`
-	Reasoning        string `json:"reasoning"`
+	ReasoningContent string         `json:"reasoning_content"`
+	Reasoning        string         `json:"reasoning"`
+	ToolCalls        []wireToolCall `json:"tool_calls"`
 }
 
 func (m respMessage) reasoning() string {
@@ -319,7 +416,11 @@ func (c *Chat) Chat(ctx context.Context, req llm.ChatRequest) (*llm.ChatResponse
 	if len(out.Choices) == 0 {
 		return nil, errors.New("模型响应中没有 choices")
 	}
-	r := &llm.ChatResponse{Content: out.Choices[0].Message.Content, Reasoning: out.Choices[0].Message.reasoning(), Model: out.Model}
+	msg := out.Choices[0].Message
+	r := &llm.ChatResponse{Content: msg.Content, Reasoning: msg.reasoning(), Model: out.Model}
+	for _, tc := range msg.ToolCalls {
+		r.ToolCalls = append(r.ToolCalls, llm.ToolCall{ID: tc.ID, Name: tc.Function.Name, Arguments: tc.Function.Arguments})
+	}
 	if fr := out.Choices[0].FinishReason; fr != nil {
 		r.FinishReason = *fr
 	}
@@ -404,7 +505,14 @@ func (s *sseStream) Recv() (llm.Chunk, error) {
 			if ch.FinishReason != nil {
 				c.FinishReason = *ch.FinishReason
 			}
-			if c.Delta != "" || c.Reasoning != "" || c.FinishReason != "" {
+			for i, tc := range ch.Delta.ToolCalls {
+				idx := i
+				if tc.Index != nil {
+					idx = *tc.Index
+				}
+				c.ToolCalls = append(c.ToolCalls, llm.ToolCallDelta{Index: idx, ID: tc.ID, Name: tc.Function.Name, Arguments: tc.Function.Arguments})
+			}
+			if c.Delta != "" || c.Reasoning != "" || c.FinishReason != "" || len(c.ToolCalls) > 0 {
 				s.pending = append(s.pending, c)
 			}
 		}

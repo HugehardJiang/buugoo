@@ -57,14 +57,17 @@ llm:
     provider: openai
     base_url: https://api.deepseek.com/v1
     api_key: ""          # 必填，或使用环境变量 BUUGOO_LLM__CHAT__API_KEY
-    model: deepseek-chat
-    temperature: 0.8
+    model: deepseek-flash  # 或 deepseek-v4-pro
+    temperature: 0.8       # 开启思考时不生效
     max_tokens: 1024
     timeout: 120s
-    # 思考参数格式：none（不支持）| reasoning_effort（OpenAI 风格）|
-    # enable_thinking（通义千问、硅基流动风格）| model_switch（换用 thinking_model 指定的推理模型）
-    thinking_style: model_switch
-    thinking_model: deepseek-reasoner
+    # 思考参数格式：none（不支持）| deepseek（thinking.type + reasoning_effort）|
+    # reasoning_effort（OpenAI 风格）| enable_thinking（通义千问、硅基流动风格）|
+    # model_switch（开启思考时换用 thinking_model 指定的推理模型）
+    thinking_style: deepseek
+    thinking_model: ""
+    # 模型能否理解图片。不能看图的模型收到图片时，会先用一个能看图的模型把图片转述成文字。
+    vision: true
   # 后台任务模型（记忆提取与打分），留空的字段沿用 chat 的配置，可换成更便宜的模型
   utility:
     provider: ""
@@ -88,6 +91,29 @@ llm:
     dim: 0               # 0 表示使用模型默认维度
     batch_size: 32
     timeout: 60s
+
+uploads:
+  # 聊天中上传的图片与文档。留空存放在 <data_dir>/uploads，请与数据库一起备份。
+  dir: ""
+  max_file_mb: 20        # 单个文件上限
+  max_files: 8           # 一条消息最多附带的文件数
+  user_quota_mb: 500     # 每个用户的上传总量上限，0 不限
+  doc_chars: 20000       # 一个文档最多放进对话的字数，超出部分截断
+
+tools:
+  # 聊天中模型可以自己决定联网搜索、读取网页（当前对话的模型是 DeepSeek 时可用，用该模型的 Key）
+  # 以及编写并运行 Python 代码来做精确计算。
+  python:
+    # docker：在一次性容器中运行（断网、只读、限制内存/CPU/时间），所有用户可用。需要服务能使用 docker 命令，
+    #         注意：把服务用户加入 docker 组等同于给它 root 权限。
+    # local ：直接用本机 python3 运行，只限制时间和内存，代码能访问网络和部分文件；multi 模式下只有管理员可用。
+    # off   ：关闭
+    runner: docker
+    image: python:3.12-slim
+    docker: docker
+    python: python3
+    timeout: 30s
+    memory_mb: 256
 
 memory:
   # 检索打分：score = alpha·recency + beta·importance + gamma·relevance

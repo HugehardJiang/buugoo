@@ -61,6 +61,8 @@ type View struct {
 	ThinkingModel string  `json:"thinking_model"`
 	Temperature   float64 `json:"temperature"`
 	MaxTokens     int     `json:"max_tokens"`
+	Vision        bool    `json:"vision"`
+	Tools         bool    `json:"tools"`
 	Scope         string  `json:"scope"`
 	IsDefault     bool    `json:"is_default"`
 	KeyMask       string  `json:"key_mask"`
@@ -77,6 +79,8 @@ type Input struct {
 	ThinkingModel string  `json:"thinking_model"`
 	Temperature   float64 `json:"temperature"`
 	MaxTokens     int     `json:"max_tokens"`
+	Vision        bool    `json:"vision"`
+	Tools         bool    `json:"tools"`
 	// Public 为 true 时添加为公共模型（仅管理员；single 模式下总是公共模型）。
 	Public bool `json:"public"`
 }
@@ -91,6 +95,12 @@ type Resolved struct {
 	Chat          llm.ChatProvider
 	// Personal 为 true 表示使用用户自己的 API Key，不计入每日限额。
 	Personal bool
+	// Vision 表示模型能看图；Tools 表示支持工具调用。
+	Vision bool
+	Tools  bool
+	// BaseURL 与 APIKey 供同一服务商的其他接口使用（例如 DeepSeek 的搜索与抓取），不对外展示。
+	BaseURL string
+	APIKey  string
 }
 
 // ModelFor 返回指定思考等级下实际调用的模型名（「换用推理模型」开启思考时为推理模型）。
@@ -152,7 +162,7 @@ func (s *Service) builtinView(isDefault bool) View {
 	return View{
 		ID: BuiltinID, Name: c.Model, BaseURL: c.BaseURL, Model: c.Model,
 		ThinkingStyle: style, ThinkingModel: c.ThinkingModel, Temperature: float64(c.Temperature), MaxTokens: c.MaxTokens,
-		Scope: ScopeBuiltin, IsDefault: isDefault, KeyMask: secret.Mask(c.APIKey),
+		Vision: c.Vision, Tools: c.Tools, Scope: ScopeBuiltin, IsDefault: isDefault, KeyMask: secret.Mask(c.APIKey),
 	}
 }
 
@@ -170,7 +180,7 @@ func (s *Service) view(m *store.ModelConfig, u User, isDefault bool) View {
 	return View{
 		ID: m.ID, Name: m.Name, BaseURL: m.BaseURL, Model: m.Model, ThinkingStyle: m.ThinkingStyle,
 		ThinkingModel: m.ThinkingModel, Temperature: m.Temperature, MaxTokens: m.MaxTokens,
-		Scope: scope, IsDefault: isDefault, KeyMask: mask, Editable: s.canEdit(m, u),
+		Vision: m.Vision, Tools: m.Tools, Scope: scope, IsDefault: isDefault, KeyMask: mask, Editable: s.canEdit(m, u),
 	}
 }
 
@@ -265,7 +275,8 @@ func (s *Service) resolveID(ctx context.Context, u User, id uint64) (*Resolved, 
 		}
 		c := s.cfg.LLM.Chat
 		return &Resolved{ID: BuiltinID, Name: s.builtinView(false).Name, Model: c.Model,
-			ThinkingStyle: c.ThinkingStyle, ThinkingModel: c.ThinkingModel, Chat: s.newChat(c, false)}, nil
+			ThinkingStyle: c.ThinkingStyle, ThinkingModel: c.ThinkingModel, Chat: s.newChat(c, false),
+			Vision: c.Vision, Tools: c.Tools, BaseURL: c.BaseURL, APIKey: c.APIKey}, nil
 	}
 	m, err := s.store.Models().Get(ctx, id)
 	if err != nil {
@@ -279,6 +290,7 @@ func (s *Service) resolveID(ctx context.Context, u User, id uint64) (*Resolved, 
 		ID: m.ID, Name: m.Name, Model: m.Model, ThinkingStyle: m.ThinkingStyle, ThinkingModel: m.ThinkingModel,
 		Chat:     s.newChat(s.chatConfig(m, key), !m.Public() && s.untrusted(u)),
 		Personal: !m.Public() && !s.singleMode(),
+		Vision:   m.Vision, Tools: m.Tools, BaseURL: m.BaseURL, APIKey: key,
 	}, nil
 }
 
@@ -286,7 +298,7 @@ func (s *Service) chatConfig(m *store.ModelConfig, key string) config.ModelConfi
 	return config.ModelConfig{
 		Provider: "openai", BaseURL: m.BaseURL, APIKey: key, Model: m.Model,
 		Temperature: float32(m.Temperature), MaxTokens: m.MaxTokens, Timeout: 180 * time.Second,
-		ThinkingStyle: m.ThinkingStyle, ThinkingModel: m.ThinkingModel,
+		ThinkingStyle: m.ThinkingStyle, ThinkingModel: m.ThinkingModel, Vision: m.Vision, Tools: m.Tools,
 	}
 }
 
@@ -346,7 +358,7 @@ func (s *Service) Create(ctx context.Context, u User, in Input) (View, error) {
 	m := &store.ModelConfig{
 		OwnerID: owner, Name: in.Name, BaseURL: in.BaseURL, APIKey: sealed, Model: in.Model,
 		ThinkingStyle: in.ThinkingStyle, ThinkingModel: in.ThinkingModel,
-		Temperature: in.Temperature, MaxTokens: in.MaxTokens,
+		Temperature: in.Temperature, MaxTokens: in.MaxTokens, Vision: in.Vision, Tools: in.Tools,
 	}
 	if err := s.store.Models().Create(ctx, m); err != nil {
 		return View{}, err
@@ -388,6 +400,7 @@ func (s *Service) Update(ctx context.Context, u User, id uint64, in Input) (View
 	m.Name, m.BaseURL, m.Model = in.Name, in.BaseURL, in.Model
 	m.ThinkingStyle, m.ThinkingModel = in.ThinkingStyle, in.ThinkingModel
 	m.Temperature, m.MaxTokens = in.Temperature, in.MaxTokens
+	m.Vision, m.Tools = in.Vision, in.Tools
 	if err := s.store.Models().Update(ctx, m); err != nil {
 		return View{}, err
 	}
@@ -502,4 +515,45 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(r[:n]) + "…"
+}
+
+// VisionHelper 返回用来把图片转述成文字的模型：当前用户可用、能看图的模型中，
+// 依次优先默认模型、公共模型（含配置文件模型）、个人模型。没有时返回 ErrNoModel。
+func (s *Service) VisionHelper(ctx context.Context, u User) (*Resolved, error) {
+	ms, err := s.store.Models().ListVisible(ctx, u.ID)
+	if err != nil {
+		return nil, err
+	}
+	def := s.defaultID(ms, u)
+	var cands []uint64
+	builtinVision := s.builtinAvailable() && s.cfg.LLM.Chat.Vision
+	if def == BuiltinID && builtinVision {
+		cands = append(cands, BuiltinID)
+	}
+	for _, m := range ms {
+		if m.ID == def && m.Vision {
+			cands = append(cands, m.ID)
+		}
+	}
+	if builtinVision {
+		cands = append(cands, BuiltinID)
+	}
+	for _, m := range ms {
+		if m.Vision && m.Public() {
+			cands = append(cands, m.ID)
+		}
+	}
+	for _, m := range ms {
+		if m.Vision && !m.Public() {
+			cands = append(cands, m.ID)
+		}
+	}
+	for _, id := range cands {
+		r, err := s.resolveID(ctx, u, id)
+		if err == nil {
+			return r, nil
+		}
+		s.log.Warn("看图模型不可用", "model_id", id, "err", err)
+	}
+	return nil, ErrNoModel
 }

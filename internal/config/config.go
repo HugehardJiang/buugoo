@@ -62,10 +62,22 @@ type Config struct {
 	Log       LogConfig       `koanf:"log"`
 	Debug     DebugConfig     `koanf:"debug"`
 	Security  SecurityConfig  `koanf:"security"`
+	Uploads   UploadsConfig   `koanf:"uploads"`
+	Tools     ToolsConfig     `koanf:"tools"`
 
 	// path 记录实际加载的配置文件路径（未加载文件时为空），不参与反序列化。
 	path string
+	// notices 是加载配置时自动调整的说明，启动时写入日志。
+	notices []string
+	// explicit 记录配置文件或环境变量中明确设置过的键。
+	explicit map[string]bool
 }
+
+// fileSets 报告配置文件或环境变量是否明确设置了该键（例如 llm.chat.vision）。
+func (c *Config) fileSets(key string) bool { return c.explicit[key] }
+
+// Notices 返回加载配置时自动调整的说明。
+func (c *Config) Notices() []string { return c.notices }
 
 // ServerConfig 是 HTTP 服务配置。
 type ServerConfig struct {
@@ -113,8 +125,26 @@ type ModelConfig struct {
 	Timeout     time.Duration `koanf:"timeout"`
 	// ThinkingStyle 是开启思考的参数格式：none | reasoning_effort | enable_thinking | model_switch。
 	ThinkingStyle string `koanf:"thinking_style"`
-	// ThinkingModel 是 model_switch 方式下开启思考时改用的模型，例如 deepseek-reasoner。
+	// ThinkingModel 是 model_switch 方式下开启思考时改用的模型。
 	ThinkingModel string `koanf:"thinking_model"`
+	// Vision 表示模型能理解图片（多模态）。不能看图的模型收到图片时，先由能看图的模型转述成文字。
+	Vision bool `koanf:"vision"`
+	// Tools 表示模型支持工具调用（联网搜索、运行代码）。
+	Tools bool `koanf:"tools"`
+}
+
+// UpgradeLegacyDeepSeek 把已停用的 deepseek-chat / deepseek-reasoner 换成 deepseek-flash，
+// 并改用新的思考参数。返回是否做了替换。
+func UpgradeLegacyDeepSeek(m *ModelConfig) bool {
+	if !strings.Contains(m.BaseURL, "api.deepseek.com") {
+		return false
+	}
+	switch m.Model {
+	case "deepseek-chat", "deepseek-reasoner":
+		m.Model, m.ThinkingStyle, m.ThinkingModel, m.Vision = "deepseek-flash", "deepseek", "", true
+		return true
+	}
+	return false
 }
 
 // EmbeddingConfig 是向量模型配置。
@@ -167,6 +197,42 @@ type VectorCacheConfig struct {
 type ChatConfig struct {
 	HistoryMessages  int `koanf:"history_messages"`   // 放进提示词的最近消息条数
 	MaxContextTokens int `koanf:"max_context_tokens"` // 提示词的近似 token 预算
+}
+
+// UploadsConfig 是文件上传配置。
+type UploadsConfig struct {
+	// Dir 是上传文件的存放目录，留空为 <data_dir>/uploads。
+	Dir string `koanf:"dir"`
+	// MaxFileMB 是单个文件的大小上限（MB）。
+	MaxFileMB int `koanf:"max_file_mb"`
+	// MaxFiles 是一条消息最多附带的文件数。
+	MaxFiles int `koanf:"max_files"`
+	// UserQuotaMB 是每个用户上传文件的总量上限（MB），0 表示不限制。
+	UserQuotaMB int `koanf:"user_quota_mb"`
+	// DocChars 是一个文档放进对话的最多字数，超出部分截断。
+	DocChars int `koanf:"doc_chars"`
+}
+
+// ToolsConfig 是模型可以调用的工具配置。
+type ToolsConfig struct {
+	Python PythonConfig `koanf:"python"`
+}
+
+// Python 运行方式。
+const (
+	PythonDocker = "docker" // 在一次性 Docker 容器中运行：断网、只读、限制资源（所有用户可用）
+	PythonLocal  = "local"  // 用本机 python3 运行，只限制时间和内存（multi 模式下仅管理员可用）
+	PythonOff    = "off"
+)
+
+// PythonConfig 是运行 Python 代码的配置。
+type PythonConfig struct {
+	Runner   string        `koanf:"runner"`
+	Image    string        `koanf:"image"`  // docker 方式使用的镜像
+	Docker   string        `koanf:"docker"` // docker 命令
+	Python   string        `koanf:"python"` // local 方式使用的解释器
+	Timeout  time.Duration `koanf:"timeout"`
+	MemoryMB int           `koanf:"memory_mb"`
 }
 
 // PersonaConfig 是人格档案配置。
@@ -242,13 +308,14 @@ func Default() *Config {
 			Chat: ModelConfig{
 				Provider:    "openai",
 				BaseURL:     "https://api.deepseek.com/v1",
-				Model:       "deepseek-chat",
+				Model:       "deepseek-flash",
 				Temperature: 0.8,
 				MaxTokens:   1024,
 				Timeout:     120 * time.Second,
-				// DeepSeek 通过换用 deepseek-reasoner 开启思考。
-				ThinkingStyle: "model_switch",
-				ThinkingModel: "deepseek-reasoner",
+				// DeepSeek：thinking.type 开关 + reasoning_effort 调节思考强度；deepseek-flash 支持图片。
+				ThinkingStyle: "deepseek",
+				Vision:        true,
+				Tools:         true,
 			},
 			Utility: ModelConfig{
 				Temperature: 0.2,
@@ -290,6 +357,11 @@ func Default() *Config {
 			HistoryMessages:  20,
 			MaxContextTokens: 6000,
 		},
+		Uploads: UploadsConfig{MaxFileMB: 20, MaxFiles: 8, UserQuotaMB: 500, DocChars: 20000},
+		Tools: ToolsConfig{Python: PythonConfig{
+			Runner: PythonDocker, Image: "python:3.12-slim", Docker: "docker", Python: "python3",
+			Timeout: 30 * time.Second, MemoryMB: 256,
+		}},
 		Quota: QuotaConfig{ExemptAdmins: true},
 		Scheduler: SchedulerConfig{
 			Enabled:           true,
@@ -327,6 +399,10 @@ func load(path, fallbackDataDir string, environ func() []string) (*Config, error
 	cfg := Default()
 	if err := k.UnmarshalWithConf("", cfg, koanf.UnmarshalConf{Tag: "koanf"}); err != nil {
 		return nil, fmt.Errorf("解析配置: %w", err)
+	}
+	cfg.explicit = map[string]bool{}
+	for _, key := range k.Keys() {
+		cfg.explicit[key] = true
 	}
 	if path != "" {
 		abs, err := filepath.Abs(path)
@@ -371,6 +447,17 @@ func splitList(v string) []string {
 
 // applyDerived 填充依赖其它字段的默认值。
 func (c *Config) applyDerived() {
+	if old := c.LLM.Chat.Model; UpgradeLegacyDeepSeek(&c.LLM.Chat) {
+		c.notices = append(c.notices, fmt.Sprintf("DeepSeek 已停用旧模型名 %s，已自动改用 deepseek-flash（建议同步修改配置文件 llm.chat.model）", old))
+	}
+	// 默认的 DeepSeek 思考参数只适用于 DeepSeek；配置换了别家模型又没写 thinking_style 时关闭思考选项，
+	// 默认开启的看图能力也一并关闭。
+	if c.LLM.Chat.ThinkingStyle == "deepseek" && !strings.Contains(strings.ToLower(c.LLM.Chat.Model), "deepseek") {
+		c.LLM.Chat.ThinkingStyle = "none"
+	}
+	if c.LLM.Chat.Vision && c.LLM.Chat.Model != "deepseek-flash" && !c.fileSets("llm.chat.vision") {
+		c.LLM.Chat.Vision = false
+	}
 	u, ch := &c.LLM.Utility, c.LLM.Chat
 	if u.Provider == "" {
 		u.Provider = ch.Provider
@@ -389,6 +476,9 @@ func (c *Config) applyDerived() {
 	}
 	if c.Database.Driver == DriverSQLite && c.Database.DSN == "" && c.DataDir != "" {
 		c.Database.DSN = filepath.Join(c.DataDir, "buugoo.db")
+	}
+	if c.Uploads.Dir == "" && c.DataDir != "" {
+		c.Uploads.Dir = filepath.Join(c.DataDir, "uploads")
 	}
 }
 
@@ -455,16 +545,21 @@ func (c *Config) Validate() error {
 			errs = append(errs, fmt.Errorf("不支持的 LLM provider %q", p))
 		}
 	}
-	// 默认的「换用 deepseek-reasoner」只适用于 DeepSeek；旧配置换了别家模型又没写 thinking_style 时，
-	// 关闭思考选项，避免开启思考时去调用不存在的模型。
-	if c.LLM.Chat.ThinkingStyle == "model_switch" && c.LLM.Chat.ThinkingModel == "deepseek-reasoner" &&
-		!strings.Contains(strings.ToLower(c.LLM.Chat.Model), "deepseek") {
-		c.LLM.Chat.ThinkingStyle = "none"
-	}
 	switch c.LLM.Chat.ThinkingStyle {
-	case "", "none", "reasoning_effort", "enable_thinking", "model_switch":
+	case "", "none", "reasoning_effort", "enable_thinking", "model_switch", "deepseek":
 	default:
-		errs = append(errs, fmt.Errorf("llm.chat.thinking_style %q 无效（可选 none、reasoning_effort、enable_thinking、model_switch）", c.LLM.Chat.ThinkingStyle))
+		errs = append(errs, fmt.Errorf("llm.chat.thinking_style %q 无效（可选 none、reasoning_effort、enable_thinking、model_switch、deepseek）", c.LLM.Chat.ThinkingStyle))
+	}
+	if c.Uploads.MaxFileMB <= 0 || c.Uploads.MaxFiles <= 0 || c.Uploads.UserQuotaMB < 0 || c.Uploads.DocChars <= 0 {
+		errs = append(errs, errors.New("uploads.max_file_mb、max_files、doc_chars 必须大于 0，user_quota_mb 不能小于 0"))
+	}
+	switch c.Tools.Python.Runner {
+	case PythonDocker, PythonLocal, PythonOff:
+	default:
+		errs = append(errs, fmt.Errorf("tools.python.runner %q 无效（可选 docker、local、off）", c.Tools.Python.Runner))
+	}
+	if c.Tools.Python.Timeout <= 0 || c.Tools.Python.MemoryMB <= 0 {
+		errs = append(errs, errors.New("tools.python.timeout 与 memory_mb 必须大于 0"))
 	}
 	if c.LLM.Embedding.Provider != "openai" {
 		errs = append(errs, fmt.Errorf("不支持的 embedding provider %q", c.LLM.Embedding.Provider))

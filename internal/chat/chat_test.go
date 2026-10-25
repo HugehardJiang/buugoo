@@ -1,9 +1,12 @@
 package chat
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
+	"io/fs"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -19,6 +22,8 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/store"
 	"github.com/HugehardJiang/buugoo/internal/store/gormstore"
+	"github.com/HugehardJiang/buugoo/internal/tools"
+	"github.com/HugehardJiang/buugoo/internal/uploads"
 	"github.com/HugehardJiang/buugoo/internal/vector/memstore"
 )
 
@@ -42,20 +47,37 @@ func (f *fakeStream) Recv() (llm.Chunk, error) {
 func (f *fakeStream) Close() error { return nil }
 
 type fakeChat struct {
-	mu      sync.Mutex
-	reqs    []llm.ChatRequest
-	stream  func() (llm.ChatStream, error)
-	extract string
+	mu       sync.Mutex
+	reqs     []llm.ChatRequest
+	chatReqs []llm.ChatRequest
+	stream   func() (llm.ChatStream, error)
+	// script 中的流按顺序优先使用（用于模拟多轮工具调用）。
+	script   []*fakeStream
+	extract  string
+	describe string
 }
 
 func (f *fakeChat) Model() string { return "fake-chat" }
 func (f *fakeChat) Chat(_ context.Context, req llm.ChatRequest) (*llm.ChatResponse, error) {
+	f.mu.Lock()
+	f.chatReqs = append(f.chatReqs, req)
+	f.mu.Unlock()
+	if !req.JSON {
+		return &llm.ChatResponse{Content: f.describe, Usage: llm.Usage{PromptTokens: 30, CompletionTokens: 20}}, nil
+	}
 	return &llm.ChatResponse{Content: f.extract, Usage: llm.Usage{PromptTokens: 50, CompletionTokens: 10}}, nil
 }
 func (f *fakeChat) ChatStream(_ context.Context, req llm.ChatRequest) (llm.ChatStream, error) {
 	f.mu.Lock()
 	f.reqs = append(f.reqs, req)
+	var next *fakeStream
+	if len(f.script) > 0 {
+		next, f.script = f.script[0], f.script[1:]
+	}
 	f.mu.Unlock()
+	if next != nil {
+		return next, nil
+	}
 	return f.stream()
 }
 
@@ -81,6 +103,10 @@ func (fakeEmb) Embed(_ context.Context, texts []string) ([][]float32, error) {
 type fakeModels struct {
 	chat     llm.ChatProvider
 	personal bool
+	vision   bool
+	tools    bool
+	style    string
+	helper   *models.Resolved
 }
 
 func (f *fakeModels) Resolve(_ context.Context, _ models.User, id *uint64) (*models.Resolved, error) {
@@ -88,14 +114,37 @@ func (f *fakeModels) Resolve(_ context.Context, _ models.User, id *uint64) (*mod
 	if id != nil {
 		rid = *id
 	}
-	return &models.Resolved{ID: rid, Name: "测试模型", Model: "fake-chat", Chat: f.chat, Personal: f.personal}, nil
+	return &models.Resolved{ID: rid, Name: "测试模型", Model: "fake-chat", Chat: f.chat, Personal: f.personal,
+		Vision: f.vision, Tools: f.tools, ThinkingStyle: f.style}, nil
 }
+
+func (f *fakeModels) VisionHelper(context.Context, models.User) (*models.Resolved, error) {
+	if f.helper == nil {
+		return nil, models.ErrNoModel
+	}
+	return f.helper, nil
+}
+
+// fakeTools 提供运行 Python 工具，运行结果固定。
+type fakeTools struct{ out string }
+
+func (f fakeTools) For(context.Context, *store.User, *models.Resolved) *tools.Set {
+	return tools.New(tools.Options{Python: fakeRunner{f.out}})
+}
+
+type fakeRunner struct{ out string }
+
+func (r fakeRunner) Run(context.Context, string) (tools.ExecResult, error) {
+	return tools.ExecResult{Stdout: r.out}, nil
+}
+func (fakeRunner) Sandboxed() bool { return true }
 
 func (f *fakeModels) Visible(_ context.Context, _ models.User, id uint64) (bool, error) {
 	return id == 7, nil
 }
 
 type recordSink struct {
+	tools     []ToolEvent
 	started   bool
 	model     *models.Resolved
 	mems      []memory.Scored
@@ -111,6 +160,7 @@ func (r *recordSink) Start(_ *store.Conversation, _, _ *store.Message, m *models
 }
 func (r *recordSink) Memories(m []memory.Scored) error { r.mems = m; return nil }
 func (r *recordSink) Reasoning(t string) error         { r.reasoning.WriteString(t); return nil }
+func (r *recordSink) Tool(ev ToolEvent) error          { r.tools = append(r.tools, ev); return nil }
 func (r *recordSink) Delta(t string) error {
 	r.n++
 	if r.failAt > 0 && r.n >= r.failAt {
@@ -121,12 +171,14 @@ func (r *recordSink) Delta(t string) error {
 }
 
 type env struct {
-	svc    *Service
-	db     *gormstore.DB
-	chat   *fakeChat
-	models *fakeModels
-	writer *memory.Writer
-	user   *store.User
+	svc     *Service
+	db      *gormstore.DB
+	chat    *fakeChat
+	models  *fakeModels
+	writer  *memory.Writer
+	user    *store.User
+	uploads *uploads.Service
+	dir     string
 }
 
 func newEnv(t *testing.T, q config.QuotaConfig) *env {
@@ -163,11 +215,13 @@ func newEnv(t *testing.T, q config.QuotaConfig) *env {
 		})
 	p, _ := persona.Load("")
 	fm := &fakeModels{chat: fc}
+	dir := filepath.Join(t.TempDir(), "uploads")
+	up := uploads.New(db.Attachments(), config.UploadsConfig{Dir: dir, MaxFileMB: 1, MaxFiles: 3, DocChars: 50}, nil)
 	svc := New(Deps{
-		Store: db, Models: fm, Retriever: retriever, Writer: writer, Builder: prompt.NewBuilder(p, 6000),
-		Quota: limiter, Config: cfg.Chat, Location: time.UTC,
+		Store: db, Models: fm, Tools: fakeTools{out: "1234567"}, Uploads: up, Retriever: retriever, Writer: writer,
+		Builder: prompt.NewBuilder(p, 6000), Quota: limiter, Config: cfg.Chat, Location: time.UTC,
 	})
-	return &env{svc: svc, db: db, chat: fc, models: fm, writer: writer, user: user}
+	return &env{svc: svc, db: db, chat: fc, models: fm, writer: writer, user: user, uploads: up, dir: dir}
 }
 
 func TestSendFlowAndMemoryRoundTrip(t *testing.T) {
@@ -376,5 +430,185 @@ func TestConversationsAndThinking(t *testing.T) {
 	list, _ = e.svc.ListConversations(ctx, e.user)
 	if len(list) != 1 || list[0].ID != first.Conversation.ID {
 		t.Fatalf("list=%+v", list)
+	}
+}
+
+func TestToolLoop(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, config.QuotaConfig{})
+	e.models.tools, e.models.style = true, store.ThinkingStyleDeepSeek
+	e.chat.script = []*fakeStream{
+		{chunks: []llm.Chunk{
+			{Reasoning: "要算一下"},
+			{Delta: "我算一下。"},
+			{ToolCalls: []llm.ToolCallDelta{{Index: 0, ID: "c1", Name: "run_python", Arguments: `{"code":"print(1111*1111)"}`}}},
+			{Usage: &llm.Usage{PromptTokens: 100, CompletionTokens: 10}},
+		}},
+		{chunks: []llm.Chunk{{Reasoning: "结果出来了"}, {Delta: "是 1234321"}, {Usage: &llm.Usage{PromptTokens: 150, CompletionTokens: 5}}}},
+	}
+	sink := &recordSink{}
+	res, err := e.svc.Send(ctx, e.user, SendInput{Content: "1111 乘 1111 是多少"}, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Reply.Content != "我算一下。\n\n是 1234321" || sink.text.String() != res.Reply.Content {
+		t.Fatalf("reply=%q sink=%q", res.Reply.Content, sink.text.String())
+	}
+	if res.Reply.Reasoning != "要算一下\n\n结果出来了" {
+		t.Fatalf("reasoning=%q", res.Reply.Reasoning)
+	}
+	if len(sink.tools) != 2 || sink.tools[0].Status != "running" || sink.tools[1].Status != "done" ||
+		sink.tools[1].Input != "print(1111*1111)" || sink.tools[1].Label != "运行代码" {
+		t.Fatalf("tools=%+v", sink.tools)
+	}
+	if res.Usage.PromptTokens != 250 || res.Usage.CompletionTokens != 15 {
+		t.Fatalf("用量应累加各轮: %+v", res.Usage)
+	}
+	// 第二次请求应带上助手的工具调用（含思考过程）与工具结果。
+	req := e.chat.reqs[1]
+	n := len(req.Messages)
+	asst, tool := req.Messages[n-2], req.Messages[n-1]
+	if asst.Role != llm.RoleAssistant || len(asst.ToolCalls) != 1 || asst.Reasoning != "要算一下" ||
+		tool.Role != llm.RoleTool || tool.ToolCallID != "c1" || !strings.Contains(tool.Content, "1234567") {
+		t.Fatalf("messages=%+v", req.Messages[n-2:])
+	}
+	if len(req.Tools) != 1 || req.Tools[0].Name != "run_python" || !strings.Contains(req.Messages[0].Content, "run_python") {
+		t.Fatal("应提供工具并在系统提示词中说明")
+	}
+	// 工具记录随回复保存。
+	_, msgs, _ := e.svc.History(ctx, e.user, res.Conversation.ID, 0, 10)
+	if !strings.Contains(msgs[1].ToolLog, `"name":"run_python"`) {
+		t.Fatalf("tool_log=%q", msgs[1].ToolLog)
+	}
+	// 下一轮的历史中，助手消息带上思考过程（DeepSeek 使用工具时要求回传）。
+	e.chat.script = nil
+	if _, err := e.svc.Send(ctx, e.user, SendInput{Content: "谢谢"}, &recordSink{}); err != nil {
+		t.Fatal(err)
+	}
+	last := e.chat.reqs[len(e.chat.reqs)-1]
+	if last.Messages[2].Role != llm.RoleAssistant || last.Messages[2].Reasoning == "" {
+		t.Fatalf("历史助手消息应带思考过程: %+v", last.Messages[2])
+	}
+}
+
+func TestToolRoundsLimited(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, config.QuotaConfig{})
+	e.models.tools = true
+	call := func() *fakeStream {
+		return &fakeStream{chunks: []llm.Chunk{{ToolCalls: []llm.ToolCallDelta{{Index: 0, ID: "c", Name: "run_python", Arguments: `{"code":"1"}`}}}}}
+	}
+	for i := 0; i < maxToolRounds; i++ {
+		e.chat.script = append(e.chat.script, call())
+	}
+	if _, err := e.svc.Send(ctx, e.user, SendInput{Content: "算"}, &recordSink{}); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(e.chat.reqs); n != maxToolRounds+1 || e.chat.reqs[n-1].Tools != nil {
+		t.Fatalf("到达上限后应不再提供工具: rounds=%d", n)
+	}
+}
+
+func pngData(t *testing.T) []byte {
+	t.Helper()
+	// 1x1 透明 PNG。
+	data, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func TestAttachments(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, config.QuotaConfig{})
+	e.writer.Start(ctx)
+	doc, err := e.uploads.Save(ctx, e.user.ID, "日记.txt", strings.NewReader(strings.Repeat("今天去公园散步了。", 20)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := e.uploads.Save(ctx, e.user.ID, "猫.png", bytes.NewReader(pngData(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 当前模型不能看图，也没有看图模型：拒绝，并且不保存消息。
+	if _, err := e.svc.Send(ctx, e.user, SendInput{AttachmentIDs: []uint64{img.ID}}, &recordSink{}); !errors.Is(err, ErrImagesUnsupported) {
+		t.Fatalf("err=%v", err)
+	}
+	// 借看图模型转述。
+	helperChat := &fakeChat{describe: "一只橘猫趴在窗台上"}
+	e.models.helper = &models.Resolved{ID: 9, Name: "看图模型", Chat: helperChat, Vision: true}
+	res, err := e.svc.Send(ctx, e.user, SendInput{AttachmentIDs: []uint64{doc.ID, img.ID}}, &recordSink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(helperChat.chatReqs) != 1 || len(helperChat.chatReqs[0].Messages[0].Images) != 1 {
+		t.Fatal("应请看图模型描述图片")
+	}
+	user := e.chat.reqs[len(e.chat.reqs)-1].Messages
+	text := user[len(user)-1].Content
+	if !strings.Contains(text, "【文件：日记.txt】") || !strings.Contains(text, "已省略") || !strings.Contains(text, "一只橘猫趴在窗台上") {
+		t.Fatalf("用户消息应包含文档与图片描述: %s", text)
+	}
+	if res.Conversation.Title != "日记.txt" || res.UserMessage.Content != "" {
+		t.Fatalf("title=%q content=%q", res.Conversation.Title, res.UserMessage.Content)
+	}
+	// 已发送的附件不能再次使用。
+	if _, err := e.svc.Send(ctx, e.user, SendInput{AttachmentIDs: []uint64{doc.ID}}, &recordSink{}); !errors.Is(err, ErrAttachmentNotFound) {
+		t.Fatalf("err=%v", err)
+	}
+	if _, err := e.svc.Send(ctx, e.user, SendInput{AttachmentIDs: []uint64{1, 2, 3, 4}}, &recordSink{}); !errors.Is(err, ErrTooManyFiles) {
+		t.Fatalf("err=%v", err)
+	}
+
+	// 能看图的模型直接收到图片；之后的轮次历史中也带上图片。
+	e.models.vision = true
+	img2, _ := e.uploads.Save(ctx, e.user.ID, "狗.png", bytes.NewReader(pngData(t)))
+	if _, err := e.svc.Send(ctx, e.user, SendInput{ConversationID: res.Conversation.ID, Content: "看看这只", AttachmentIDs: []uint64{img2.ID}}, &recordSink{}); err != nil {
+		t.Fatal(err)
+	}
+	msgs := e.chat.reqs[len(e.chat.reqs)-1].Messages
+	lastUser := msgs[len(msgs)-1]
+	if len(lastUser.Images) != 1 || !strings.HasPrefix(lastUser.Images[0].URL, "data:image/png;base64,") {
+		t.Fatalf("应直接发送图片: %+v", lastUser)
+	}
+	if _, err := e.svc.Send(ctx, e.user, SendInput{ConversationID: res.Conversation.ID, Content: "继续"}, &recordSink{}); err != nil {
+		t.Fatal(err)
+	}
+	msgs = e.chat.reqs[len(e.chat.reqs)-1].Messages
+	imgs := 0
+	for _, m := range msgs {
+		imgs += len(m.Images)
+	}
+	if imgs != 2 {
+		t.Fatalf("历史中应带上最近的图片: %d", imgs)
+	}
+
+	_, hist, _ := e.svc.History(ctx, e.user, res.Conversation.ID, 0, 20)
+	byMsg := e.svc.MessageAttachments(ctx, e.user, hist)
+	if len(byMsg[hist[0].ID]) != 2 {
+		t.Fatalf("附件应关联到用户消息: %v", byMsg)
+	}
+
+	// 删除对话时一并删除附件文件。
+	closeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_ = e.writer.Close(closeCtx)
+	if err := e.svc.DeleteConversation(ctx, e.user, res.Conversation.ID); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := e.db.Attachments().TotalSize(ctx, e.user.ID); n != 0 {
+		t.Fatalf("附件应被删除，剩余 %d 字节", n)
+	}
+	files := 0
+	_ = filepath.WalkDir(e.dir, func(_ string, d fs.DirEntry, _ error) error {
+		if d != nil && !d.IsDir() {
+			files++
+		}
+		return nil
+	})
+	if files != 0 {
+		t.Fatalf("文件应被删除，剩余 %d 个", files)
 	}
 }

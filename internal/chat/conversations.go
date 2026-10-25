@@ -96,7 +96,20 @@ func (s *Service) UpdateConversation(ctx context.Context, u *store.User, id uint
 	return s.store.Conversations().Get(ctx, u.ID, id)
 }
 
-// DeleteConversation 删除对话及其消息。记忆不受影响（记忆属于用户，在所有对话间共享）。
+// DeleteConversation 删除对话及其消息与附件。记忆不受影响（记忆属于用户，在所有对话间共享）。
 func (s *Service) DeleteConversation(ctx context.Context, u *store.User, id uint64) error {
-	return s.store.Conversations().Delete(ctx, u.ID, id)
+	atts, err := s.store.Attachments().ListByConversation(ctx, u.ID, id)
+	if err != nil {
+		return err
+	}
+	if err := s.store.Conversations().Delete(ctx, u.ID, id); err != nil {
+		return err
+	}
+	// 对话中的附件随对话一起删除。
+	if s.uploads != nil {
+		if err := s.uploads.Remove(ctx, atts); err != nil {
+			s.log.Error("删除对话附件失败", "user_id", u.ID, "conversation_id", id, "err", err)
+		}
+	}
+	return nil
 }

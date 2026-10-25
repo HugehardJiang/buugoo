@@ -4,6 +4,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -24,18 +25,21 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/secret"
 	"github.com/HugehardJiang/buugoo/internal/store"
+	"github.com/HugehardJiang/buugoo/internal/uploads"
 )
 
 // Deps 是 HTTP 层的依赖。
 type Deps struct {
-	Config      *config.Config
-	Store       store.Store
-	Auth        *auth.Service
-	Chat        *chat.Service
-	Memories    *memory.Manager
-	Quota       *quota.Limiter
-	Models      *models.Service
-	Reembed     *memory.Reembedder
+	Config   *config.Config
+	Store    store.Store
+	Auth     *auth.Service
+	Chat     *chat.Service
+	Memories *memory.Manager
+	Quota    *quota.Limiter
+	Models   *models.Service
+	Reembed  *memory.Reembedder
+	// Uploads 为空时不提供上传接口。
+	Uploads     *uploads.Service
 	PersonaName string
 	Logger      *slog.Logger
 }
@@ -123,6 +127,13 @@ func New(d Deps) http.Handler {
 	priv.GET("/memories/:id", s.getMemory)
 	priv.DELETE("/memories/:id", s.deleteMemory)
 	priv.GET("/debug/prompt", s.debugPrompt)
+	if s.Uploads != nil {
+		// 上传接口单独设置请求体上限（单个文件上限 + 表单开销）。
+		limit := fmt.Sprintf("%dK", s.Uploads.MaxFileBytes()/1024+512)
+		e.POST("/api/v1/uploads", s.uploadFile, middleware.BodyLimit(limit), s.requireUser)
+		priv.GET("/uploads/:id", s.getUpload)
+		priv.DELETE("/uploads/:id", s.deleteUpload)
+	}
 
 	admin := priv.Group("/admin", s.requireAdmin)
 	admin.GET("/users", s.adminUsers)
@@ -186,6 +197,7 @@ func (s *server) meta(c echo.Context) error {
 		"password_required": s.Auth.PasswordRequired(),
 		"registration":      s.Auth.Registration(),
 		"embedding_ready":   s.Models.EmbeddingReady(c.Request().Context()),
+		"uploads":           s.uploadLimits(),
 	})
 }
 
@@ -245,7 +257,17 @@ func toAPIError(err error) *apiError {
 	var qe *quota.ExceededError
 	var le *llm.APIError
 	var mi *models.InvalidError
+	var ue *uploads.UserError
 	switch {
+	case errors.As(err, &ue):
+		status := http.StatusBadRequest
+		if errors.Is(err, uploads.ErrTooLarge) || errors.Is(err, uploads.ErrQuota) {
+			status = http.StatusRequestEntityTooLarge
+		}
+		return &apiError{Status: status, Code: "invalid_file", Message: ue.Msg}
+	case errors.Is(err, chat.ErrAttachmentNotFound), errors.Is(err, chat.ErrTooManyFiles),
+		errors.Is(err, chat.ErrUploadsDisabled), errors.Is(err, chat.ErrImagesUnsupported):
+		return &apiError{Status: http.StatusBadRequest, Code: "invalid_attachment", Message: err.Error()}
 	case errors.As(err, &ae):
 		return ae
 	case errors.As(err, &ve):

@@ -198,6 +198,15 @@ func TestThinkingStyles(t *testing.T) {
 		}},
 		{"model_switch", "low", func(r chatRequest) bool { return r.Model == "reasoner" && r.Temperature == nil }},
 		{"model_switch", "off", func(r chatRequest) bool { return r.Model == "m" }},
+		{"deepseek", "off", func(r chatRequest) bool {
+			return r.Thinking != nil && r.Thinking.Type == "disabled" && r.ReasoningEffort == "" && r.Temperature != nil
+		}},
+		{"deepseek", "", func(r chatRequest) bool { return r.Thinking != nil && r.Thinking.Type == "disabled" }},
+		{"deepseek", "low", func(r chatRequest) bool {
+			return r.Thinking.Type == "enabled" && r.ReasoningEffort == "low" && r.Temperature == nil && r.MaxTokens == 0
+		}},
+		{"deepseek", "medium", func(r chatRequest) bool { return r.ReasoningEffort == "high" }},
+		{"deepseek", "high", func(r chatRequest) bool { return r.ReasoningEffort == "max" }},
 		{"none", "high", func(r chatRequest) bool { return r.Model == "m" && r.ReasoningEffort == "" && r.EnableThinking == nil }},
 	}
 	for _, tc := range cases {
@@ -256,5 +265,56 @@ func TestPublicOnlyBlocksPrivateAddresses(t *testing.T) {
 	}
 	if err := denyPrivate("tcp", "1.1.1.1:443", nil); err != nil {
 		t.Errorf("公网地址应允许: %v", err)
+	}
+}
+
+func TestWireMessagesAndToolStream(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		fmt.Fprint(w, `data: {"choices":[{"delta":{"reasoning_content":"查一下","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"web_","arguments":"{\"q"}}]}}]}`+"\n\n")
+		fmt.Fprint(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"search","arguments":"\":1}"}}]},"finish_reason":"tool_calls"}]}`+"\n\ndata: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	cfg := chatCfg(srv.URL)
+	cfg.ThinkingStyle = "deepseek"
+	st, err := NewChat(cfg).ChatStream(context.Background(), llm.ChatRequest{
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "看图", Images: []llm.Image{{Name: "a.png", URL: "data:image/png;base64,AA"}}},
+			{Role: llm.RoleAssistant, Reasoning: "想过", ToolCalls: []llm.ToolCall{{ID: "c0", Name: "run_python", Arguments: "{}"}}},
+			{Role: llm.RoleTool, ToolCallID: "c0", Content: "42"},
+		},
+		Tools: []llm.Tool{{Name: "web_search", Description: "搜索", Parameters: map[string]any{"type": "object"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b llm.ToolCallBuilder
+	var finish string
+	for {
+		c, err := st.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		b.Add(c.ToolCalls)
+		if c.FinishReason != "" {
+			finish = c.FinishReason
+		}
+	}
+	st.Close()
+	calls := b.Calls()
+	if finish != "tool_calls" || len(calls) != 1 || calls[0].ID != "call_1" || calls[0].Name != "web_search" || calls[0].Arguments != `{"q":1}` {
+		t.Fatalf("finish=%q calls=%+v", finish, calls)
+	}
+	raw, _ := json.Marshal(got)
+	s := string(raw)
+	for _, want := range []string{`"type":"image_url"`, `"url":"data:image/png;base64,AA"`, `"text":"看图"`,
+		`"reasoning_content":"想过"`, `"tool_call_id":"c0"`, `"name":"run_python"`, `"tools":[{"function":{"description":"搜索"`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("请求中缺少 %s: %s", want, s)
+		}
 	}
 }

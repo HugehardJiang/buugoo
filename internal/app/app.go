@@ -25,6 +25,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/scheduler"
 	"github.com/HugehardJiang/buugoo/internal/secret"
 	"github.com/HugehardJiang/buugoo/internal/store/gormstore"
+	"github.com/HugehardJiang/buugoo/internal/uploads"
 	"github.com/HugehardJiang/buugoo/internal/vector/memstore"
 )
 
@@ -40,6 +41,9 @@ type App struct {
 	// Scheduler 为空表示配置中关闭了定时任务。
 	Scheduler *scheduler.Scheduler
 	Handler   http.Handler
+
+	uploads *uploads.Service
+	tools   *toolProvider
 
 	// UpdateCheck 在服务启动后于后台执行（检查新版本），可为空。
 	UpdateCheck func(ctx context.Context)
@@ -103,17 +107,20 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 				log.Error("记录后台用量失败", "user_id", job.UserID, "err", err)
 			}
 		})
+	uploadSvc := uploads.New(db.Attachments(), cfg.Uploads, log)
+	toolsProv := newToolProvider(cfg, log)
 	chatSvc := chat.New(chat.Deps{
-		Store: db, Models: modelSvc, Retriever: retriever, Writer: writer,
+		Store: db, Models: modelSvc, Tools: toolsProv, Uploads: uploadSvc, Retriever: retriever, Writer: writer,
 		Builder: prompt.NewBuilder(p, cfg.Chat.MaxContextTokens), Quota: limiter,
 		Config: cfg.Chat, Location: loc, Logger: log,
 	})
 	handler := httpapi.New(httpapi.Deps{
 		Config: cfg, Store: db, Auth: authSvc, Chat: chatSvc, Memories: memory.NewManager(db.Memories(), vs),
 		Quota: limiter, Models: modelSvc, Reembed: memory.NewReembedder(db.Memories(), emb, vs, log),
-		PersonaName: p.Name, Logger: log,
+		Uploads: uploadSvc, PersonaName: p.Name, Logger: log,
 	})
-	a := &App{Config: cfg, Log: log, DB: db, Auth: authSvc, Chat: chatSvc, Models: modelSvc, Writer: writer, Handler: handler}
+	a := &App{Config: cfg, Log: log, DB: db, Auth: authSvc, Chat: chatSvc, Models: modelSvc, Writer: writer, Handler: handler,
+		uploads: uploadSvc, tools: toolsProv}
 	if cfg.Scheduler.Enabled {
 		a.Scheduler = scheduler.New(db.Jobs(), loc, log)
 		// 第二阶段在此注入 Consolidator 实现。
@@ -132,6 +139,8 @@ func (a *App) Run(ctx context.Context) error {
 	bgCtx, cancelBg := context.WithCancel(ctx)
 	defer cancelBg()
 	a.Writer.Start(bgCtx)
+	go a.uploads.RunCleanup(bgCtx)
+	go a.tools.prepare(bgCtx)
 	if a.Scheduler != nil {
 		a.Scheduler.Start(bgCtx)
 	}
@@ -196,6 +205,9 @@ func (a *App) Close() error { return a.DB.Close() }
 func (a *App) warnings() {
 	cfg := a.Config
 	ctx := context.Background()
+	for _, n := range cfg.Notices() {
+		a.Log.Warn(n)
+	}
 	if ms, err := a.Models.List(ctx, models.User{IsAdmin: true}); err == nil && len(ms) == 0 && cfg.Mode == config.ModeSingle {
 		a.Log.Warn("还没有可用的聊天模型：请在配置文件 llm.chat 中填写，或登录网页在「设置 → 模型」中添加")
 	}

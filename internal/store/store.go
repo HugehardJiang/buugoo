@@ -26,6 +26,7 @@ type Store interface {
 	Conversations() ConversationRepo
 	Models() ModelRepo
 	Messages() MessageRepo
+	Attachments() AttachmentRepo
 	Memories() MemoryRepo
 	Usage() UsageRepo
 	Jobs() JobRepo
@@ -37,6 +38,26 @@ type Store interface {
 	Close() error
 	// Driver 返回 "sqlite" 或 "mysql"。
 	Driver() string
+}
+
+// AttachmentRepo 是附件数据访问接口。所有查询都限定用户。
+type AttachmentRepo interface {
+	Create(ctx context.Context, a *Attachment) error
+	Get(ctx context.Context, userID, id uint64) (*Attachment, error)
+	// ListPending 返回 ids 中属于该用户且尚未发送的附件，按 ids 的顺序。
+	ListPending(ctx context.Context, userID uint64, ids []uint64) ([]Attachment, error)
+	// Attach 把尚未发送的附件关联到消息。
+	Attach(ctx context.Context, userID uint64, ids []uint64, conversationID, messageID uint64) error
+	// ListByMessages 返回这些消息的附件（按 ID 正序）。
+	ListByMessages(ctx context.Context, userID uint64, messageIDs []uint64) ([]Attachment, error)
+	ListByConversation(ctx context.Context, userID, conversationID uint64) ([]Attachment, error)
+	// ListStale 返回 before 之前上传、一直没有发送的附件（所有用户）。
+	ListStale(ctx context.Context, before time.Time, limit int) ([]Attachment, error)
+	// TotalSize 返回用户所有附件的总字节数。
+	TotalSize(ctx context.Context, userID uint64) (int64, error)
+	SetDescription(ctx context.Context, id uint64, desc string) error
+	// Delete 删除附件记录（文件由调用方删除）。
+	Delete(ctx context.Context, ids []uint64) error
 }
 
 // UserRepo 是用户数据访问接口。

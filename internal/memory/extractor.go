@@ -33,6 +33,8 @@ type ExtractInput struct {
 	// Known 是已知的相关记忆，避免重复提取。
 	Known []string
 	Now   time.Time
+	// Images 是用户本轮发送的图片（模型能看图时提供），也可以从中提取记忆。
+	Images []llm.Image
 }
 
 // Extractor 从对话中提取值得记住的内容并打分。chat 为本轮对话使用的模型，为空时使用默认模型。
@@ -55,7 +57,8 @@ const maxMemoryRunes = 300
 const extractSystemPrompt = `你是一个记忆整理助手，负责从"用户"与 AI 朋友"布谷"的一轮对话中，提取值得长期记住的、关于用户的信息。
 
 只提取关于用户本人及其生活的信息，例如：个人情况、经历的事件、计划与目标、喜好与厌恶、习惯、人际关系、健康状况、情绪状态及其原因、重要日期。
-不要提取：寒暄、闲聊中没有信息量的内容、关于布谷自己的内容、通用知识、已知记忆中已经有的信息。
+不要提取：寒暄、闲聊中没有信息量的内容、关于布谷自己的内容、通用知识、已知记忆中已经有的信息、联网搜索到的公开信息。
+用户发来的图片和文件也可以作为依据，例如"用户发了一张家里橘猫的照片"；文件只记与用户本人有关的要点，不要摘抄内容。
 
 每条记忆需要给出：
 - type："episodic"（情景记忆：某个时间发生的具体事件，例如"10 月 24 日和室友吵了一架"）或 "semantic"（语义记忆：相对稳定的事实，例如"用户对花生过敏"）
@@ -106,7 +109,7 @@ func (e *LLMExtractor) Extract(ctx context.Context, chat llm.ChatProvider, in Ex
 		Thinking: "off",
 		Messages: []llm.Message{
 			{Role: llm.RoleSystem, Content: extractSystemPrompt},
-			{Role: llm.RoleUser, Content: b.String()},
+			{Role: llm.RoleUser, Content: b.String(), Images: in.Images},
 		},
 	})
 	if err != nil {

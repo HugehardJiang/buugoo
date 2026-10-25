@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -600,5 +601,76 @@ func TestConversationsAndModelsAPI(t *testing.T) {
 	_, b = ta.do(t, "GET", "/api/v1/admin/embedding", admin, nil)
 	if !strings.Contains(string(b), `"pending":0`) || !strings.Contains(string(b), `"source":"web"`) {
 		t.Fatalf("embedding after reembed: %s", b)
+	}
+}
+
+func (ta *testApp) upload(t *testing.T, token, name string, data []byte) (*http.Response, []byte) {
+	t.Helper()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, _ := mw.CreateFormFile("file", name)
+	_, _ = fw.Write(data)
+	_ = mw.Close()
+	req, _ := http.NewRequest("POST", ta.srv.URL+"/api/v1/uploads", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp, b
+}
+
+func TestUploadsAPI(t *testing.T) {
+	ta := newTestApp(t, func(c *config.Config) { c.Uploads.MaxFileMB = 1; c.Tools.Python.Runner = config.PythonOff })
+
+	resp, b := ta.upload(t, "", "备忘.md", []byte("# 购物清单\n- 猫粮"))
+	if resp.StatusCode != 201 || !strings.Contains(string(b), `"kind":"document"`) {
+		t.Fatalf("upload: %d %s", resp.StatusCode, b)
+	}
+	var att struct{ ID uint64 }
+	_ = json.Unmarshal(b, &att)
+
+	resp, b = ta.upload(t, "", "app.exe", []byte{0x4d, 0x5a, 0, 0})
+	if resp.StatusCode != 400 || !strings.Contains(string(b), "invalid_file") {
+		t.Fatalf("应拒绝二进制文件: %d %s", resp.StatusCode, b)
+	}
+	resp, _ = ta.upload(t, "", "big.txt", bytes.Repeat([]byte("a"), 2<<20))
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("应拒绝过大的文件: %d", resp.StatusCode)
+	}
+
+	// 先上传再删除（用户在输入框里移除文件）。
+	_, b = ta.upload(t, "", "x.txt", []byte("临时"))
+	var tmp struct{ ID uint64 }
+	_ = json.Unmarshal(b, &tmp)
+	if resp, _ := ta.do(t, "DELETE", fmt.Sprintf("/api/v1/uploads/%d", tmp.ID), "", nil); resp.StatusCode != 204 {
+		t.Fatalf("delete pending: %d", resp.StatusCode)
+	}
+
+	resp, b = ta.do(t, "POST", "/api/v1/chat", "", map[string]any{"content": "", "attachment_ids": []uint64{att.ID}})
+	if resp.StatusCode != 200 {
+		t.Fatalf("chat: %d %s", resp.StatusCode, b)
+	}
+	_, b = ta.do(t, "GET", "/api/v1/messages", "", nil)
+	if !strings.Contains(string(b), `"filename":"备忘.md"`) {
+		t.Fatalf("消息应带附件: %s", b)
+	}
+	// 已发送的附件不能删除，可以下载。
+	if resp, _ := ta.do(t, "DELETE", fmt.Sprintf("/api/v1/uploads/%d", att.ID), "", nil); resp.StatusCode != 404 {
+		t.Fatalf("已发送的附件不能删除: %d", resp.StatusCode)
+	}
+	resp, b = ta.do(t, "GET", fmt.Sprintf("/api/v1/uploads/%d", att.ID), "", nil)
+	if resp.StatusCode != 200 || string(b) != "# 购物清单\n- 猫粮" || !strings.HasPrefix(resp.Header.Get("Content-Disposition"), "attachment") ||
+		resp.Header.Get("Content-Type") != "application/octet-stream" {
+		t.Fatalf("download: %d %v %s", resp.StatusCode, resp.Header, b)
+	}
+	_, b = ta.do(t, "GET", "/api/v1/meta", "", nil)
+	if !strings.Contains(string(b), `"max_files":8`) {
+		t.Fatalf("meta: %s", b)
 	}
 }

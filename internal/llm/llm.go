@@ -12,12 +12,52 @@ const (
 	RoleSystem    = "system"
 	RoleUser      = "user"
 	RoleAssistant = "assistant"
+	RoleTool      = "tool"
 )
 
 // Message 是一条对话消息。
 type Message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+	// Images 是随用户消息发送的图片（只有能看图的模型才会收到）。
+	Images []Image `json:"images,omitempty"`
+	// Reasoning 是助手消息的思考过程。使用工具时 DeepSeek 要求在后续请求中回传。
+	Reasoning string `json:"reasoning,omitempty"`
+	// ToolCalls 是助手消息中的工具调用。
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	// ToolCallID 是工具结果消息（Role 为 tool）对应的调用 ID。
+	ToolCallID string `json:"tool_call_id,omitempty"`
+}
+
+// Image 是一张图片。
+type Image struct {
+	// Name 是文件名，用于调试展示。
+	Name string `json:"name"`
+	// URL 是 data: URL（base64），不在调试输出中展示。
+	URL string `json:"-"`
+}
+
+// Tool 是提供给模型的工具（函数）定义。
+type Tool struct {
+	Name        string
+	Description string
+	// Parameters 是 JSON Schema。
+	Parameters map[string]any
+}
+
+// ToolCall 是模型发起的一次工具调用。
+type ToolCall struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// ToolCallDelta 是流式输出中工具调用的增量，按 Index 归并。
+type ToolCallDelta struct {
+	Index     int
+	ID        string
+	Name      string
+	Arguments string
 }
 
 // ChatRequest 是聊天补全请求。零值字段使用 provider 的默认配置。
@@ -31,6 +71,8 @@ type ChatRequest struct {
 	// Thinking 是思考等级：off（或空）| low | medium | high。如何开启思考由模型配置的
 	// thinking_style 决定，不支持思考的模型忽略此项。
 	Thinking string
+	// Tools 是本次请求可用的工具，为空表示不使用工具。
+	Tools []Tool
 }
 
 // Usage 是 token 用量。
@@ -46,6 +88,7 @@ func (u Usage) Total() int { return u.PromptTokens + u.CompletionTokens }
 type ChatResponse struct {
 	Content      string
 	Reasoning    string
+	ToolCalls    []ToolCall
 	Model        string
 	FinishReason string
 	Usage        Usage
@@ -59,6 +102,7 @@ type Chunk struct {
 	FinishReason string
 	Usage        *Usage
 	Model        string
+	ToolCalls    []ToolCallDelta
 }
 
 // ChatStream 是流式输出。Recv 在正常结束时返回 io.EOF；调用方必须调用 Close。
@@ -104,3 +148,35 @@ func (e *APIError) Error() string {
 func (e *APIError) Retryable() bool {
 	return e.StatusCode == 429 || e.StatusCode >= 500
 }
+
+// ToolCallBuilder 把流式输出中的工具调用增量归并为完整的调用。
+type ToolCallBuilder struct {
+	calls   []ToolCall
+	byIndex map[int]int
+}
+
+// Add 归并一批增量。
+func (b *ToolCallBuilder) Add(deltas []ToolCallDelta) {
+	if b.byIndex == nil {
+		b.byIndex = map[int]int{}
+	}
+	for _, d := range deltas {
+		i, ok := b.byIndex[d.Index]
+		if !ok {
+			i = len(b.calls)
+			b.byIndex[d.Index] = i
+			b.calls = append(b.calls, ToolCall{})
+		}
+		c := &b.calls[i]
+		if d.ID != "" {
+			c.ID = d.ID
+		}
+		if d.Name != "" {
+			c.Name += d.Name
+		}
+		c.Arguments += d.Arguments
+	}
+}
+
+// Calls 返回归并后的工具调用。
+func (b *ToolCallBuilder) Calls() []ToolCall { return b.calls }
