@@ -3,11 +3,13 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import Icon from './Icon.vue'
 import { memoriesUnlocked } from './memoryLock'
-import { session } from './session'
+import { needsLogin, session } from './session'
 import { toasts } from './toast'
 
 const route = useRoute()
-const inWorkspace = computed(() => route.name !== 'login' && session.loaded && !!session.meta)
+const inWorkspace = computed(
+  () => route.name !== 'login' && session.loaded && !!session.meta && !(route.name === 'console' && needsLogin()),
+)
 const name = computed(() => session.meta?.name ?? '布谷')
 
 // 「大脑皮层」（记忆与情绪）默认藏起来，用户在设置里确认翻开后才出现在导航中。

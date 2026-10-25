@@ -247,6 +247,14 @@ onMounted(async () => {
           </div>
         </section>
 
+        <section v-if="isAdmin || !isMulti" class="panel panel--inset">
+          <h2>管理后台</h2>
+          <p class="muted">在网页上查看和修改全部系统设置（需要管理员密码）。修改后需要在服务器上重启服务才会生效。</p>
+          <div class="actions">
+            <button class="btn" @click="router.push('/console')">进入管理后台</button>
+          </div>
+        </section>
+
         <p class="caption version">BUUGOO {{ session.meta?.version }}</p>
 
         <Modal

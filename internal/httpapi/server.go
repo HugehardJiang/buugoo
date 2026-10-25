@@ -48,7 +48,8 @@ type Deps struct {
 
 type server struct {
 	Deps
-	log *slog.Logger
+	log     *slog.Logger
+	console *consoleSessions
 }
 
 const ctxUserKey = "buugoo.user"
@@ -58,7 +59,7 @@ func New(d Deps) http.Handler {
 	if d.Logger == nil {
 		d.Logger = slog.Default()
 	}
-	s := &server{Deps: d, log: d.Logger.With("component", "http")}
+	s := &server{Deps: d, log: d.Logger.With("component", "http"), console: &consoleSessions{tokens: map[string]time.Time{}}}
 
 	e := echo.New()
 	e.HideBanner = true
@@ -84,7 +85,7 @@ func New(d Deps) http.Handler {
 	if origins := d.Config.Server.CORSOrigins; len(origins) > 0 {
 		e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 			AllowOrigins: origins,
-			AllowHeaders: []string{echo.HeaderAuthorization, echo.HeaderContentType},
+			AllowHeaders: []string{echo.HeaderAuthorization, echo.HeaderContentType, "X-Console-Token"},
 			AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodPut, http.MethodDelete, http.MethodOptions},
 		}))
 	}
@@ -105,6 +106,22 @@ func New(d Deps) http.Handler {
 	})
 	api.POST("/auth/login", s.login, authLimiter)
 	api.POST("/auth/register", s.register, authLimiter)
+
+	// 管理后台：用管理员密码登录（单独限速，比普通登录更严格）。
+	consoleLimiter := middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
+		Store: middleware.NewRateLimiterMemoryStoreWithConfig(middleware.RateLimiterMemoryStoreConfig{
+			Rate: rate.Every(15 * time.Second), Burst: 5, ExpiresIn: 30 * time.Minute,
+		}),
+		DenyHandler: func(c echo.Context, _ string, _ error) error {
+			return &apiError{Status: http.StatusTooManyRequests, Code: "rate_limited", Message: "尝试次数过多，请稍后再试"}
+		},
+	})
+	api.POST("/console/login", s.consoleLogin, consoleLimiter)
+	console := api.Group("/console", s.requireConsole)
+	console.POST("/logout", s.consoleLogout)
+	console.GET("/settings", s.consoleSettings)
+	console.PUT("/settings", s.consoleSave)
+	console.POST("/settings/discard", s.consoleDiscard)
 
 	priv := api.Group("", s.requireUser)
 	priv.POST("/auth/logout-all", s.logoutAll)

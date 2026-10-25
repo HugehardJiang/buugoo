@@ -1,0 +1,148 @@
+package settings
+
+// meta 是设置项的中文名、说明与可选值。没有列出的设置项显示为键名。
+var meta = map[string]struct {
+	label, help string
+	options     []string
+}{
+	"mode":     {"运行模式", "single：自部署单用户；multi：多用户（需要设置 JWT 密钥）", []string{"single", "multi"}},
+	"data_dir": {"数据目录", "", nil},
+	"timezone": {"时区", "例如 Asia/Shanghai，影响布谷对时间的感知与每日限额的结算", nil},
+
+	"server.listen":        {"监听地址", "对外提供服务时改为 0.0.0.0:8080，并务必设置访问密码", nil},
+	"server.base_url":      {"对外地址", "例如 https://buugoo.example.com，用于生成邀请链接", nil},
+	"server.cors_origins":  {"允许跨域的来源", "多个用逗号分隔，一般留空", nil},
+	"server.read_timeout":  {"读取超时", "", nil},
+	"server.write_timeout": {"写入超时", "流式回复可能较长，不要设置得太短", nil},
+
+	"auth.access_password": {"访问密码（single 模式）", "留空表示不需要密码；对外提供服务时务必设置", nil},
+	"auth.jwt_secret":      {"登录令牌密钥（multi 模式）", "至少 32 个字符；修改后所有人需要重新登录", nil},
+	"auth.token_ttl":       {"登录有效期", "例如 720h", nil},
+	"auth.registration":    {"注册方式（multi 模式）", "open：开放注册；invite：需要邀请码；closed：关闭注册", []string{"open", "invite", "closed"}},
+
+	"database.driver":         {"数据库类型", "修改后需要自己迁移数据", []string{"sqlite", "mysql"}},
+	"database.dsn":            {"数据库连接", "SQLite 为文件路径；MySQL 为 user:pass@tcp(host:3306)/db?parseTime=true", nil},
+	"database.max_open_conns": {"最大连接数", "", nil},
+	"database.max_idle_conns": {"最大空闲连接数", "", nil},
+	"database.log_sql":        {"记录 SQL 日志", "仅用于排查问题", nil},
+
+	"llm.chat.provider":       {"协议", "", []string{"openai", "anthropic"}},
+	"llm.chat.base_url":       {"Base URL", "", nil},
+	"llm.chat.api_key":        {"API Key", "留空表示不修改", nil},
+	"llm.chat.model":          {"模型名", "例如 deepseek-flash", nil},
+	"llm.chat.temperature":    {"Temperature", "0-2，开启思考时不生效", nil},
+	"llm.chat.max_tokens":     {"最大输出 token", "", nil},
+	"llm.chat.timeout":        {"超时", "", nil},
+	"llm.chat.thinking_style": {"思考方式", "deepseek / reasoning_effort / enable_thinking / model_switch / none", []string{"none", "deepseek", "reasoning_effort", "enable_thinking", "model_switch"}},
+	"llm.chat.thinking_model": {"推理模型名", "思考方式为 model_switch 时使用", nil},
+	"llm.chat.vision":         {"能看图", "", nil},
+	"llm.chat.tools":          {"支持工具调用", "联网搜索、读取网页、运行代码", nil},
+
+	"llm.utility.provider":       {"协议", "留空的项沿用聊天模型", []string{"", "openai", "anthropic"}},
+	"llm.utility.base_url":       {"Base URL", "留空沿用聊天模型", nil},
+	"llm.utility.api_key":        {"API Key", "留空表示不修改", nil},
+	"llm.utility.model":          {"模型名", "没有对话模型时用于记忆提取，留空沿用聊天模型", nil},
+	"llm.utility.temperature":    {"Temperature", "", nil},
+	"llm.utility.max_tokens":     {"最大输出 token", "", nil},
+	"llm.utility.timeout":        {"超时", "", nil},
+	"llm.utility.thinking_style": {"思考方式", "", []string{"", "none", "deepseek", "reasoning_effort", "enable_thinking", "model_switch"}},
+	"llm.utility.thinking_model": {"推理模型名", "", nil},
+	"llm.utility.vision":         {"能看图", "", nil},
+	"llm.utility.tools":          {"支持工具调用", "", nil},
+
+	"llm.embedding.provider":   {"协议", "", []string{"openai"}},
+	"llm.embedding.base_url":   {"Base URL", "网页「设置 → 向量模型」中保存的设置优先", nil},
+	"llm.embedding.api_key":    {"API Key", "留空表示不修改", nil},
+	"llm.embedding.model":      {"模型名", "更换后需要重新计算向量", nil},
+	"llm.embedding.dim":        {"维度", "0 表示模型默认", nil},
+	"llm.embedding.batch_size": {"每批数量", "", nil},
+	"llm.embedding.timeout":    {"超时", "", nil},
+
+	"memory.retrieval.alpha":            {"新近度权重 α", "检索得分 = α·新近度 + β·重要性 + γ·相关度", nil},
+	"memory.retrieval.beta":             {"重要性权重 β", "", nil},
+	"memory.retrieval.gamma":            {"相关度权重 γ", "", nil},
+	"memory.retrieval.decay":            {"新近度衰减", "每小时的衰减系数，例如 0.995", nil},
+	"memory.retrieval.candidate_k":      {"候选数量", "先按相关度取出的候选记忆数", nil},
+	"memory.retrieval.top_k":            {"使用数量", "每轮最多放进提示词的记忆数", nil},
+	"memory.retrieval.min_relevance":    {"最低相关度", "", nil},
+	"memory.write.enabled":              {"写入新记忆", "", nil},
+	"memory.write.importance_threshold": {"重要性门槛", "1-10，低于此值的不记", nil},
+	"memory.write.access_boost":         {"使用后加强", "记忆被想起时强度的增量", nil},
+	"memory.write.dedup_similarity":     {"去重相似度", "与已有记忆相似度高于此值时不重复写入", nil},
+	"memory.write.workers":              {"写入并发数", "", nil},
+	"memory.write.queue_size":           {"写入队列长度", "", nil},
+	"memory.cache.max_users":            {"向量缓存用户数", "", nil},
+	"memory.cache.max_bytes":            {"向量缓存大小（字节）", "", nil},
+	"memory.cache.ttl":                  {"向量缓存有效期", "", nil},
+
+	"chat.history_messages":   {"历史消息条数", "每轮放进提示词的最近消息数", nil},
+	"chat.max_context_tokens": {"提示词预算（token）", "", nil},
+
+	"persona.file": {"人格档案文件", "留空使用内置的布谷；修改人格档案后重启生效", nil},
+
+	"quota.daily_messages": {"每人每日消息数", "0 不限", nil},
+	"quota.daily_tokens":   {"每人每日 token", "0 不限", nil},
+	"quota.exempt_admins":  {"管理员不受限额", "", nil},
+
+	"scheduler.enabled":            {"启用定时任务", "", nil},
+	"scheduler.consolidation_spec": {"记忆巩固时间", "cron 表达式", nil},
+
+	"update.check_on_start": {"启动时检查更新", "", nil},
+	"update.repo":           {"更新仓库", "", nil},
+	"update.mirror":         {"下载镜像", "留空从 GitHub 下载", nil},
+
+	"log.level":  {"日志级别", "", []string{"debug", "info", "warn", "error"}},
+	"log.format": {"日志格式", "", []string{"text", "json"}},
+
+	"debug.prompt_endpoint": {"提示词调试接口", "开启后可以查看发给模型的完整提示词", nil},
+
+	"security.encryption_key":           {"加密密钥", "", nil},
+	"security.allow_private_model_urls": {"允许普通用户的模型连接内网", "multi 模式下默认禁止，防止探测服务器内网", nil},
+
+	"uploads.dir":           {"上传目录", "留空为 <数据目录>/uploads", nil},
+	"uploads.max_file_mb":   {"单个文件上限（MB）", "前面有 Nginx 时同时调整 client_max_body_size", nil},
+	"uploads.max_files":     {"每条消息最多文件数", "", nil},
+	"uploads.user_quota_mb": {"每人上传总量（MB）", "0 不限", nil},
+	"uploads.doc_chars":     {"文档放进对话的字数", "超出部分截断", nil},
+
+	"tools.python.runner":    {"运行方式", "docker：一次性沙箱容器（所有用户可用）；local：本机 Python（multi 模式仅管理员）；off：关闭", []string{"docker", "local", "off"}},
+	"tools.python.image":     {"Docker 镜像", "", nil},
+	"tools.python.docker":    {"docker 命令", "", nil},
+	"tools.python.python":    {"Python 解释器", "local 方式使用", nil},
+	"tools.python.timeout":   {"单次运行时间上限", "", nil},
+	"tools.python.memory_mb": {"单次运行内存上限（MB）", "", nil},
+
+	"emotion.enabled":        {"启用情绪系统", "", nil},
+	"emotion.expressiveness": {"情绪起伏", "0-3，1 为标准", nil},
+	"emotion.temper":         {"易怒程度", "0-3，越大越容易生气", nil},
+	"emotion.patience":       {"耐心", "0-3，越大越不容易不耐烦", nil},
+	"emotion.forgiveness":    {"宽容", "0-3，越大消气越快", nil},
+	"emotion.empathy":        {"共情", "0-3，越大越容易被对方的情绪感染", nil},
+
+	"admin.password": {"管理后台密码", "", nil},
+}
+
+// GroupLabels 是设置分组的中文名，按展示顺序排列。
+var GroupLabels = []struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}{
+	{"general", "基本"},
+	{"server", "网络服务"},
+	{"auth", "登录与注册"},
+	{"llm", "模型（配置文件）"},
+	{"memory", "记忆"},
+	{"emotion", "情绪"},
+	{"chat", "对话"},
+	{"persona", "人格"},
+	{"quota", "每日限额"},
+	{"uploads", "文件上传"},
+	{"tools", "工具"},
+	{"security", "安全"},
+	{"database", "数据库"},
+	{"scheduler", "定时任务"},
+	{"update", "更新"},
+	{"log", "日志"},
+	{"debug", "调试"},
+	{"admin", "管理后台"},
+}

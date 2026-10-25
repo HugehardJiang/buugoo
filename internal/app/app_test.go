@@ -321,7 +321,7 @@ func multiConfig(c *config.Config) {
 // resetMySQL 清空共享 MySQL 测试库中的数据（其他包的测试也会写入）。
 func resetMySQL(t *testing.T, ta *testApp) {
 	t.Helper()
-	for _, q := range []string{"DELETE FROM attachments", "DELETE FROM memory_usages", "DELETE FROM memories", "DELETE FROM messages", "DELETE FROM conversations",
+	for _, q := range []string{"DELETE FROM emotion_events", "DELETE FROM emotion_states", "DELETE FROM attachments", "DELETE FROM memory_usages", "DELETE FROM memories", "DELETE FROM messages", "DELETE FROM conversations",
 		"DELETE FROM model_configs", "DELETE FROM usage_daily", "DELETE FROM invites", "DELETE FROM users",
 		"DELETE FROM app_meta WHERE meta_key = 'models.embedding'"} {
 		if err := ta.DB.Gorm().Exec(q).Error; err != nil {
@@ -722,5 +722,66 @@ func TestEmotionAPI(t *testing.T) {
 	_, b = ta.do(t, "GET", "/api/v1/emotion", "", nil)
 	if strings.Contains(string(b), "他骂我是笨蛋") {
 		t.Fatalf("重置后应清空: %s", b)
+	}
+}
+
+func TestConsole(t *testing.T) {
+	ta := newTestApp(t, func(c *config.Config) { c.Tools.Python.Runner = config.PythonOff })
+	resp, _ := ta.do(t, "GET", "/api/v1/console/settings", "", nil)
+	if resp.StatusCode != 401 {
+		t.Fatalf("未登录应 401: %d", resp.StatusCode)
+	}
+	resp, _ = ta.do(t, "POST", "/api/v1/console/login", "", map[string]string{"password": "0000"})
+	if resp.StatusCode != 401 {
+		t.Fatalf("错误密码应 401: %d", resp.StatusCode)
+	}
+	_, b := ta.do(t, "POST", "/api/v1/console/login", "", map[string]string{"password": "1228"})
+	var login struct {
+		Token           string
+		DefaultPassword bool `json:"default_password"`
+	}
+	_ = json.Unmarshal(b, &login)
+	if login.Token == "" || !login.DefaultPassword {
+		t.Fatalf("login: %s", b)
+	}
+	consoleDo := func(method, path string, body any) (*http.Response, []byte) {
+		var r io.Reader
+		if body != nil {
+			bb, _ := json.Marshal(body)
+			r = bytes.NewReader(bb)
+		}
+		req, _ := http.NewRequest(method, ta.srv.URL+path, r)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Console-Token", login.Token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		out, _ := io.ReadAll(resp.Body)
+		return resp, out
+	}
+	resp, b = consoleDo("GET", "/api/v1/console/settings", nil)
+	if resp.StatusCode != 200 || !strings.Contains(string(b), `"key":"emotion.temper"`) || strings.Contains(string(b), `"value":"k"`) {
+		t.Fatalf("settings: %d %s", resp.StatusCode, b)
+	}
+	resp, b = consoleDo("PUT", "/api/v1/console/settings", map[string]any{"changes": map[string]any{"admin.password": "x"}})
+	if resp.StatusCode != 400 {
+		t.Fatalf("不能在网页上改管理员密码: %d %s", resp.StatusCode, b)
+	}
+	resp, b = consoleDo("PUT", "/api/v1/console/settings", map[string]any{"changes": map[string]any{"quota.daily_messages": 9}})
+	if resp.StatusCode != 200 || !strings.Contains(string(b), "quota.daily_messages") {
+		t.Fatalf("save: %d %s", resp.StatusCode, b)
+	}
+	if ta.Config.Quota.DailyMessages != 0 {
+		t.Fatal("保存后不应立即生效，需要重启")
+	}
+	_, b = consoleDo("GET", "/api/v1/console/settings", nil)
+	if !strings.Contains(string(b), `"pending":1`) {
+		t.Fatalf("应显示 1 项待生效: %s", b)
+	}
+	consoleDo("POST", "/api/v1/console/logout", nil)
+	if resp, _ := consoleDo("GET", "/api/v1/console/settings", nil); resp.StatusCode != 401 {
+		t.Fatal("退出后令牌应失效")
 	}
 }

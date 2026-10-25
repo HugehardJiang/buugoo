@@ -8,6 +8,7 @@ export const router = createRouter({
     { path: '/', name: 'chat', component: () => import('./views/ChatView.vue') },
     { path: '/memories', name: 'memories', component: () => import('./views/MemoriesView.vue') },
     { path: '/settings', name: 'settings', component: () => import('./views/SettingsView.vue') },
+    { path: '/console', name: 'console', component: () => import('./views/ConsoleView.vue') },
     { path: '/login', name: 'login', component: () => import('./views/LoginView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
@@ -22,7 +23,8 @@ router.beforeEach(async (to) => {
       return true
     }
   }
-  if (to.name !== 'login' && needsLogin()) return { name: 'login', query: { next: to.fullPath } }
+  // 管理后台用管理员密码单独验证，不需要先登录用户账号。
+  if (to.name !== 'login' && to.name !== 'console' && needsLogin()) return { name: 'login', query: { next: to.fullPath } }
   if (to.name === 'login' && !needsLogin()) return { name: 'chat' }
   return true
 })

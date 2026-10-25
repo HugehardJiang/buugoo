@@ -25,6 +25,8 @@ internal/chat         一轮对话的编排、多段对话的管理
 internal/models       模型管理：网页中添加的聊天模型、默认模型解析、全站向量模型
 internal/secret       API Key 加密（AES-256-GCM）
 internal/uploads      聊天附件：类型识别、文档文字提取（PDF、docx、纯文本）、存储与清理
+internal/emotion      情绪系统：每个用户的情绪、心境与关系，评价 → 情绪的映射与随时间的消退
+internal/settings     网页管理后台的设置项（反射生成）与 settings.yaml 读写
 internal/tools        模型可调用的工具：DeepSeek 搜索/抓取、运行 Python（Docker 沙箱或本机）
 internal/memory       记忆：提取、打分、检索、写入、管理、第二阶段接口
 internal/prompt       提示词组装

@@ -4,7 +4,9 @@
 
 ## 加载顺序
 
-内置默认值 → 配置文件 → 环境变量。配置文件按以下顺序查找：`--config` → `BUUGOO_CONFIG` → `./config.yaml`
+默认值 → 配置文件 → 网页管理后台保存的 `<data_dir>/settings.yaml` → 环境变量（优先级依次升高）。
+
+配置文件按以下顺序查找：`--config` → `BUUGOO_CONFIG` → `./config.yaml`
 → 用户配置目录 → 系统配置目录。找不到时只用默认值和环境变量（数据目录为用户数据目录）。
 
 ## 环境变量
@@ -76,3 +78,23 @@ Word `.docx`、以及 UTF-8 / GBK 编码的纯文本文件。上传后 24 小时
 
 联网搜索与读取网页使用 DeepSeek 的 Search / Fetch 接口（各 5 元 / 千次），只在当前对话的模型是 DeepSeek（`api.deepseek.com`）
 时提供，费用记在该模型的 Key 上。模型需要勾选「支持工具调用」（配置文件中为 `llm.chat.tools`）。
+
+## 情绪
+
+| 配置 | 默认 | 说明 |
+| --- | --- | --- |
+| `emotion.enabled` | true | 关闭后布谷没有情绪起伏 |
+| `emotion.expressiveness` | 1 | 情绪起伏的整体幅度 |
+| `emotion.temper` | 1 | 易怒程度 |
+| `emotion.patience` | 1 | 耐心，越大越不容易不耐烦 |
+| `emotion.forgiveness` | 1 | 宽容，越大消气越快 |
+| `emotion.empathy` | 1 | 共情，越大越容易被对方的情绪感染 |
+
+## 管理后台
+
+| 配置 | 默认 | 说明 |
+| --- | --- | --- |
+| `admin.password` | `1228` | 网页管理后台的密码，只能在配置文件或环境变量 `BUUGOO_ADMIN__PASSWORD` 中修改。**请务必改掉默认值。** |
+
+管理后台保存的设置写在 `<data_dir>/settings.yaml`（权限 0600，其中可能有 API Key），重启服务后生效。
+不能在网页上修改的：`admin.password`、`security.encryption_key`、`data_dir`。

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -218,6 +219,12 @@ func (a *App) warnings() {
 	ctx := context.Background()
 	for _, n := range cfg.Notices() {
 		a.Log.Warn(n)
+	}
+	if cfg.Admin.Password == config.DefaultAdminPassword {
+		a.Log.Warn("管理后台仍在使用默认密码 1228，任何人都能用它修改系统设置！请在配置文件 admin.password 中修改后重启")
+	}
+	if _, err := os.Stat(cfg.SettingsPath()); err == nil {
+		a.Log.Info("已加载网页管理后台保存的设置", "file", cfg.SettingsPath())
 	}
 	if ms, err := a.Models.List(ctx, models.User{IsAdmin: true}); err == nil && len(ms) == 0 && cfg.Mode == config.ModeSingle {
 		a.Log.Warn("还没有可用的聊天模型：请在配置文件 llm.chat 中填写，或登录网页在「设置 → 模型」中添加")

@@ -65,6 +65,7 @@ type Config struct {
 	Uploads   UploadsConfig   `koanf:"uploads"`
 	Tools     ToolsConfig     `koanf:"tools"`
 	Emotion   EmotionConfig   `koanf:"emotion"`
+	Admin     AdminConfig     `koanf:"admin"`
 
 	// path 记录实际加载的配置文件路径（未加载文件时为空），不参与反序列化。
 	path string
@@ -72,7 +73,18 @@ type Config struct {
 	notices []string
 	// explicit 记录配置文件或环境变量中明确设置过的键。
 	explicit map[string]bool
+	// fromEnv 记录由环境变量设置的键（优先级最高，网页设置无法覆盖）。
+	fromEnv map[string]bool
 }
+
+// SettingsFile 是网页管理后台保存设置的文件名，位于数据目录中。
+const SettingsFile = "settings.yaml"
+
+// SettingsPath 返回网页设置文件的路径。
+func (c *Config) SettingsPath() string { return filepath.Join(c.DataDir, SettingsFile) }
+
+// FromEnv 报告该键是否由环境变量设置。
+func (c *Config) FromEnv(key string) bool { return c.fromEnv[key] }
 
 // fileSets 报告配置文件或环境变量是否明确设置了该键（例如 llm.chat.vision）。
 func (c *Config) fileSets(key string) bool { return c.explicit[key] }
@@ -282,6 +294,15 @@ type LogConfig struct {
 	Format string `koanf:"format"`
 }
 
+// DefaultAdminPassword 是管理后台的默认密码，请在配置文件中修改。
+const DefaultAdminPassword = "1228"
+
+// AdminConfig 是网页管理后台的配置。
+type AdminConfig struct {
+	// Password 是管理后台的登录密码，只能在配置文件或环境变量中修改，网页上不能改。
+	Password string `koanf:"password"`
+}
+
 // SecurityConfig 是加密相关配置。
 type SecurityConfig struct {
 	// EncryptionKey 用于加密数据库中保存的模型 API Key（64 位十六进制，即 32 字节）。
@@ -374,6 +395,7 @@ func Default() *Config {
 			MaxContextTokens: 6000,
 		},
 		Uploads: UploadsConfig{MaxFileMB: 20, MaxFiles: 8, UserQuotaMB: 500, DocChars: 20000},
+		Admin:   AdminConfig{Password: DefaultAdminPassword},
 		Emotion: EmotionConfig{Enabled: true, Expressiveness: 1, Temper: 1, Patience: 1, Forgiveness: 1, Empathy: 1},
 		Tools: ToolsConfig{Python: PythonConfig{
 			Runner: PythonDocker, Image: "python:3.12-slim", Docker: "docker", Python: "python3",
@@ -399,27 +421,50 @@ func Load(path, fallbackDataDir string) (*Config, error) {
 }
 
 func load(path, fallbackDataDir string, environ func() []string) (*Config, error) {
-	k := koanf.New(".")
-	if path != "" {
-		if err := k.Load(file.Provider(path), yaml.Parser()); err != nil {
-			return nil, fmt.Errorf("读取配置文件 %s: %w", path, err)
-		}
-	}
-	if err := k.Load(env.Provider(".", env.Opt{
+	envK := koanf.New(".")
+	if err := envK.Load(env.Provider(".", env.Opt{
 		Prefix:        EnvPrefix,
 		TransformFunc: envTransform,
 		EnvironFunc:   environ,
 	}), nil); err != nil {
 		return nil, fmt.Errorf("读取环境变量: %w", err)
 	}
+	k := koanf.New(".")
+	if path != "" {
+		if err := k.Load(file.Provider(path), yaml.Parser()); err != nil {
+			return nil, fmt.Errorf("读取配置文件 %s: %w", path, err)
+		}
+	}
+	// 网页管理后台保存的设置在数据目录中，覆盖配置文件；环境变量优先级最高。
+	dataDir := envK.String("data_dir")
+	if dataDir == "" {
+		dataDir = k.String("data_dir")
+	}
+	if dataDir == "" {
+		dataDir = fallbackDataDir
+	}
+	if dataDir != "" {
+		sp := filepath.Join(dataDir, SettingsFile)
+		if _, err := os.Stat(sp); err == nil {
+			if err := k.Load(file.Provider(sp), yaml.Parser()); err != nil {
+				return nil, fmt.Errorf("读取网页设置 %s: %w", sp, err)
+			}
+		}
+	}
+	if err := k.Merge(envK); err != nil {
+		return nil, err
+	}
 
 	cfg := Default()
 	if err := k.UnmarshalWithConf("", cfg, koanf.UnmarshalConf{Tag: "koanf"}); err != nil {
 		return nil, fmt.Errorf("解析配置: %w", err)
 	}
-	cfg.explicit = map[string]bool{}
+	cfg.explicit, cfg.fromEnv = map[string]bool{}, map[string]bool{}
 	for _, key := range k.Keys() {
 		cfg.explicit[key] = true
+	}
+	for _, key := range envK.Keys() {
+		cfg.fromEnv[key] = true
 	}
 	if path != "" {
 		abs, err := filepath.Abs(path)
