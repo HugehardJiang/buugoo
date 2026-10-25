@@ -46,7 +46,12 @@ if ($Mirror) { $Mirror = $Mirror.TrimEnd("/") }
 # ---------- 版本 ----------
 if (-not $Version) {
   if ($Mirror) {
-    try { $Version = (Invoke-WebRequest -UseBasicParsing "$Mirror/latest").Content.Trim() } catch { Die "无法从镜像 $Mirror 获取最新版本" }
+    try {
+      # 没有扩展名的文件可能以 application/octet-stream 返回，Content 是字节数组，需要手动解码。
+      $content = (Invoke-WebRequest -UseBasicParsing "$Mirror/latest").Content
+      if ($content -is [byte[]]) { $content = [Text.Encoding]::UTF8.GetString($content) }
+      $Version = "$content".Trim()
+    } catch { Die "无法从镜像 $Mirror 获取最新版本：$($_.Exception.Message)" }
   } else {
     try {
       $req = [Net.HttpWebRequest]::Create("https://github.com/$Repo/releases/latest")
