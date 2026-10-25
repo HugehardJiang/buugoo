@@ -84,6 +84,24 @@ location ^~ / {
 
 保存后宝塔会自动检查并重载 Nginx。如果提示配置错误，多半是复制时漏了分号或括号。
 
+### QQ（NapCat）的 WebSocket
+
+NapCat 和布谷在同一台服务器时，NapCat 里直接填 `ws://127.0.0.1:8080/onebot/v11/ws` 即可，不经过 Nginx。
+如果 NapCat 在别的机器上、必须经过宝塔，在上面的配置文件里**再加一段**（放在 `location ^~ /` 前面）：
+
+```nginx
+location ^~ /onebot/ {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 3600s;
+}
+```
+
+NapCat 中的地址填 `wss://你的域名/onebot/v11/ws`。
+
 ## 4. 检查
 
 1. 浏览器打开 `https://你的域名`，能看到登录页或聊天页。

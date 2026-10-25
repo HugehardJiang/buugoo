@@ -1,0 +1,421 @@
+package channels
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"errors"
+	"fmt"
+	"log/slog"
+	"math/big"
+	"os"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/HugehardJiang/buugoo/internal/chat"
+	"github.com/HugehardJiang/buugoo/internal/memory"
+	"github.com/HugehardJiang/buugoo/internal/models"
+	"github.com/HugehardJiang/buugoo/internal/quota"
+	"github.com/HugehardJiang/buugoo/internal/store"
+	"github.com/HugehardJiang/buugoo/internal/uploads"
+)
+
+// ChatService 是对话服务（chat.Service）。
+type ChatService interface {
+	Send(ctx context.Context, u *store.User, in chat.SendInput, sink chat.Sink) (*chat.Result, error)
+	CreateConversation(ctx context.Context, u *store.User, p chat.ConversationPatch) (*store.Conversation, error)
+}
+
+// 节奏。
+const (
+	// mergeWindow：对方连着发几条消息时，等这么久没有新消息再一起回复（像真人那样看完再回）。
+	mergeWindow = 1500 * time.Millisecond
+	mergeMax    = 8 * time.Second
+	codeTTL     = 10 * time.Minute
+	helpEvery   = 10 * time.Minute // 没绑定的人，绑定说明最多多久发一次
+	workerIdle  = 5 * time.Minute
+)
+
+// Hub 连接各个聊天软件与对话服务：绑定、合并连发的消息、把回复拆成几条发出去、投递主动消息。
+type Hub struct {
+	store    store.Store
+	chat     ChatService
+	uploads  *uploads.Service
+	name     func() string
+	log      *slog.Logger
+	channels map[string]Channel
+
+	mu      sync.Mutex
+	codes   map[string]bindCode // 绑定码 → 用户
+	workers map[string]chan Inbound
+	helped  map[string]time.Time
+}
+
+type bindCode struct {
+	userID  uint64
+	expires time.Time
+}
+
+// NewHub 创建 Hub。uploads 可以为空（收到的图片不保存）。
+func NewHub(st store.Store, cs ChatService, up *uploads.Service, name func() string, log *slog.Logger) *Hub {
+	if log == nil {
+		log = slog.Default()
+	}
+	return &Hub{store: st, chat: cs, uploads: up, name: name, log: log.With("component", "channels"),
+		channels: map[string]Channel{}, codes: map[string]bindCode{}, workers: map[string]chan Inbound{}, helped: map[string]time.Time{}}
+}
+
+// Add 加入一个聊天软件。在 Start 之前调用。
+func (h *Hub) Add(c Channel) { h.channels[c.Name()] = c }
+
+// Channel 返回已加入的聊天软件，没有时返回 nil。
+func (h *Hub) Channel(name string) Channel { return h.channels[name] }
+
+// Enabled 返回已开启的聊天软件名。
+func (h *Hub) Enabled() []string {
+	var out []string
+	for _, n := range []string{Weixin, QQ, Telegram} {
+		if _, ok := h.channels[n]; ok {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// Statuses 返回各个聊天软件的连接状态。
+func (h *Hub) Statuses() []Status {
+	var out []Status
+	for _, n := range h.Enabled() {
+		out = append(out, h.channels[n].Status())
+	}
+	return out
+}
+
+// Start 在后台运行所有聊天软件，直到 ctx 取消。
+func (h *Hub) Start(ctx context.Context) {
+	for _, c := range h.channels {
+		go c.Run(ctx, h.handle)
+		h.log.Info("已开启聊天软件接入", "channel", c.Name())
+	}
+}
+
+// NewCode 为用户生成绑定码（6 位数字，10 分钟有效），同一用户之前的绑定码作废。
+func (h *Hub) NewCode(userID uint64) (string, time.Time) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	now := time.Now()
+	for c, b := range h.codes {
+		if b.userID == userID || now.After(b.expires) {
+			delete(h.codes, c)
+		}
+	}
+	for {
+		n, _ := rand.Int(rand.Reader, big.NewInt(900000))
+		code := fmt.Sprintf("%06d", n.Int64()+100000)
+		if _, used := h.codes[code]; !used {
+			exp := now.Add(codeTTL)
+			h.codes[code] = bindCode{userID: userID, expires: exp}
+			return code, exp
+		}
+	}
+}
+
+func (h *Hub) useCode(code string) (uint64, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	b, ok := h.codes[code]
+	if !ok || time.Now().After(b.expires) {
+		return 0, false
+	}
+	delete(h.codes, code)
+	return b.userID, true
+}
+
+// handle 把消息交给这个人的处理队列：同一个人的消息按顺序处理，连着发的几条合并成一轮。
+func (h *Hub) handle(ctx context.Context, in Inbound) {
+	if strings.TrimSpace(in.Text) == "" && len(in.Images) == 0 {
+		return
+	}
+	key := in.Channel + ":" + in.PeerID
+	h.mu.Lock()
+	ch, ok := h.workers[key]
+	if !ok {
+		ch = make(chan Inbound, 32)
+		h.workers[key] = ch
+		go h.worker(context.WithoutCancel(ctx), key, ch)
+	}
+	h.mu.Unlock()
+	select {
+	case ch <- in:
+	default:
+		h.log.Warn("消息太多，丢弃一条", "channel", in.Channel)
+	}
+}
+
+func (h *Hub) worker(ctx context.Context, key string, ch chan Inbound) {
+	for {
+		var first Inbound
+		select {
+		case first = <-ch:
+		case <-time.After(workerIdle):
+			h.mu.Lock()
+			if len(ch) == 0 {
+				delete(h.workers, key)
+				h.mu.Unlock()
+				return
+			}
+			h.mu.Unlock()
+			continue
+		}
+		batch := []Inbound{first}
+		deadline := time.After(mergeMax)
+	collect:
+		for {
+			select {
+			case in := <-ch:
+				batch = append(batch, in)
+			case <-time.After(mergeWindow):
+				break collect
+			case <-deadline:
+				break collect
+			}
+		}
+		merged := batch[0]
+		for _, in := range batch[1:] {
+			if in.Text != "" {
+				merged.Text = strings.TrimSpace(merged.Text + "\n" + in.Text)
+			}
+			merged.Images = append(merged.Images, in.Images...)
+			if in.PeerName != "" {
+				merged.PeerName = in.PeerName
+			}
+		}
+		h.process(ctx, merged)
+	}
+}
+
+var codePattern = regexp.MustCompile(`^(?:绑定|bind|/bind)?\s*(\d{6})$`)
+
+func (h *Hub) process(ctx context.Context, in Inbound) {
+	c := h.channels[in.Channel]
+	if c == nil {
+		return
+	}
+	text := strings.TrimSpace(in.Text)
+	b, err := h.store.Bindings().GetByPeer(ctx, in.Channel, in.PeerID)
+	if errors.Is(err, store.ErrNotFound) {
+		h.unbound(ctx, c, in, text)
+		return
+	}
+	if err != nil {
+		h.log.Error("读取绑定失败", "err", err)
+		return
+	}
+	u, err := h.store.Users().GetByID(ctx, b.UserID)
+	if err != nil {
+		h.log.Error("读取用户失败", "user_id", b.UserID, "err", err)
+		return
+	}
+	now := time.Now()
+	fields := map[string]any{"last_message_at": now}
+	if in.PeerName != "" && in.PeerName != b.PeerName {
+		fields["peer_name"] = in.PeerName
+	}
+	_ = h.store.Bindings().Update(ctx, b.ID, fields)
+
+	switch strings.ToLower(text) {
+	case "/new", "新对话":
+		conv, err := h.chat.CreateConversation(ctx, u, chat.ConversationPatch{})
+		if err == nil {
+			_ = h.store.Bindings().Update(ctx, b.ID, map[string]any{"conversation_id": conv.ID})
+			h.say(ctx, c, in.PeerID, "好，开个新话题")
+		}
+		return
+	case "/unbind", "解绑", "解除绑定":
+		_ = h.store.Bindings().Delete(ctx, u.ID, b.ID)
+		h.say(ctx, c, in.PeerID, "已经解绑啦，想再聊的话重新发绑定码就行")
+		return
+	case "/help", "帮助":
+		h.say(ctx, c, in.PeerID, "直接和我聊天就行，发图片也可以\n发「新对话」换个话题，发「解绑」解除绑定")
+		return
+	}
+	h.reply(ctx, c, b, u, in)
+}
+
+func (h *Hub) unbound(ctx context.Context, c Channel, in Inbound, text string) {
+	if m := codePattern.FindStringSubmatch(text); m != nil {
+		userID, ok := h.useCode(m[1])
+		if !ok {
+			h.say(ctx, c, in.PeerID, "这个绑定码不对或者过期了，在网页「设置 → 聊天软件」里重新生成一个吧")
+			return
+		}
+		b := &store.ChannelBinding{UserID: userID, Channel: in.Channel, PeerID: in.PeerID, PeerName: in.PeerName}
+		if err := h.store.Bindings().Create(ctx, b); err != nil {
+			h.log.Error("保存绑定失败", "err", err)
+			h.say(ctx, c, in.PeerID, "绑定失败了，稍后再试试")
+			return
+		}
+		h.log.Info("聊天软件已绑定", "channel", in.Channel, "user_id", userID)
+		h.say(ctx, c, in.PeerID, "绑好啦！以后在这里也能找我聊天，网页上聊过的事我都记得")
+		return
+	}
+	key := in.Channel + ":" + in.PeerID
+	h.mu.Lock()
+	last, ok := h.helped[key]
+	if ok && time.Since(last) < helpEvery {
+		h.mu.Unlock()
+		return
+	}
+	h.helped[key] = time.Now()
+	h.mu.Unlock()
+	h.say(ctx, c, in.PeerID, fmt.Sprintf("你好呀，我是%s\n先在网页「设置 → 聊天软件」里生成一个绑定码，再把那 6 位数字发给我，就能在这里聊天啦", h.botName()))
+}
+
+func (h *Hub) botName() string {
+	if h.name != nil {
+		return h.name()
+	}
+	return "布谷"
+}
+
+// conversation 返回绑定使用的对话，没有或被删除时新建一段。
+func (h *Hub) conversation(ctx context.Context, b *store.ChannelBinding, u *store.User) (uint64, error) {
+	if b.ConversationID != nil {
+		if _, err := h.store.Conversations().Get(ctx, u.ID, *b.ConversationID); err == nil {
+			return *b.ConversationID, nil
+		}
+	}
+	conv, err := h.chat.CreateConversation(ctx, u, chat.ConversationPatch{})
+	if err != nil {
+		return 0, err
+	}
+	if err := h.store.Bindings().Update(ctx, b.ID, map[string]any{"conversation_id": conv.ID}); err != nil {
+		return 0, err
+	}
+	b.ConversationID = &conv.ID
+	return conv.ID, nil
+}
+
+func (h *Hub) reply(ctx context.Context, c Channel, b *store.ChannelBinding, u *store.User, in Inbound) {
+	convID, err := h.conversation(ctx, b, u)
+	if err != nil {
+		h.log.Error("准备对话失败", "err", err)
+		return
+	}
+	var attIDs []uint64
+	for _, img := range in.Images {
+		if h.uploads == nil {
+			break
+		}
+		a, err := h.uploads.Save(ctx, u.ID, img.Name, bytes.NewReader(img.Data))
+		if err != nil {
+			h.log.Warn("保存收到的图片失败", "err", err)
+			var ue *uploads.UserError
+			if errors.As(err, &ue) {
+				h.say(ctx, c, in.PeerID, "图片没收到："+ue.Msg)
+			}
+			continue
+		}
+		attIDs = append(attIDs, a.ID)
+	}
+	if strings.TrimSpace(in.Text) == "" && len(attIDs) == 0 {
+		return
+	}
+	stop := c.Typing(ctx, in.PeerID)
+	res, err := h.chat.Send(ctx, u, chat.SendInput{ConversationID: convID, Content: in.Text, AttachmentIDs: attIDs}, nopSink{})
+	stop()
+	if err != nil && (res == nil || res.Reply == nil || res.Reply.Content == "") {
+		h.say(ctx, c, in.PeerID, friendlyError(err))
+		return
+	}
+	h.sendReply(ctx, c, in.PeerID, u, res.Reply.Content, res.Tools)
+}
+
+// sendReply 把回复拆成几条发出去，中间停顿一下；代码生成的图片放在最后发。
+func (h *Hub) sendReply(ctx context.Context, c Channel, peer string, u *store.User, content string, tools []chat.ToolEvent) {
+	for i, part := range SplitBubbles(content) {
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Duration(typingDelay(part)) * time.Millisecond):
+			}
+		}
+		h.say(ctx, c, peer, PlainText(part))
+	}
+	if h.uploads == nil {
+		return
+	}
+	for _, t := range tools {
+		for _, img := range t.Images {
+			a, err := h.store.Attachments().Get(ctx, u.ID, img.ID)
+			if err != nil {
+				continue
+			}
+			data, err := os.ReadFile(h.uploads.Path(a))
+			if err != nil {
+				continue
+			}
+			if err := c.Send(ctx, peer, Outbound{Image: &Image{Name: a.Filename, Data: data}}); err != nil {
+				h.log.Warn("发送图片失败", "channel", c.Name(), "err", err)
+			}
+		}
+	}
+}
+
+func (h *Hub) say(ctx context.Context, c Channel, peer, text string) {
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	if err := c.Send(ctx, peer, Outbound{Text: text}); err != nil {
+		h.log.Warn("发送消息失败", "channel", c.Name(), "err", err)
+	}
+}
+
+// Deliver 把主动消息（提醒、主动关心）发到这段对话绑定的聊天软件；对话没有绑定时只留在网页上。
+func (h *Hub) Deliver(ctx context.Context, u *store.User, res *chat.ProactiveResult) {
+	if res == nil || res.Conversation == nil || res.Message == nil {
+		return
+	}
+	list, err := h.store.Bindings().ListByUser(ctx, u.ID)
+	if err != nil {
+		return
+	}
+	for i := range list {
+		b := &list[i]
+		c := h.channels[b.Channel]
+		if c == nil || b.ConversationID == nil || *b.ConversationID != res.Conversation.ID {
+			continue
+		}
+		h.sendReply(ctx, c, b.PeerID, u, res.Message.Content, nil)
+		return
+	}
+}
+
+// friendlyError 把对话出错的原因说给聊天软件里的人听。
+func friendlyError(err error) string {
+	var qe *quota.ExceededError
+	var ue *uploads.UserError
+	switch {
+	case errors.As(err, &qe):
+		return "今天聊得有点多啦，" + qe.Error()
+	case errors.Is(err, models.ErrNoModel):
+		return "我这边还没配置好聊天模型，请管理员在网页「设置 → 模型」里添加一个"
+	case errors.As(err, &ue):
+		return ue.Msg
+	default:
+		return "我这边出了点问题，稍后再找我吧"
+	}
+}
+
+type nopSink struct{}
+
+func (nopSink) Start(*store.Conversation, *store.Message, *store.Message, *models.Resolved) error {
+	return nil
+}
+func (nopSink) Memories([]memory.Scored) error { return nil }
+func (nopSink) Reasoning(string) error         { return nil }
+func (nopSink) Delta(string) error             { return nil }
+func (nopSink) Tool(chat.ToolEvent) error      { return nil }

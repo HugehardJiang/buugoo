@@ -3,9 +3,9 @@ package chat
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"

@@ -58,6 +58,22 @@ export interface Reminder {
   repeat: '' | 'daily' | 'weekdays' | 'weekly'
 }
 
+export interface ChannelInfo {
+  name: 'weixin' | 'qq' | 'telegram'
+  label: string
+  account?: string
+  connected: boolean
+}
+
+export interface Binding {
+  id: number
+  channel: string
+  label: string
+  peer_name: string
+  created_at: string
+  last_message_at: string | null
+}
+
 export interface PersonaPreset {
   id: string // 空字符串为默认
   label: string
@@ -395,6 +411,9 @@ export const api = {
   cancelReminder: (id: number) => request<void>('DELETE', `/reminders/${id}`),
   setProactive: (on: boolean) => request<{ on: boolean }>('PUT', '/me/proactive', { on }),
   latestMessage: (conversationId: number) => request<{ latest_id: number }>('GET', `/conversations/${conversationId}/latest`),
+  channels: () => request<{ channels: ChannelInfo[]; bindings: Binding[] }>('GET', '/channels'),
+  bindCode: () => request<{ code: string; expires_at: string }>('POST', '/channels/code'),
+  unbind: (id: number) => request<void>('DELETE', `/channels/bindings/${id}`),
   presets: () => request<{ current: string; presets: PersonaPreset[] }>('GET', '/persona/presets'),
   setPreset: (id: string) => request<{ current: string }>('PUT', '/persona/preset', { id }),
   files: (params: { kind?: string; limit?: number; offset?: number }) => {

@@ -16,6 +16,7 @@ import (
 
 	"github.com/HugehardJiang/buugoo/internal/auth"
 	"github.com/HugehardJiang/buugoo/internal/buildinfo"
+	"github.com/HugehardJiang/buugoo/internal/channels"
 	"github.com/HugehardJiang/buugoo/internal/chat"
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/emotion"
@@ -44,7 +45,9 @@ type Deps struct {
 	Uploads *uploads.Service
 	Emotion *emotion.Engine
 	Persona *persona.Manager
-	Logger  *slog.Logger
+	// Channels 为空表示没有开启任何聊天软件接入。
+	Channels *channels.Hub
+	Logger   *slog.Logger
 }
 
 type server struct {
@@ -126,12 +129,18 @@ func New(d Deps) http.Handler {
 	console.GET("/persona", s.consoleGetPersona)
 	console.PUT("/persona", s.consoleSavePersona)
 	console.DELETE("/persona", s.consoleResetPersona)
+	console.GET("/channels", s.consoleChannels)
+	console.POST("/channels/weixin/login", s.consoleWeixinLogin)
+	console.POST("/channels/weixin/logout", s.consoleWeixinLogout)
 
 	priv := api.Group("", s.requireUser)
 	priv.POST("/auth/logout-all", s.logoutAll)
 	priv.POST("/auth/password", s.changePassword)
 	priv.GET("/me", s.me)
 	priv.PUT("/me/proactive", s.setProactive)
+	priv.GET("/channels", s.myChannels)
+	priv.POST("/channels/code", s.newBindCode)
+	priv.DELETE("/channels/bindings/:id", s.unbind)
 	priv.GET("/reminders", s.listReminders)
 	priv.DELETE("/reminders/:id", s.cancelReminder)
 	priv.GET("/conversations/:id/latest", s.latestMessage)
@@ -179,6 +188,13 @@ func New(d Deps) http.Handler {
 	admin.POST("/embedding/test", s.adminTestEmbedding)
 	admin.GET("/embedding/reembed", s.adminReembedStatus)
 	admin.POST("/embedding/reembed", s.adminStartReembed)
+
+	// QQ（NapCat）的反向 WebSocket 连接，用访问令牌鉴权。
+	if s.Channels != nil {
+		if ob, ok := s.Channels.Channel(channels.QQ).(*channels.OneBotChannel); ok {
+			e.GET(channels.OneBotPath, echo.WrapHandler(ob))
+		}
+	}
 
 	// 未匹配的 /api 路径返回 JSON 404，其余交给前端。
 	api.Any("/*", func(echo.Context) error { return echo.ErrNotFound })

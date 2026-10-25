@@ -14,6 +14,7 @@ import (
 
 	"github.com/HugehardJiang/buugoo/internal/auth"
 	"github.com/HugehardJiang/buugoo/internal/buildinfo"
+	"github.com/HugehardJiang/buugoo/internal/channels"
 	"github.com/HugehardJiang/buugoo/internal/chat"
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/emotion"
@@ -49,6 +50,7 @@ type App struct {
 	uploads   *uploads.Service
 	tools     *toolProvider
 	proactive *proactive.Engine
+	channels  *channels.Hub
 
 	// UpdateCheck 在服务启动后于后台执行（检查新版本），可为空。
 	UpdateCheck func(ctx context.Context)
@@ -144,16 +146,24 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 		Config: cfg.Chat, Location: loc, Logger: log, DisabledPresets: cfg.Persona.DisabledPresets,
 		Summarizer: summarizer,
 	})
+	hub, err := newChannelHub(cfg, db, chatSvc, uploadSvc, func() string { return personas.Current().Name }, log)
+	if err != nil {
+		return nil, err
+	}
 	handler := httpapi.New(httpapi.Deps{
 		Config: cfg, Store: db, Auth: authSvc, Chat: chatSvc, Memories: memory.NewManager(db.Memories(), vs),
 		Quota: limiter, Models: modelSvc, Reembed: memory.NewReembedder(db.Memories(), emb, vs, log),
-		Uploads: uploadSvc, Emotion: emo, Persona: personas, Logger: log,
+		Uploads: uploadSvc, Emotion: emo, Persona: personas, Channels: hub, Logger: log,
 	})
 	a := &App{Config: cfg, Log: log, DB: db, Auth: authSvc, Chat: chatSvc, Models: modelSvc, Writer: writer, Handler: handler,
-		uploads: uploadSvc, tools: toolsProv}
+		uploads: uploadSvc, tools: toolsProv, channels: hub}
 	if cfg.Proactive.Reminders || cfg.Proactive.Care {
-		a.proactive = proactive.New(proactive.Deps{Store: db, Speaker: chatSvc, Utility: utilLLM, Mood: emo, Config: cfg.Proactive,
-			Name: func() string { return personas.Current().Name }, Location: loc, Logger: log})
+		deps := proactive.Deps{Store: db, Speaker: chatSvc, Utility: utilLLM, Mood: emo, Config: cfg.Proactive,
+			Name: func() string { return personas.Current().Name }, Location: loc, Logger: log}
+		if hub != nil {
+			deps.Deliver = hub
+		}
+		a.proactive = proactive.New(deps)
 	}
 	if cfg.Scheduler.Enabled {
 		a.Scheduler = scheduler.New(db.Jobs(), loc, log)
@@ -177,6 +187,9 @@ func (a *App) Run(ctx context.Context) error {
 	go a.tools.prepare(bgCtx)
 	if a.proactive != nil {
 		go a.proactive.Run(bgCtx)
+	}
+	if a.channels != nil {
+		a.channels.Start(bgCtx)
 	}
 	if a.Scheduler != nil {
 		a.Scheduler.Start(bgCtx)
@@ -274,4 +287,27 @@ func isLoopback(listen string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// newChannelHub 按配置创建聊天软件接入，一个都没开启时返回 nil。
+func newChannelHub(cfg *config.Config, db *gormstore.DB, cs *chat.Service, up *uploads.Service, name func() string, log *slog.Logger) (*channels.Hub, error) {
+	cc := cfg.Channels
+	if !cc.Weixin.Enabled && !cc.QQ.Enabled && !cc.Telegram.Enabled {
+		return nil, nil
+	}
+	hub := channels.NewHub(db, cs, up, name, log)
+	if cc.Weixin.Enabled {
+		hub.Add(channels.NewWeixin(cc.Dir, log))
+	}
+	if cc.QQ.Enabled {
+		hub.Add(channels.NewOneBot(cc.QQ.AccessToken, cc.QQ.AutoAcceptFriend, log))
+	}
+	if cc.Telegram.Enabled {
+		tg, err := channels.NewTelegram(cc.Telegram.BotToken, cc.Telegram.APIBase, cc.Telegram.Proxy, log)
+		if err != nil {
+			return nil, err
+		}
+		hub.Add(tg)
+	}
+	return hub, nil
 }

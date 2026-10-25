@@ -117,8 +117,15 @@ emotion:
   empathy: 1.0           # 被对方情绪感染的程度
 
 tools:
-  # 聊天中模型可以自己决定联网搜索、读取网页（当前对话的模型是 DeepSeek 时可用，用该模型的 Key）
-  # 以及编写并运行 Python 代码来做精确计算。
+  # 聊天中模型可以自己决定联网搜索、读取网页，以及编写并运行 Python 代码来做精确计算。
+  search:
+    # auto：当前模型是 DeepSeek 时用 DeepSeek 的搜索（用该模型的 Key），否则用下面填了 Key 的博查或 Tavily
+    # deepseek / bocha / tavily：只用指定的服务；off：关闭
+    provider: auto
+    bocha_api_key: ""      # 博查（open.bochaai.com），国内服务器推荐；建议用环境变量 BUUGOO_TOOLS__SEARCH__BOCHA_API_KEY
+    tavily_api_key: ""     # Tavily（app.tavily.com），每月有免费额度，也能读取网页正文
+    # 搜索服务不能读网页时（如博查），由服务器直接下载网页正文（只能访问公网地址）
+    direct_fetch: true
   python:
     # docker：在一次性容器中运行（断网、只读、限制内存/CPU/时间），所有用户可用。需要服务能使用 docker 命令，
     #         注意：把服务用户加入 docker 组等同于给它 root 权限。
@@ -139,6 +146,41 @@ tools:
     lib_dir: ""            # 留空为 <data_dir>/pylib
     lib_max_mb: 2048       # 库目录大小上限，超过后不再安装
     install_timeout: 5m
+    # 每段对话的工作目录：代码能读取这段对话里上传的文件（input/，只读），保存在当前目录的文件之后的运行还在。
+    # 计入用户的文件空间，删除对话时一起删除；0 表示不保留文件。
+    workspace_dir: ""      # 留空为 <data_dir>/workspaces
+    workspace_mb: 50       # 每段对话工作目录（压缩后）的上限
+
+proactive:
+  # 提醒：用户说「半小时后叫我」「每天晚上十点提醒我吃药」时，布谷会设提醒，到时间主动发消息
+  reminders: true
+  # 主动关心：很久没聊、或用户之前提到的事可能有结果时，布谷会主动问候（每个用户可以在设置里关掉）
+  care: true
+  quiet_start: "23:00"     # 免打扰时段（本地时间），这段时间不主动关心；提醒照常
+  quiet_end: "08:00"
+  idle_hours: 20           # 用户多久没说话后才考虑主动关心
+  min_gap_hours: 20        # 两次主动关心至少间隔
+  check_interval: 30m
+
+channels:
+  # 聊天软件接入：只处理私聊。用户在网页「设置 → 聊天软件」生成绑定码，在聊天软件里发给布谷即可绑定，
+  # 绑定后和网页共用同一份记忆、心情与对话。修改后需要重启服务。
+  dir: ""                  # 微信登录态等，留空为 <data_dir>/channels
+  weixin:
+    # 个人微信（微信官方 ClawBot 接口）：开启后在管理后台「聊天软件」中扫码登录。
+    # 需要手机微信最新版（iOS ≥ 8.0.70、安卓 ≥ 8.0.69）并有 ClawBot 插件。
+    enabled: false
+  qq:
+    # QQ：用一个 QQ 小号登录 NapCat，在 NapCat 中添加「WebSocket 客户端」，
+    # 地址填 ws://127.0.0.1:8080/onebot/v11/ws，Token 填下面的 access_token。非官方协议，有封号风险。
+    enabled: false
+    access_token: ""       # 至少 8 位
+    auto_accept_friend: true
+  telegram:
+    enabled: false
+    bot_token: ""          # 在 @BotFather 创建机器人获得
+    proxy: ""              # 国内服务器需要，例如 http://127.0.0.1:7890
+    api_base: ""           # 留空为 https://api.telegram.org
 
 memory:
   # 检索打分：score = alpha·recency + beta·importance + gamma·relevance
@@ -169,6 +211,8 @@ memory:
 chat:
   history_messages: 20      # 提示词中带上的最近消息条数
   max_context_tokens: 6000  # 提示词的近似 token 预算
+  # 长对话中较早的消息由辅助模型整理成摘要放进提示词，聊久了也记得前面说过什么
+  summarize: true
 
 persona:
   # 人格档案文件，留空使用内置的"布谷"

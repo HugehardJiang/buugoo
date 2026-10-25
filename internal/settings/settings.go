@@ -47,7 +47,7 @@ var locked = map[string]string{
 }
 
 func isSecret(key string) bool {
-	for _, s := range []string{"api_key", "password", "secret", "dsn", "encryption_key"} {
+	for _, s := range []string{"api_key", "password", "secret", "dsn", "encryption_key", "_token"} {
 		if strings.HasSuffix(key, s) {
 			return true
 		}

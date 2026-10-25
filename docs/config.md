@@ -95,9 +95,63 @@ Word `.docx`、以及 UTF-8 / GBK 编码的纯文本文件。上传后 24 小时
 | `tools.python.lib_dir` | `<data_dir>/pylib` | 第三方库目录，所有人共用；运行代码时只读挂载 |
 | `tools.python.lib_max_mb` | 2048 | 库目录大小上限，超过后不再安装 |
 | `tools.python.install_timeout` | `5m` | 一次安装的时间上限 |
+| `tools.python.workspace_mb` | 50 | 每段对话工作目录（压缩后）的上限，0 表示不保留文件 |
+| `tools.python.workspace_dir` | `<data_dir>/workspaces` | 对话工作目录的位置 |
+| `tools.search.provider` | `auto` | `auto`：模型是 DeepSeek 时用 DeepSeek 搜索，否则用填了 Key 的博查或 Tavily；`deepseek` / `bocha` / `tavily`：只用指定的；`off`：关闭 |
+| `tools.search.bocha_api_key` | 空 | [博查](https://open.bochaai.com) 的 Key，国内服务器推荐 |
+| `tools.search.tavily_api_key` | 空 | [Tavily](https://app.tavily.com) 的 Key，每月有免费额度，也用于读取网页 |
+| `tools.search.direct_fetch` | true | 搜索服务不能读网页时（如博查），由服务器直接下载网页正文（只能访问公网地址） |
 
-联网搜索与读取网页使用 DeepSeek 的 Search / Fetch 接口（各 5 元 / 千次），只在当前对话的模型是 DeepSeek（`api.deepseek.com`）
-时提供，费用记在该模型的 Key 上。模型需要勾选「支持工具调用」（配置文件中为 `llm.chat.tools`）。
+联网搜索不再限定 DeepSeek：模型是 DeepSeek 时默认用它的 Search / Fetch 接口（各 5 元 / 千次，费用记在该模型的 Key 上），
+其他模型用博查或 Tavily。模型需要勾选「支持工具调用」（配置文件中为 `llm.chat.tools`）。
+
+运行代码时，当前目录是这段对话专属的工作目录：这段对话里上传过的文件在 `input/`（只读），代码保存的文件之后的运行还能用。
+沙箱中的工作目录是有大小上限的内存盘，运行结束后有变化才打包交回保存，代码不能直接写服务器磁盘；
+工作目录计入用户的文件空间，空间用满时不再保存改动，删除对话时一起删除。
+
+## 长对话摘要
+
+| 配置 | 默认 | 说明 |
+| --- | --- | --- |
+| `chat.history_messages` | 20 | 原样放进提示词的最近消息条数 |
+| `chat.summarize` | true | 未整理的消息超过「history_messages + 8」条时，由辅助模型把较早的部分整理成摘要放进提示词 |
+
+摘要保存在对话上，最多约 500 字，每次在旧摘要的基础上更新；整理失败时下次再试，不影响聊天。
+
+## 提醒与主动消息
+
+| 配置 | 默认 | 说明 |
+| --- | --- | --- |
+| `proactive.reminders` | true | 布谷可以设提醒（一次、每天、工作日、每周），到时间主动发消息 |
+| `proactive.care` | true | 主动关心：辅助模型根据记忆、最近的聊天和心情判断要不要主动找对方、聊什么 |
+| `proactive.quiet_start` / `quiet_end` | `23:00` / `08:00` | 免打扰时段（本地时间），这段时间不主动关心，提醒照常 |
+| `proactive.idle_hours` | 20 | 用户多久没说话后才考虑主动关心 |
+| `proactive.min_gap_hours` | 20 | 两次主动关心至少间隔 |
+| `proactive.check_interval` | `30m` | 多久检查一次（同一个人至少 6 小时才判断一次） |
+
+主动发的消息还没有回复时，3 天内不会再主动；用户可以在「设置 → 提醒与主动消息」关掉主动关心，或取消提醒。
+主动消息写进用户最近聊天的那段对话；这段对话来自微信、QQ 或 Telegram 时，也会发到那里。
+
+## 聊天软件
+
+| 配置 | 默认 | 说明 |
+| --- | --- | --- |
+| `channels.weixin.enabled` | false | 个人微信（微信官方 ClawBot 接口），在管理后台「聊天软件」中扫码登录 |
+| `channels.qq.enabled` | false | QQ（NapCat 等 OneBot v11 实现，反向 WebSocket 连接到 `/onebot/v11/ws`） |
+| `channels.qq.access_token` | 空 | NapCat 连接令牌，至少 8 位 |
+| `channels.qq.auto_accept_friend` | true | 自动通过好友申请 |
+| `channels.telegram.enabled` | false | Telegram 机器人 |
+| `channels.telegram.bot_token` | 空 | 在 @BotFather 创建机器人获得 |
+| `channels.telegram.proxy` | 空 | 访问 Telegram 的代理，国内服务器需要 |
+| `channels.telegram.api_base` | 空 | Bot API 地址，可以换成自建的反向代理 |
+| `channels.dir` | `<data_dir>/channels` | 微信登录态等数据 |
+
+只处理私聊。聊天软件里的人发消息时，布谷会请他先在网页「设置 → 聊天软件」生成绑定码并发过来；
+绑定后在聊天软件里聊天就和在网页上一样（同一份记忆、心情，使用一段单独的对话），发「新对话」换话题，发「解绑」解除绑定。
+连着发的几条消息会合并成一轮回复，回复会像真人一样拆成几条、间隔着发出去。
+
+微信只能回复给发过消息的人（需要对方消息里带的凭证），所以要先在微信里给布谷发一条消息，之后提醒和主动消息才能发到微信。
+接入方式参考了 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 的实现；QQ 使用的 NapCat 是非官方协议，存在封号风险，建议用小号。
 
 ## 情绪
 

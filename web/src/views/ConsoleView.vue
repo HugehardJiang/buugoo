@@ -3,6 +3,7 @@
 // 保存后写入数据目录中的 settings.yaml，管理员需要自己重启服务才会生效。
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ApiError } from '../api'
+import ConsoleChannels from '../components/ConsoleChannels.vue'
 import Modal from '../components/Modal.vue'
 import { session } from '../session'
 import { toast } from '../toast'
@@ -41,7 +42,7 @@ const draft = reactive<Record<string, unknown>>({})
 const saving = ref(false)
 const justSaved = ref<string[]>([])
 const query = ref('')
-const tab = ref<'settings' | 'persona'>('settings')
+const tab = ref<'settings' | 'persona' | 'channels'>('settings')
 
 interface PersonaResp {
   yaml: string
@@ -105,7 +106,7 @@ async function resetPersona() {
   }
 }
 
-function openTab(t: 'settings' | 'persona') {
+function openTab(t: 'settings' | 'persona' | 'channels') {
   tab.value = t
   if (t === 'persona' && !persona.value) loadPersona()
 }
@@ -300,6 +301,7 @@ onMounted(() => {
           <div class="type-switch tabs" role="tablist" aria-label="管理后台">
             <button type="button" role="tab" :class="{ 'is-active': tab === 'settings' }" @click="openTab('settings')">系统设置</button>
             <button type="button" role="tab" :class="{ 'is-active': tab === 'persona' }" @click="openTab('persona')">人格</button>
+            <button type="button" role="tab" :class="{ 'is-active': tab === 'channels' }" @click="openTab('channels')">聊天软件</button>
           </div>
 
           <template v-if="tab === 'persona'">
@@ -323,6 +325,8 @@ onMounted(() => {
               </div>
             </section>
           </template>
+
+          <ConsoleChannels v-else-if="tab === 'channels'" :call="call" />
 
           <template v-else>
           <p class="muted intro">
@@ -406,7 +410,7 @@ onMounted(() => {
 
 <style scoped>
 .login { max-width: 460px; margin: 6vh auto 0; }
-.tabs { max-width: 280px; margin-bottom: 20px; }
+.tabs { max-width: 400px; margin-bottom: 20px; }
 .guide { margin: 0 0 12px; padding-left: 18px; line-height: 1.7; }
 .persona-editor {
   min-height: 520px; font-family: var(--font-mono); font-size: 13px; line-height: 1.65; tab-size: 2; white-space: pre; overflow-x: auto;

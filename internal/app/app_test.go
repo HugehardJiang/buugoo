@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
+
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/store/gormstore"
 )
@@ -913,5 +915,97 @@ func TestFilesAndPresetsAPI(t *testing.T) {
 	resp, b = ta.upload(t, "", "b.txt", bytes.Repeat([]byte("b"), 700<<10))
 	if resp.StatusCode != http.StatusRequestEntityTooLarge || !strings.Contains(string(b), "quota_exceeded") {
 		t.Fatalf("quota: %d %s", resp.StatusCode, b)
+	}
+}
+
+func TestQQChannel(t *testing.T) {
+	ta := newTestApp(t, func(c *config.Config) {
+		c.Channels.QQ = config.QQChannelConfig{Enabled: true, AccessToken: "napcat-secret"}
+		c.Tools.Python.Runner = config.PythonOff
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ta.channels.Start(ctx)
+	time.Sleep(50 * time.Millisecond)
+
+	wsURL := "ws" + strings.TrimPrefix(ta.srv.URL, "http") + "/onebot/v11/ws"
+	if _, resp, err := websocket.DefaultDialer.Dial(wsURL+"?access_token=wrong", nil); err == nil || resp.StatusCode != 401 {
+		t.Fatal("令牌不对应拒绝")
+	}
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL+"?access_token=napcat-secret", http.Header{"X-Self-ID": {"10001"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	// 用户在网页上看到 QQ 已开启并生成绑定码。
+	_, b := ta.do(t, "GET", "/api/v1/channels", "", nil)
+	if !strings.Contains(string(b), `"name":"qq"`) || !strings.Contains(string(b), `"account":"10001"`) {
+		t.Fatalf("channels: %s", b)
+	}
+	_, b = ta.do(t, "POST", "/api/v1/channels/code", "", nil)
+	var code struct{ Code string }
+	_ = json.Unmarshal(b, &code)
+
+	say := func(text string) {
+		msg, _ := json.Marshal(map[string]any{"post_type": "message", "message_type": "private", "user_id": 555, "self_id": 10001,
+			"sender": map[string]any{"nickname": "阿明"}, "message": []any{map[string]any{"type": "text", "data": map[string]any{"text": text}}}})
+		_ = conn.WriteMessage(websocket.TextMessage, msg)
+	}
+	// 读 NapCat 收到的发消息请求并回复成功。
+	replies := func(n int) []string {
+		var out []string
+		_ = conn.SetReadDeadline(time.Now().Add(20 * time.Second))
+		for len(out) < n {
+			_, data, err := conn.ReadMessage()
+			if err != nil {
+				t.Fatalf("read: %v (got %q)", err, out)
+			}
+			var call struct {
+				Action string `json:"action"`
+				Echo   string `json:"echo"`
+				Params struct {
+					Message []struct {
+						Data struct {
+							Text string `json:"text"`
+						} `json:"data"`
+					} `json:"message"`
+				} `json:"params"`
+			}
+			_ = json.Unmarshal(data, &call)
+			ack, _ := json.Marshal(map[string]any{"status": "ok", "retcode": 0, "echo": call.Echo})
+			_ = conn.WriteMessage(websocket.TextMessage, ack)
+			if call.Action == "send_private_msg" && len(call.Params.Message) > 0 {
+				out = append(out, call.Params.Message[0].Data.Text)
+			}
+		}
+		return out
+	}
+	say(code.Code)
+	if r := replies(1); !strings.Contains(r[0], "绑好啦") {
+		t.Fatalf("%q", r)
+	}
+	_, b = ta.do(t, "GET", "/api/v1/channels", "", nil)
+	if !strings.Contains(string(b), `"peer_name":"阿明"`) {
+		t.Fatalf("应显示绑定: %s", b)
+	}
+	say("我今天好累")
+	if r := replies(1); r[0] == "" {
+		t.Fatal("应收到回复")
+	}
+	// 在 QQ 里聊的内容保存在这个用户的对话里，网页上也能看到。
+	_, b = ta.do(t, "GET", "/api/v1/conversations", "", nil)
+	var convs struct {
+		Conversations []struct{ ID uint64 } `json:"conversations"`
+	}
+	_ = json.Unmarshal(b, &convs)
+	found := false
+	for _, c := range convs.Conversations {
+		_, mb := ta.do(t, "GET", fmt.Sprintf("/api/v1/conversations/%d/messages", c.ID), "", nil)
+		if strings.Contains(string(mb), "我今天好累") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("QQ 里的消息应保存在对话中")
 	}
 }

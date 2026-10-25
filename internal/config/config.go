@@ -68,6 +68,7 @@ type Config struct {
 	Emotion   EmotionConfig   `koanf:"emotion"`
 	Admin     AdminConfig     `koanf:"admin"`
 	Proactive ProactiveConfig `koanf:"proactive"`
+	Channels  ChannelsConfig  `koanf:"channels"`
 
 	// path 记录实际加载的配置文件路径（未加载文件时为空），不参与反序列化。
 	path string
@@ -243,6 +244,39 @@ type EmotionConfig struct {
 	Forgiveness float64 `koanf:"forgiveness"`
 	// Empathy 是被对方情绪感染的程度。
 	Empathy float64 `koanf:"empathy"`
+}
+
+// ChannelsConfig 是聊天软件接入的配置（只处理私聊，聊天软件里的人需要用绑定码绑定到布谷的账号）。
+type ChannelsConfig struct {
+	// Dir 是登录态等数据的存放目录，留空为 <data_dir>/channels。
+	Dir      string                `koanf:"dir"`
+	Weixin   WeixinChannelConfig   `koanf:"weixin"`
+	QQ       QQChannelConfig       `koanf:"qq"`
+	Telegram TelegramChannelConfig `koanf:"telegram"`
+}
+
+// WeixinChannelConfig 是个人微信（ClawBot 接口）接入：在管理后台扫码登录。
+type WeixinChannelConfig struct {
+	Enabled bool `koanf:"enabled"`
+}
+
+// QQChannelConfig 是 QQ 接入：NapCat 等 OneBot v11 实现以反向 WebSocket 连接到布谷。
+type QQChannelConfig struct {
+	Enabled bool `koanf:"enabled"`
+	// AccessToken 是 NapCat 连接时必须带的令牌。
+	AccessToken string `koanf:"access_token"`
+	// AutoAcceptFriend 为 true 时自动通过好友申请（没绑定的人也只会收到绑定说明）。
+	AutoAcceptFriend bool `koanf:"auto_accept_friend"`
+}
+
+// TelegramChannelConfig 是 Telegram 机器人接入。
+type TelegramChannelConfig struct {
+	Enabled  bool   `koanf:"enabled"`
+	BotToken string `koanf:"bot_token"`
+	// Proxy 是访问 Telegram 的代理（http://、https:// 或 socks5://），留空使用环境变量中的代理。
+	Proxy string `koanf:"proxy"`
+	// APIBase 是 Bot API 地址，留空为 https://api.telegram.org（可以换成自建的反向代理）。
+	APIBase string `koanf:"api_base"`
 }
 
 // ProactiveConfig 是主动消息的配置：提醒（用户让布谷设的）与主动关心。
@@ -459,8 +493,9 @@ func Default() *Config {
 			MaxContextTokens: 6000,
 			Summarize:        true,
 		},
-		Uploads: UploadsConfig{MaxFileMB: 20, MaxFiles: 8, UserQuotaMB: 500, DocChars: 20000},
-		Admin:   AdminConfig{Password: DefaultAdminPassword},
+		Uploads:  UploadsConfig{MaxFileMB: 20, MaxFiles: 8, UserQuotaMB: 500, DocChars: 20000},
+		Admin:    AdminConfig{Password: DefaultAdminPassword},
+		Channels: ChannelsConfig{QQ: QQChannelConfig{AutoAcceptFriend: true}},
 		Proactive: ProactiveConfig{Reminders: true, Care: true, QuietStart: "23:00", QuietEnd: "08:00",
 			IdleHours: 20, MinGapHours: 20, CheckInterval: 30 * time.Minute},
 		Emotion: EmotionConfig{Enabled: true, Expressiveness: 1, Temper: 1, Patience: 1, Forgiveness: 1, Empathy: 1},
@@ -608,6 +643,9 @@ func (c *Config) applyDerived() {
 	if c.Database.Driver == DriverSQLite && c.Database.DSN == "" && c.DataDir != "" {
 		c.Database.DSN = filepath.Join(c.DataDir, "buugoo.db")
 	}
+	if c.Channels.Dir == "" && c.DataDir != "" {
+		c.Channels.Dir = filepath.Join(c.DataDir, "channels")
+	}
 	if c.Tools.Python.WorkspaceDir == "" && c.DataDir != "" {
 		c.Tools.Python.WorkspaceDir = filepath.Join(c.DataDir, "workspaces")
 	}
@@ -695,6 +733,12 @@ func (c *Config) Validate() error {
 		if v < 0 || v > 3 {
 			errs = append(errs, fmt.Errorf("emotion.%s 需在 0-3 之间", name))
 		}
+	}
+	if c.Channels.QQ.Enabled && len(c.Channels.QQ.AccessToken) < 8 {
+		errs = append(errs, errors.New("开启 QQ 接入（channels.qq.enabled）需要设置至少 8 位的 channels.qq.access_token，NapCat 连接时要填同样的令牌"))
+	}
+	if c.Channels.Telegram.Enabled && strings.TrimSpace(c.Channels.Telegram.BotToken) == "" {
+		errs = append(errs, errors.New("开启 Telegram 接入需要填写 channels.telegram.bot_token（在 @BotFather 创建机器人获得）"))
 	}
 	for _, t := range []string{c.Proactive.QuietStart, c.Proactive.QuietEnd} {
 		if _, err := time.Parse("15:04", t); err != nil {
