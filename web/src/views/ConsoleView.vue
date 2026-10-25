@@ -3,6 +3,8 @@
 // 保存后写入数据目录中的 settings.yaml，管理员需要自己重启服务才会生效。
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ApiError } from '../api'
+import Modal from '../components/Modal.vue'
+import { session } from '../session'
 import { toast } from '../toast'
 
 interface Field {
@@ -39,6 +41,74 @@ const draft = reactive<Record<string, unknown>>({})
 const saving = ref(false)
 const justSaved = ref<string[]>([])
 const query = ref('')
+const tab = ref<'settings' | 'persona'>('settings')
+
+interface PersonaResp {
+  yaml: string
+  source: 'web' | 'file' | 'builtin'
+  path: string
+  name: string
+  default: string
+}
+const persona = ref<PersonaResp | null>(null)
+const personaText = ref('')
+const personaError = ref('')
+const personaSaving = ref(false)
+const confirmReset = ref(false)
+const personaDirty = computed(() => !!persona.value && personaText.value !== persona.value.yaml)
+const sourceLabel = computed(() => {
+  switch (persona.value?.source) {
+    case 'web':
+      return '管理后台保存的人格'
+    case 'file':
+      return '配置文件 persona.file 指定的文件'
+    default:
+      return '内置的默认人格'
+  }
+})
+
+function applyPersona(r: PersonaResp) {
+  persona.value = r
+  personaText.value = r.yaml
+  if (session.meta) session.meta.name = r.name
+}
+
+async function loadPersona() {
+  try {
+    applyPersona(await call<PersonaResp>('GET', '/persona'))
+  } catch (e) {
+    personaError.value = e instanceof ApiError ? e.message : '加载失败'
+  }
+}
+
+async function savePersona() {
+  personaSaving.value = true
+  personaError.value = ''
+  try {
+    applyPersona(await call<PersonaResp>('PUT', '/persona', { yaml: personaText.value }))
+    toast(`人格已更新，${persona.value?.name}从下一句话开始就是新的样子`)
+  } catch (e) {
+    personaError.value = e instanceof ApiError ? e.message : '保存失败'
+  } finally {
+    personaSaving.value = false
+  }
+}
+
+async function resetPersona() {
+  confirmReset.value = false
+  personaError.value = ''
+  try {
+    applyPersona(await call<PersonaResp>('DELETE', '/persona'))
+    toast('已恢复默认人格')
+  } catch (e) {
+    personaError.value = e instanceof ApiError ? e.message : '操作失败'
+  }
+}
+
+function openTab(t: 'settings' | 'persona') {
+  tab.value = t
+  if (t === 'persona' && !persona.value) loadPersona()
+}
 
 function read() {
   try {
@@ -195,7 +265,7 @@ onMounted(() => {
     <header class="topbar">
       <div class="topbar__titles">
         <span class="eyebrow">CONSOLE · 管理后台</span>
-        <h1>系统设置</h1>
+        <h1>管理后台</h1>
       </div>
       <button v-if="data" class="btn btn-ghost" @click="logout">退出管理后台</button>
     </header>
@@ -227,6 +297,34 @@ onMounted(() => {
               <button class="btn" @click="copy(data.restart_hint)">复制</button>
             </div>
           </div>
+          <div class="type-switch tabs" role="tablist" aria-label="管理后台">
+            <button type="button" role="tab" :class="{ 'is-active': tab === 'settings' }" @click="openTab('settings')">系统设置</button>
+            <button type="button" role="tab" :class="{ 'is-active': tab === 'persona' }" @click="openTab('persona')">人格</button>
+          </div>
+
+          <template v-if="tab === 'persona'">
+            <section class="panel panel--inset">
+              <h2>人格档案</h2>
+              <p class="muted intro">
+                决定{{ persona?.name ?? '布谷' }}是谁、怎么说话、在乎什么。保存后<strong>立即生效</strong>，不需要重启；
+                对话中没有任何办法修改它。当前使用的是{{ sourceLabel }}<template v-if="persona?.path">（<code>{{ persona.path }}</code>）</template>。
+              </p>
+              <ul class="caption guide">
+                <li><code>name</code> 名字、<code>identity</code> 一句话自我认知（写在同一行）、<code>personality</code> 性格、<code>speaking_style</code> 说话风格、<code>catchphrases</code> 口头禅、<code>interests</code> 兴趣、<code>values</code> 价值观、<code>principles</code> 必须遵守的原则</li>
+                <li>name、identity、personality、principles 必填；列表每行以「- 」开头</li>
+              </ul>
+              <textarea v-model="personaText" class="textarea persona-editor" spellcheck="false" aria-label="人格档案 YAML" />
+              <p v-if="personaError" class="form-flash form-flash--error">{{ personaError }}</p>
+              <div class="persona-actions">
+                <button class="btn btn-danger-lite" :disabled="persona?.source === 'builtin' && !personaDirty" @click="confirmReset = true">恢复默认</button>
+                <span class="spacer" />
+                <button class="btn btn-ghost" :disabled="!personaDirty" @click="personaText = persona?.yaml ?? ''">撤销修改</button>
+                <button class="btn btn-primary" :disabled="!personaDirty || personaSaving" @click="savePersona">{{ personaSaving ? '正在保存' : '保存并生效' }}</button>
+              </div>
+            </section>
+          </template>
+
+          <template v-else>
           <p class="muted intro">
             这里的修改保存在 <code>{{ data.settings_path }}</code>，覆盖配置文件中的同名设置；环境变量中的设置优先级最高，
             这里改了也不会生效。管理员密码和加密密钥只能在配置文件中修改。
@@ -286,7 +384,16 @@ onMounted(() => {
             </div>
           </section>
 
-          <div v-if="dirty" class="savebar">
+          </template>
+
+          <Modal v-if="confirmReset" title="恢复默认人格？" subtitle="管理后台保存的人格会被删除，恢复为配置文件指定的或内置的人格，立即生效。" @close="confirmReset = false">
+            <div class="modal-actions">
+              <button class="btn" @click="confirmReset = false">取消</button>
+              <button class="btn btn-danger" @click="resetPersona">恢复默认</button>
+            </div>
+          </Modal>
+
+          <div v-if="dirty && tab === 'settings'" class="savebar">
             <span>{{ dirty }} 项修改未保存</span>
             <button class="btn btn-ghost" @click="load">放弃</button>
             <button class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? '正在保存' : '保存' }}</button>
@@ -299,6 +406,13 @@ onMounted(() => {
 
 <style scoped>
 .login { max-width: 460px; margin: 6vh auto 0; }
+.tabs { max-width: 280px; margin-bottom: 20px; }
+.guide { margin: 0 0 12px; padding-left: 18px; line-height: 1.7; }
+.persona-editor {
+  min-height: 520px; font-family: var(--font-mono); font-size: 13px; line-height: 1.65; tab-size: 2; white-space: pre; overflow-x: auto;
+}
+.persona-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.spacer { flex: 1; }
 .login p { margin: 0 0 16px; }
 .intro { margin: 0 0 16px; font-size: 14px; line-height: 1.7; }
 .restart p { margin: 0 0 8px; }

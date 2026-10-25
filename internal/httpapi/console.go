@@ -13,7 +13,9 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/HugehardJiang/buugoo/configs"
 	"github.com/HugehardJiang/buugoo/internal/config"
+	"github.com/HugehardJiang/buugoo/internal/persona"
 	"github.com/HugehardJiang/buugoo/internal/settings"
 )
 
@@ -169,4 +171,49 @@ func (s *server) consoleDiscard(c echo.Context) error {
 	}
 	s.log.Warn("管理后台恢复了设置，重启后生效", "keys", strings.Join(req.Keys, ","), "ip", c.RealIP())
 	return c.NoContent(http.StatusNoContent)
+}
+
+// ---------- 人格 ----------
+
+func (s *server) personaResp(c echo.Context, status int) error {
+	raw, source, path := s.Persona.Raw()
+	return c.JSON(status, map[string]any{
+		"yaml":    string(raw),
+		"source":  source,
+		"path":    path,
+		"name":    s.Persona.Current().Name,
+		"default": string(configs.DefaultPersona),
+	})
+}
+
+func (s *server) consoleGetPersona(c echo.Context) error {
+	return s.personaResp(c, http.StatusOK)
+}
+
+// consoleSavePersona 校验并保存人格档案，立即生效（不需要重启）。
+func (s *server) consoleSavePersona(c echo.Context) error {
+	var req struct {
+		YAML string `json:"yaml"`
+	}
+	if err := bind(c, &req); err != nil {
+		return err
+	}
+	if _, err := s.Persona.Save([]byte(req.YAML)); err != nil {
+		var pe *persona.ParseError
+		if errors.As(err, &pe) {
+			return &apiError{Status: http.StatusBadRequest, Code: "invalid_persona", Message: err.Error()}
+		}
+		return err
+	}
+	s.log.Warn("管理后台修改了人格档案，已生效", "ip", c.RealIP())
+	return s.personaResp(c, http.StatusOK)
+}
+
+// consoleResetPersona 恢复为配置文件指定的或内置的人格，立即生效。
+func (s *server) consoleResetPersona(c echo.Context) error {
+	if _, err := s.Persona.Reset(); err != nil {
+		return err
+	}
+	s.log.Warn("管理后台恢复了默认人格，已生效", "ip", c.RealIP())
+	return s.personaResp(c, http.StatusOK)
 }

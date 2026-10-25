@@ -78,7 +78,7 @@ var meta = map[string]struct {
 	"chat.history_messages":   {"历史消息条数", "每轮放进提示词的最近消息数", nil},
 	"chat.max_context_tokens": {"提示词预算（token）", "", nil},
 
-	"persona.file": {"人格档案文件", "留空使用内置的布谷；修改人格档案后重启生效", nil},
+	"persona.file": {"人格档案文件", "留空使用内置的布谷；管理后台「人格」中保存的人格优先于这里", nil},
 
 	"quota.daily_messages": {"每人每日消息数", "0 不限", nil},
 	"quota.daily_tokens":   {"每人每日 token", "0 不限", nil},

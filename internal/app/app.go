@@ -72,10 +72,11 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	if err := db.Migrate(ctx); err != nil {
 		return nil, err
 	}
-	p, err := persona.Load(cfg.Persona.File)
+	personas, err := persona.NewManager(cfg.Persona.File, cfg.DataDir)
 	if err != nil {
 		return nil, err
 	}
+	p := personas.Current()
 	utilLLM, err := provider.NewChat(cfg.LLM.Utility)
 	if err != nil {
 		return nil, err
@@ -121,15 +122,18 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 			log.Warn("更新情绪失败", "user_id", job.UserID, "err", err)
 		}
 	})
+	builder := prompt.NewBuilder(p, cfg.Chat.MaxContextTokens)
+	// 管理员在网页上修改人格后立即生效。
+	personas.OnChange(builder.SetPersona)
 	chatSvc := chat.New(chat.Deps{
 		Store: db, Models: modelSvc, Tools: toolsProv, Emotion: emo, Uploads: uploadSvc, Retriever: retriever, Writer: writer,
-		Builder: prompt.NewBuilder(p, cfg.Chat.MaxContextTokens), Quota: limiter,
+		Builder: builder, Quota: limiter,
 		Config: cfg.Chat, Location: loc, Logger: log,
 	})
 	handler := httpapi.New(httpapi.Deps{
 		Config: cfg, Store: db, Auth: authSvc, Chat: chatSvc, Memories: memory.NewManager(db.Memories(), vs),
 		Quota: limiter, Models: modelSvc, Reembed: memory.NewReembedder(db.Memories(), emb, vs, log),
-		Uploads: uploadSvc, Emotion: emo, PersonaName: p.Name, Logger: log,
+		Uploads: uploadSvc, Emotion: emo, Persona: personas, Logger: log,
 	})
 	a := &App{Config: cfg, Log: log, DB: db, Auth: authSvc, Chat: chatSvc, Models: modelSvc, Writer: writer, Handler: handler,
 		uploads: uploadSvc, tools: toolsProv}

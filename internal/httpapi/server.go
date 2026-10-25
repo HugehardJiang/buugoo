@@ -23,6 +23,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/llm/openai"
 	"github.com/HugehardJiang/buugoo/internal/memory"
 	"github.com/HugehardJiang/buugoo/internal/models"
+	"github.com/HugehardJiang/buugoo/internal/persona"
 	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/secret"
 	"github.com/HugehardJiang/buugoo/internal/store"
@@ -40,10 +41,10 @@ type Deps struct {
 	Models   *models.Service
 	Reembed  *memory.Reembedder
 	// Uploads 为空时不提供上传接口。
-	Uploads     *uploads.Service
-	Emotion     *emotion.Engine
-	PersonaName string
-	Logger      *slog.Logger
+	Uploads *uploads.Service
+	Emotion *emotion.Engine
+	Persona *persona.Manager
+	Logger  *slog.Logger
 }
 
 type server struct {
@@ -122,6 +123,9 @@ func New(d Deps) http.Handler {
 	console.GET("/settings", s.consoleSettings)
 	console.PUT("/settings", s.consoleSave)
 	console.POST("/settings/discard", s.consoleDiscard)
+	console.GET("/persona", s.consoleGetPersona)
+	console.PUT("/persona", s.consoleSavePersona)
+	console.DELETE("/persona", s.consoleResetPersona)
 
 	priv := api.Group("", s.requireUser)
 	priv.POST("/auth/logout-all", s.logoutAll)
@@ -212,7 +216,7 @@ func (s *server) healthz(c echo.Context) error {
 
 func (s *server) meta(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{
-		"name":              s.PersonaName,
+		"name":              s.Persona.Current().Name,
 		"version":           buildinfo.Version,
 		"mode":              s.Config.Mode,
 		"password_required": s.Auth.PasswordRequired(),

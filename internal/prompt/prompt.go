@@ -8,6 +8,7 @@ package prompt
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -62,6 +63,7 @@ type Prompt struct {
 
 // Builder 组装提示词。
 type Builder struct {
+	mu        sync.RWMutex
 	persona   persona.Persona
 	maxTokens int
 }
@@ -72,7 +74,18 @@ func NewBuilder(p persona.Persona, maxTokens int) *Builder {
 }
 
 // Persona 返回人格档案副本。
-func (b *Builder) Persona() persona.Persona { return b.persona }
+func (b *Builder) Persona() persona.Persona {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.persona
+}
+
+// SetPersona 替换人格档案（管理员在网页管理后台修改后立即生效）。
+func (b *Builder) SetPersona(p persona.Persona) {
+	b.mu.Lock()
+	b.persona = p
+	b.mu.Unlock()
+}
 
 // memoryBudgetShare 是记忆部分最多占用的预算比例，其余留给对话历史。
 const memoryBudgetShare = 0.35
@@ -81,11 +94,12 @@ const memoryBudgetShare = 0.35
 // 历史从最新往前，在预算内尽量多放。
 func (b *Builder) Build(in Input) Prompt {
 	p := Prompt{ContextTokenSize: b.maxTokens}
+	per := b.Persona()
 
 	fixed := []Section{
-		b.section("人格", b.personaText()),
+		b.section("人格", personaText(per)),
 		b.section("情境", situationText(in)),
-		b.section("回复要求", replyRulesText(b.persona.Name)),
+		b.section("回复要求", replyRulesText(per.Name)),
 	}
 	if in.ToolHints != "" {
 		fixed[2].Content += "\n\n" + in.ToolHints
@@ -171,8 +185,7 @@ func (b *Builder) section(name, content string) Section {
 	return Section{Name: name, Content: content, Tokens: EstimateTokens(content)}
 }
 
-func (b *Builder) personaText() string {
-	p := b.persona
+func personaText(p persona.Persona) string {
 	var s strings.Builder
 	fmt.Fprintf(&s, "# 你是%s\n%s", p.Name, p.Identity)
 	list := func(title string, items []string) {

@@ -785,3 +785,48 @@ func TestConsole(t *testing.T) {
 		t.Fatal("退出后令牌应失效")
 	}
 }
+
+func TestConsolePersona(t *testing.T) {
+	ta := newTestApp(t, func(c *config.Config) { c.Tools.Python.Runner = config.PythonOff })
+	_, b := ta.do(t, "POST", "/api/v1/console/login", "", map[string]string{"password": "1228"})
+	var login struct{ Token string }
+	_ = json.Unmarshal(b, &login)
+	put := func(method, yaml string) (*http.Response, []byte) {
+		bb, _ := json.Marshal(map[string]string{"yaml": yaml})
+		req, _ := http.NewRequest(method, ta.srv.URL+"/api/v1/console/persona", bytes.NewReader(bb))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Console-Token", login.Token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		out, _ := io.ReadAll(resp.Body)
+		return resp, out
+	}
+	resp, b := put("PUT", "name: [")
+	if resp.StatusCode != 400 || !strings.Contains(string(b), "invalid_persona") {
+		t.Fatalf("格式错误应 400: %d %s", resp.StatusCode, b)
+	}
+	resp, b = put("PUT", "name: 胖咕\nidentity: 你是胖咕，一只大肥鸟\npersonality: [幽默]\nprinciples: [真诚]\n")
+	if resp.StatusCode != 200 || !strings.Contains(string(b), `"source":"web"`) {
+		t.Fatalf("save: %d %s", resp.StatusCode, b)
+	}
+	// 立即生效：站点名与提示词都已更新。
+	_, b = ta.do(t, "GET", "/api/v1/meta", "", nil)
+	if !strings.Contains(string(b), `"name":"胖咕"`) {
+		t.Fatalf("meta: %s", b)
+	}
+	_, b = ta.do(t, "GET", "/api/v1/debug/prompt?q=你好&format=text", "", nil)
+	if !strings.Contains(string(b), "# 你是胖咕") {
+		t.Fatalf("提示词应使用新人格: %s", b)
+	}
+	resp, b = put("DELETE", "")
+	if resp.StatusCode != 200 || !strings.Contains(string(b), `"source":"builtin"`) {
+		t.Fatalf("reset: %d %s", resp.StatusCode, b)
+	}
+	_, b = ta.do(t, "GET", "/api/v1/meta", "", nil)
+	if !strings.Contains(string(b), `"name":"布谷"`) {
+		t.Fatalf("恢复后应为布谷: %s", b)
+	}
+}
