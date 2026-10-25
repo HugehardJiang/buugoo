@@ -40,6 +40,8 @@ export interface ToolEvent {
   input?: string
   summary?: string
   detail?: string
+  // 代码生成的图片（已保存为附件）
+  images?: Attachment[]
 }
 
 export type Thinking = 'off' | 'low' | 'medium' | 'high'

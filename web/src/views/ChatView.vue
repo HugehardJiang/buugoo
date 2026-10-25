@@ -468,6 +468,11 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+// 代码生成的图片显示在回复正文下方。
+function toolImages(m: Item): Attachment[] {
+  return m.tools?.flatMap((t) => t.images ?? []) ?? []
+}
+
 function toggle(which: 'memories' | 'thinking', id: number) {
   const set = which === 'memories' ? openMemories : openThinking
   const wasAtBottom = nearBottom()
@@ -574,6 +579,7 @@ onMounted(loadInitial)
               <AttachmentList v-if="row.item.attachments?.length" :items="row.item.attachments" align="end" />
               <div v-if="row.item.role === 'assistant'" class="md body" v-html="renderMarkdown(row.item.content)" />
               <div v-else-if="row.item.content" class="bubble">{{ row.item.content }}</div>
+              <AttachmentList v-if="toolImages(row.item).length" :items="toolImages(row.item)" size="large" />
               <FatBird
                 v-if="row.item.streaming && !row.item.content && !row.item.tools?.some((t) => t.status === 'running')"
                 :label="row.item.reasoning ? '正在思考' : '正在回复'"

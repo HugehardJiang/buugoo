@@ -219,3 +219,84 @@ func TestDockerInstall(t *testing.T) {
 		t.Fatalf("运行时应能 import 且库目录只读: %+v %v", res, err)
 	}
 }
+
+// tinyPNG 是生成一张 1×1 PNG 的 Python 代码。
+const tinyPNG = `import struct, zlib
+def chunk(t, d):
+    return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d))
+png = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(b'\x00\xff\x00\x00')) + chunk(b'IEND', b'')
+`
+
+func TestLocalRunnerImages(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("没有 python3")
+	}
+	l := NewLocal(config.PythonConfig{Python: "python3", Timeout: 5 * time.Second, MemoryMB: 256, LibDir: t.TempDir()}, nil)
+	ctx := context.Background()
+	res, err := l.Run(ctx, tinyPNG+"open('chart.png','wb').write(png)\nimport os\nos.makedirs('out', exist_ok=True)\nopen('out/b.png','wb').write(png)\nopen('notes.txt','w').write('x')\nprint('ok')")
+	if err != nil || res.Stdout != "ok\n" || len(res.Images) != 2 || res.Images[0].Name != "chart.png" || res.Images[1].Name != "b.png" {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	if !strings.HasPrefix(string(res.Images[0].Data), "\x89PNG") {
+		t.Fatal("图片内容不对")
+	}
+	// 超出数量上限的图片不收集。
+	res, _ = l.Run(ctx, tinyPNG+"for i in range(8):\n    open(f'{i}.png','wb').write(png)")
+	if len(res.Images) != maxImages || res.ImagesSkipped != 2 {
+		t.Fatalf("images=%d skipped=%d", len(res.Images), res.ImagesSkipped)
+	}
+	// 出错时错误信息只指向用户代码，并且仍然带上已经生成的图片。
+	res, _ = l.Run(ctx, tinyPNG+"open('a.png','wb').write(png)\nx = 1\n1/0")
+	if res.ExitCode != 1 || len(res.Images) != 1 || !strings.Contains(res.Stderr, `File "<code>", line 7`) ||
+		!strings.Contains(res.Stderr, "1/0") || strings.Contains(res.Stderr, "<stdin>") {
+		t.Fatalf("res=%+v", res)
+	}
+	// 用户代码伪造的分隔符不影响输出。
+	res, _ = l.Run(ctx, "print('\\n--buugoo-images-0\\n{}')\nimport sys\nsys.exit(0)")
+	if res.ExitCode != 0 || !strings.Contains(res.Stdout, "--buugoo-images-0") || len(res.Images) != 0 {
+		t.Fatalf("res=%+v", res)
+	}
+	res, _ = l.Run(ctx, "if __name__ == '__main__':\n    print('main')")
+	if res.Stdout != "main\n" {
+		t.Fatalf("res=%+v", res)
+	}
+}
+
+func TestPythonHandlerImages(t *testing.T) {
+	set := New(Options{Python: fakeRunner{ExecResult{Images: []Image{{Name: "a.png", Data: []byte("x")}}, ImagesSkipped: 1}}})
+	r := set.Run(context.Background(), llm.ToolCall{Name: NamePython, Arguments: `{"code":"plot()"}`})
+	if !r.OK || len(r.Images) != 1 || !strings.Contains(r.Output, "生成了 1 张图片（a.png）") ||
+		!strings.Contains(r.Output, "另有 1 张") || strings.Contains(r.Output, "没有输出") || r.Summary != "运行完成，生成 1 张图片" {
+		t.Fatalf("%+v", r)
+	}
+}
+
+// TestDockerPlot 安装 matplotlib 后在沙箱中画图，图片应被收集。
+func TestDockerPlot(t *testing.T) {
+	index := os.Getenv("BUUGOO_TEST_PIP_INDEX")
+	if os.Getenv("BUUGOO_TEST_DOCKER") == "" || index == "" {
+		t.Skip("设置 BUUGOO_TEST_DOCKER=1 与 BUUGOO_TEST_PIP_INDEX 运行")
+	}
+	lib := t.TempDir()
+	_ = os.Chmod(lib, 0o755)
+	d := NewDocker(config.PythonConfig{Docker: "docker", Image: "python:3.12-slim", Timeout: 30 * time.Second, MemoryMB: 256,
+		LibDir: lib, LibMaxMB: 500, InstallTimeout: 5 * time.Minute, IndexURL: index}, nil)
+	ctx := context.Background()
+	if out, err := d.Install(ctx, []string{"matplotlib"}); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(lib, mplCacheDir)); err != nil {
+		t.Fatalf("应建好字体缓存: %v", err)
+	}
+	start := time.Now()
+	res, err := d.Run(ctx, "import matplotlib.pyplot as plt\nplt.plot([1, 3, 2])\nplt.title('Test')\nplt.show()\nfig2 = plt.figure()\nplt.bar(['a', 'b'], [1, 2])\nprint('done')")
+	if err != nil || res.ExitCode != 0 || res.Stdout != "done\n" || len(res.Images) != 2 || res.Stderr != "" {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	t.Logf("画图用时 %s，图片 %d 字节", time.Since(start).Round(time.Millisecond), len(res.Images[0].Data))
+	// 保存了文件时只收集文件，不再重复收集图表。
+	res, err = d.Run(ctx, "import matplotlib.pyplot as plt\nplt.plot([1, 2])\nplt.savefig('line.png')")
+	if err != nil || len(res.Images) != 1 || res.Images[0].Name != "line.png" {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+}

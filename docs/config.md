@@ -75,7 +75,7 @@ Word `.docx`、以及 UTF-8 / GBK 编码的纯文本文件。上传后 24 小时
 | `tools.python.python` | `python3` | local 方式使用的解释器 |
 | `tools.python.timeout` | `30s` | 单次运行时间上限 |
 | `tools.python.memory_mb` | 256 | 单次运行内存上限 |
-| `tools.python.packages` | numpy, scipy, sympy, pandas, mpmath | 预装的库，启动时在后台安装（已经装好的不重复安装） |
+| `tools.python.packages` | numpy, scipy, sympy, pandas, mpmath, matplotlib | 预装的库，启动时在后台安装（已经装好的不重复安装） |
 | `tools.python.allow_install` | true | 允许布谷按需安装 PyPI 上的库：只装预编译包，只有安装时联网；multi 模式下仅管理员的对话 |
 | `tools.python.index_url` | 空（官方 PyPI） | pip 软件源，国内服务器建议 `https://pypi.tuna.tsinghua.edu.cn/simple` |
 | `tools.python.lib_dir` | `<data_dir>/pylib` | 第三方库目录，所有人共用；运行代码时只读挂载 |

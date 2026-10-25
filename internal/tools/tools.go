@@ -36,6 +36,8 @@ type Result struct {
 	// Detail 是给用户看的详细结果（搜索结果列表、代码输出），可为空。
 	Detail string
 	OK     bool
+	// Images 是代码生成的图片，由调用方保存后显示在回复中。
+	Images []Image
 }
 
 type handler func(ctx context.Context, args json.RawMessage) Result
@@ -56,6 +58,8 @@ type Options struct {
 	Packages []string
 	// Installer 不为空时提供安装第三方库。
 	Installer Installer
+	// CJKFont 表示运行代码的环境有中文字体，图表中可以写中文。
+	CJKFont bool
 }
 
 // New 按选项组装工具集。
@@ -87,10 +91,17 @@ func New(o Options) *Set {
 		if o.Installer != nil {
 			libs += "；缺少别的库时先用 install_package 安装"
 		}
+		// 画图：保存到当前目录的图片或没有关闭的 matplotlib 图表会直接显示给用户。
+		plot := "需要画图时用 matplotlib 画好即可（不用 plt.show），或用 savefig 保存为 png/jpg 到当前目录，图片会自动显示给用户，一次最多 6 张"
+		if o.CJKFont {
+			plot += "；图中可以写中文"
+		} else {
+			plot += "；图中的标题、坐标轴和图例请用英文（没有中文字体，中文会显示成方框）"
+		}
 		s.add(llm.Tool{
 			Name: NamePython,
 			Description: "运行一段 Python 3 代码并返回标准输出与错误输出。用于需要准确结果的计算、换算、日期推算、统计与数据处理；" +
-				"不要心算。用 print 输出结果。运行时没有网络；" + libs + "；单次运行有时间与内存限制。",
+				"不要心算。用 print 输出结果。运行时没有网络；" + libs + "。" + plot + "。单次运行有时间与内存限制。",
 			Parameters: object(map[string]any{
 				"code": map[string]any{"type": "string", "description": "完整的 Python 代码"},
 			}, "code"),

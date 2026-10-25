@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -32,6 +33,10 @@ type ExecResult struct {
 	Stderr   string
 	ExitCode int
 	TimedOut bool
+	// Images 是代码生成的图片（保存到工作目录的图片文件，或没有保存的 matplotlib 图表）。
+	Images []Image
+	// ImagesSkipped 是因为数量或大小超出上限而没有收集的图片数。
+	ImagesSkipped int
 }
 
 // Runner 运行 Python 代码。
@@ -61,6 +66,7 @@ func pythonHandler(r Runner) handler {
 			res.Output, res.Summary = "无法运行代码："+err.Error(), "无法运行"
 			return res
 		}
+		res.Images = out.Images
 		var b strings.Builder
 		switch {
 		case out.TimedOut:
@@ -78,7 +84,22 @@ func pythonHandler(r Runner) handler {
 		if out.Stderr != "" {
 			b.WriteString("错误输出：\n" + out.Stderr + "\n")
 		}
-		if out.Stdout == "" && out.Stderr == "" {
+		if len(out.Images) > 0 {
+			names := make([]string, len(out.Images))
+			for i, img := range out.Images {
+				names[i] = img.Name
+			}
+			fmt.Fprintf(&b, "生成了 %d 张图片（%s），已经显示在你的回复里，不需要再贴链接或用 Markdown 插入图片。\n",
+				len(out.Images), strings.Join(names, "、"))
+			if res.OK {
+				res.Summary = fmt.Sprintf("运行完成，生成 %d 张图片", len(out.Images))
+			}
+		}
+		if out.ImagesSkipped > 0 {
+			fmt.Fprintf(&b, "另有 %d 张图片超出数量或大小上限，没有显示（最多 %d 张，每张不超过 %d MB）。\n",
+				out.ImagesSkipped, maxImages, maxImageBytes>>20)
+		}
+		if out.Stdout == "" && out.Stderr == "" && len(out.Images) == 0 {
 			b.WriteString("（没有输出，记得用 print 打印结果）")
 		}
 		res.Output = truncate(strings.TrimSpace(b.String()), 8000)
@@ -174,9 +195,6 @@ func (d *Docker) Prepare(ctx context.Context) {
 		d.log.Warn("Docker 不可用，运行代码功能已关闭（可在 tools.python 中改用 local 或 off）")
 		return
 	}
-	if exec.CommandContext(ctx, d.bin, "image", "inspect", d.image).Run() == nil {
-		return
-	}
 	if exec.CommandContext(ctx, d.bin, "image", "inspect", d.image).Run() != nil {
 		d.log.Info("正在拉取运行代码用的镜像", "image", d.image)
 		if out, err := exec.CommandContext(ctx, d.bin, "pull", d.image).CombinedOutput(); err != nil {
@@ -186,6 +204,33 @@ func (d *Docker) Prepare(ctx context.Context) {
 		d.log.Info("镜像已就绪", "image", d.image)
 	}
 	d.lib.ensureBase(ctx, d.Install)
+	d.warmFonts(ctx)
+}
+
+// warmFonts 预先建好 matplotlib 的字体缓存（服务器字体可能变了，所以每次启动都重建），
+// 运行代码时复制一份使用。没有装 matplotlib 时什么也不做。
+func (d *Docker) warmFonts(ctx context.Context) {
+	if !d.lib.ready() {
+		return
+	}
+	cache := containerLib + "/" + mplCacheDir
+	args := []string{"run", "--rm", "--network", "none", "--read-only", "--tmpfs", "/tmp:rw,size=64m,mode=1777",
+		"--memory", "512m", "--cpus", "1", "--pids-limit", "64", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+		"-v", d.lib.dir + ":" + containerLib, "-e", "HOME=/tmp", "-e", "PYTHONUSERBASE=" + containerLib, "-e", "MPLCONFIGDIR=" + cache}
+	args = append(args, d.fontArgs()...)
+	if uid, gid := os.Getuid(), os.Getgid(); uid >= 0 {
+		args = append(args, "--user", fmt.Sprintf("%d:%d", uid, gid))
+	}
+	script := "import importlib.util, shutil, sys\n" +
+		"if importlib.util.find_spec('matplotlib') is None: sys.exit(0)\n" +
+		"shutil.rmtree('" + cache + "', ignore_errors=True)\n" +
+		"import matplotlib.font_manager\n"
+	args = append(args, d.image, "python3", "-c", script)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, d.bin, args...).CombinedOutput(); err != nil {
+		d.log.Warn("建立 matplotlib 字体缓存失败，画图时可能会慢一些", "err", err, "output", tail(strings.TrimSpace(string(out)), 8))
+	}
 }
 
 // Install 在一个可以联网的临时容器中安装库：只装预编译包（不运行安装脚本），
@@ -206,7 +251,12 @@ func (d *Docker) Install(ctx context.Context, pkgs []string) (string, error) {
 			args = append(args, "--user", fmt.Sprintf("%d:%d", uid, gid))
 		}
 		args = append(args, d.image, "python3", "-m", "pip")
-		return exec.CommandContext(ctx, d.bin, append(args, pipArgs...)...).CombinedOutput()
+		out, err := exec.CommandContext(ctx, d.bin, append(args, pipArgs...)...).CombinedOutput()
+		if err == nil {
+			// matplotlib 也可能作为别的库的依赖装进来，所以每次安装后都更新字体缓存。
+			d.warmFonts(context.WithoutCancel(ctx))
+		}
+		return out, err
 	})
 }
 
@@ -225,19 +275,23 @@ func (d *Docker) Run(ctx context.Context, code string) (ExecResult, error) {
 		"--user", "65534:65534", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
 		"--workdir", "/tmp", "-e", "HOME=/tmp", "-e", "PYTHONIOENCODING=utf-8"}
 	args = append(args, threadEnv("-e")...)
+	args = append(args, d.fontArgs()...)
 	if d.lib.ready() {
 		// 第三方库只读挂载；通过 PYTHONUSERBASE 让解释器找到它们（因此不能用 -I）。
-		args = append(args, "-v", d.lib.dir+":"+containerLib+":ro", "-e", "PYTHONUSERBASE="+containerLib)
+		args = append(args, "-v", d.lib.dir+":"+containerLib+":ro", "-e", "PYTHONUSERBASE="+containerLib,
+			"-e", "BUUGOO_MPL_CACHE="+containerLib+"/"+mplCacheDir)
 	}
 	args = append(args, d.image, "python3", "-u", "-")
 	runCtx, cancel := context.WithTimeout(ctx, d.timeout)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, d.bin, args...)
-	cmd.Stdin = strings.NewReader(code)
-	stdout, stderr := &limitedBuffer{n: maxOutputBytes}, &limitedBuffer{n: maxOutputBytes}
+	script, boundary := wrapCode(code)
+	cmd.Stdin = strings.NewReader(script)
+	stdout, stderr := newStdout(), &limitedBuffer{n: maxOutputBytes}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	err := cmd.Run()
-	res := ExecResult{Stdout: stdout.String(), Stderr: stderr.String()}
+	res := ExecResult{Stderr: stderr.String()}
+	res.Stdout, res.Images, res.ImagesSkipped = splitImages(stdout, boundary)
 	if runCtx.Err() != nil {
 		// 结束 docker 客户端进程不会停止容器，需要显式 kill。
 		killCtx, kc := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -338,13 +392,16 @@ func (l *Local) Run(ctx context.Context, code string) (ExecResult, error) {
 		cmd = exec.CommandContext(runCtx, "/bin/sh", "-c", limits, l.python)
 	}
 	cmd.Dir = dir
-	cmd.Env = l.env(dir)
-	cmd.Stdin = strings.NewReader(code)
-	stdout, stderr := &limitedBuffer{n: maxOutputBytes}, &limitedBuffer{n: maxOutputBytes}
+	// matplotlib 的字体缓存放在库目录，不用每次运行都重新扫描字体。
+	cmd.Env = append(l.env(dir), "MPLCONFIGDIR="+filepath.Join(l.lib.dir, mplCacheDir))
+	script, boundary := wrapCode(code)
+	cmd.Stdin = strings.NewReader(script)
+	stdout, stderr := newStdout(), &limitedBuffer{n: maxOutputBytes}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	cmd.WaitDelay = 2 * time.Second
 	err = cmd.Run()
-	res := ExecResult{Stdout: stdout.String(), Stderr: stderr.String()}
+	res := ExecResult{Stderr: stderr.String()}
+	res.Stdout, res.Images, res.ImagesSkipped = splitImages(stdout, boundary)
 	if runCtx.Err() != nil {
 		if ctx.Err() != nil {
 			return res, ctx.Err()

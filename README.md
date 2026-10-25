@@ -99,10 +99,13 @@ buugoo chat
 模型写的 Python 代码默认在**一次性的 Docker 容器**里运行：断网、只读、以 nobody 用户运行、去掉所有权限、
 限制内存（256 MB）、CPU、进程数和时间（30 秒），看不到服务器上的任何文件。这种方式下所有用户都可以用。
 
-- 已预装 numpy、scipy、sympy、pandas、mpmath（启动时在后台安装到 `<数据目录>/pylib`，所有人共用）。
+- 已预装 numpy、scipy、sympy、pandas、mpmath、matplotlib（启动时在后台安装到 `<数据目录>/pylib`，所有人共用）。
   缺少别的库时，布谷会自己调用「安装 Python 库」：只能从 PyPI（或配置的国内镜像 `tools.python.index_url`）安装
   **预编译包**，安装过程中不运行任何安装脚本；只有安装那一步联网，运行代码时库目录只读、仍然断网。
   multi 模式下只有管理员的对话可以安装；不想让布谷装库可以设置 `tools.python.allow_install: false`。
+- **画图**：代码用 matplotlib 画的图（或保存到当前目录的 png/jpg 图片）会直接显示在回复里，一次最多 6 张，
+  保存为这条回复的附件，计入用户的上传空间，删除对话时一起删除。图里想写中文，需要服务器装有中文字体
+  （例如 `sudo apt install fonts-noto-cjk`，然后重启服务）；没有中文字体时布谷会用英文标注。
 - 服务器需要装好 Docker，并且布谷的服务用户能使用 `docker` 命令。用安装脚本注册的服务以 `buugoo` 用户运行，
   需要执行 `sudo usermod -aG docker buugoo && sudo systemctl restart buugoo`。**注意：能使用 Docker 等同于拥有 root 权限**，
   请确认你接受这一点。第一次启动时会自动拉取 `python:3.12-slim` 镜像（只有标准库）。
@@ -224,7 +227,7 @@ sudo systemctl restart buugoo     # 修改配置后重启
 journalctl -u buugoo -f           # 日志
 ```
 
-对外访问请放在反向代理（Nginx / Caddy）后面并开启 HTTPS，见方式三中的反向代理配置。
+对外访问请放在反向代理（Nginx / Caddy）后面并开启 HTTPS，见方式三中的反向代理配置（宝塔见 [配置指南](docs/baota.md)）。
 
 ### 方式二：Docker
 
@@ -280,25 +283,28 @@ docker compose pull && docker compose up -d
 
 4. **反向代理与 HTTPS**：「网站 → 添加站点」绑定你的域名，在站点设置中：
    - 「SSL」申请 Let's Encrypt 证书并开启「强制 HTTPS」；
-   - 「反向代理 → 添加反向代理」，目标 URL 填 `http://127.0.0.1:8080`。
-
-   聊天使用 SSE 流式输出，请在反向代理配置中关闭缓冲并延长超时（布谷已在响应中设置
-   `X-Accel-Buffering: no`，以下配置作为保险）：
+   - 「反向代理 → 添加反向代理」，目标 URL 填 `http://127.0.0.1:8080`，再把配置文件替换为：
 
    ```nginx
-   location / {
+   location ^~ / {
        proxy_pass http://127.0.0.1:8080;
        proxy_http_version 1.1;
+       proxy_set_header Connection "";
        proxy_set_header Host $host;
        proxy_set_header X-Real-IP $remote_addr;
        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
        proxy_set_header X-Forwarded-Proto $scheme;
-       proxy_buffering off;
-       proxy_read_timeout 300s;
+       proxy_buffering off;              # 聊天是流式输出（SSE），必须关闭缓冲
+       proxy_cache off;
+       proxy_request_buffering off;
+       proxy_read_timeout 600s;          # 运行代码、安装库可能需要几分钟
+       proxy_send_timeout 600s;
+       client_max_body_size 25m;         # 不小于 uploads.max_file_mb
    }
    ```
 
    配置中的 `server.listen` 保持 `127.0.0.1:8080` 即可，只让反向代理访问。
+   详细步骤、检查方法和常见问题见 [宝塔反向代理配置指南](docs/baota.md)。
 
 5. **更新**：在宝塔中停止项目 → 终端执行 `buugoo update -y` → 启动项目。
    （没有注册 systemd 服务时，`buugoo update` 不会自动重启进程。）

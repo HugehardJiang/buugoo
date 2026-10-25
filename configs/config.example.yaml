@@ -131,7 +131,7 @@ tools:
     timeout: 30s
     memory_mb: 256
     # 预装的第三方库（启动时在后台安装，已经装好的不会重复安装）
-    packages: [numpy, scipy, sympy, pandas, mpmath]
+    packages: [numpy, scipy, sympy, pandas, mpmath, matplotlib]
     # 允许布谷按需安装 PyPI 上的库：只装预编译包（不运行安装脚本），只有安装时联网，运行代码时仍然断网。
     # multi 模式下只有管理员的对话可以安装。装好的库所有人共用。
     allow_install: true

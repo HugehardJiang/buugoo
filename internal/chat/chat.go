@@ -53,6 +53,17 @@ type ToolEvent struct {
 	Input   string `json:"input,omitempty"`
 	Summary string `json:"summary,omitempty"`
 	Detail  string `json:"detail,omitempty"`
+	// Images 是代码生成的图片（已保存为回复的附件），显示在回复中。
+	Images []ToolImage `json:"images,omitempty"`
+}
+
+// ToolImage 是工具生成并保存好的一张图片，字段与附件一致，前端按附件展示。
+type ToolImage struct {
+	ID       uint64 `json:"id"`
+	Kind     string `json:"kind"`
+	Filename string `json:"filename"`
+	MIME     string `json:"mime"`
+	Size     int64  `json:"size"`
 }
 
 // Sink 接收一轮对话过程中的事件。任一方法返回错误（例如客户端断开）都会中止生成，
@@ -333,7 +344,8 @@ func (s *Service) Send(ctx context.Context, u *store.User, in SendInput, sink Si
 	}
 	res := &Result{Conversation: conv, UserMessage: userMsg, Reply: reply, Attachments: atts, Memories: p.prompt.UsedMemories, Model: model}
 
-	t := &turn{s: s, ctx: ctx, model: model, thinking: conv.Thinking, tools: toolset, sink: sink, msgs: p.prompt.Messages}
+	t := &turn{s: s, ctx: ctx, model: model, thinking: conv.Thinking, tools: toolset, sink: sink, msgs: p.prompt.Messages,
+		userID: u.ID, convID: conv.ID, replyID: reply.ID}
 	genErr := t.run(func() error {
 		if err := sink.Start(conv, userMsg, reply, model); err != nil {
 			return err
@@ -384,6 +396,8 @@ type turn struct {
 	tools    *tools.Set
 	sink     Sink
 	msgs     []llm.Message
+	// 工具生成的图片保存为这条回复的附件。
+	userID, convID, replyID uint64
 
 	started       bool
 	rounds        int
@@ -461,12 +475,47 @@ func (t *turn) runTool(call llm.ToolCall) (string, error) {
 	if res.Input != "" {
 		ev.Input = res.Input
 	}
+	if len(res.Images) > 0 {
+		var note string
+		ev.Images, note = t.saveImages(res.Images)
+		if note != "" {
+			res.Output += "\n" + note
+		}
+	}
 	t.records = append(t.records, ev)
 	t.toolTokens += prompt.EstimateTokens(res.Output)
 	if err := t.sink.Tool(ev); err != nil {
 		return "", err
 	}
 	return res.Output, nil
+}
+
+// saveImages 把工具生成的图片保存为回复的附件。保存失败的图片不显示，并返回告诉模型的说明。
+func (t *turn) saveImages(images []tools.Image) ([]ToolImage, string) {
+	if t.s.uploads == nil {
+		return nil, "（当前不支持保存图片，图片没有显示给用户）"
+	}
+	bg := context.WithoutCancel(t.ctx)
+	var out []ToolImage
+	var failed []string
+	for _, img := range images {
+		a, err := t.s.uploads.SaveGenerated(bg, t.userID, t.convID, t.replyID, img.Name, img.Data)
+		if err != nil {
+			t.s.log.Warn("保存代码生成的图片失败", "user_id", t.userID, "name", img.Name, "err", err)
+			var ue *uploads.UserError
+			if errors.As(err, &ue) {
+				failed = append(failed, img.Name+"："+ue.Msg)
+			} else {
+				failed = append(failed, img.Name+"：保存失败")
+			}
+			continue
+		}
+		out = append(out, ToolImage{ID: a.ID, Kind: a.Kind, Filename: a.Filename, MIME: a.MIME, Size: a.Size})
+	}
+	if len(failed) > 0 {
+		return out, "以下图片没有显示给用户：" + strings.Join(failed, "；")
+	}
+	return out, ""
 }
 
 func toolInput(call llm.ToolCall) string {

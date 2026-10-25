@@ -132,6 +132,44 @@ func (s *Service) Save(ctx context.Context, userID uint64, filename string, r io
 	return a, nil
 }
 
+// SaveGenerated 保存代码生成的图片，直接关联到助手的回复。只接受 PNG/JPEG/GIF/WebP，计入用户的上传空间。
+func (s *Service) SaveGenerated(ctx context.Context, userID, conversationID, messageID uint64, filename string, data []byte) (*store.Attachment, error) {
+	if len(data) == 0 {
+		return nil, userErr(ErrEmpty, "图片是空的")
+	}
+	if int64(len(data)) > s.MaxFileBytes() {
+		return nil, userErr(ErrTooLarge, "图片太大，不能超过 %d MB", s.cfg.MaxFileMB)
+	}
+	sniffed := http.DetectContentType(data)
+	ext, ok := imageTypes[sniffed]
+	if !ok {
+		return nil, userErr(ErrUnsupported, "%s 不是 PNG、JPEG、GIF 或 WebP 图片", cleanName(filename))
+	}
+	if s.cfg.UserQuotaMB > 0 {
+		used, err := s.repo.TotalSize(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+		if used+int64(len(data)) > int64(s.cfg.UserQuotaMB)<<20 {
+			return nil, userErr(ErrQuota, "上传空间已用完（每人 %d MB），图片没有保存", s.cfg.UserQuotaMB)
+		}
+	}
+	sum := sha256.Sum256(data)
+	a := &store.Attachment{UserID: userID, ConversationID: &conversationID, MessageID: &messageID,
+		Kind: store.AttachmentImage, Filename: cleanName(filename), MIME: sniffed, Size: int64(len(data)),
+		SHA256: hex.EncodeToString(sum[:])}
+	rel, err := s.write(userID, ext, data)
+	if err != nil {
+		return nil, err
+	}
+	a.Path = rel
+	if err := s.repo.Create(ctx, a); err != nil {
+		_ = os.Remove(s.abs(rel))
+		return nil, err
+	}
+	return a, nil
+}
+
 // write 把文件写到 <dir>/<userID>/<年月>/<随机名><ext>，返回相对路径。
 func (s *Service) write(userID uint64, ext string, data []byte) (string, error) {
 	var rnd [12]byte

@@ -60,6 +60,7 @@ func (p *toolProvider) For(ctx context.Context, u *store.User, model *models.Res
 	if r := p.python(ctx, u); r != nil {
 		opts.Python = r
 		opts.Packages = p.cfg.Tools.Python.Packages
+		opts.CJKFont = tools.HasCJKFont()
 		// 安装库需要联网：single 模式或管理员的对话才可以。
 		if p.cfg.Tools.Python.AllowInstall && (p.cfg.Mode == config.ModeSingle || u.IsAdmin) {
 			if in, ok := r.(tools.Installer); ok {

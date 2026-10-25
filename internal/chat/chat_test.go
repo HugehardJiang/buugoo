@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -126,16 +127,22 @@ func (f *fakeModels) VisionHelper(context.Context, models.User) (*models.Resolve
 }
 
 // fakeTools 提供运行 Python 工具，运行结果固定。
-type fakeTools struct{ out string }
-
-func (f fakeTools) For(context.Context, *store.User, *models.Resolved) *tools.Set {
-	return tools.New(tools.Options{Python: fakeRunner{f.out}})
+type fakeTools struct {
+	out    string
+	images []tools.Image
 }
 
-type fakeRunner struct{ out string }
+func (f fakeTools) For(context.Context, *store.User, *models.Resolved) *tools.Set {
+	return tools.New(tools.Options{Python: fakeRunner{f.out, f.images}})
+}
+
+type fakeRunner struct {
+	out    string
+	images []tools.Image
+}
 
 func (r fakeRunner) Run(context.Context, string) (tools.ExecResult, error) {
-	return tools.ExecResult{Stdout: r.out}, nil
+	return tools.ExecResult{Stdout: r.out, Images: r.images}, nil
 }
 func (fakeRunner) Sandboxed() bool { return true }
 
@@ -488,6 +495,48 @@ func TestToolLoop(t *testing.T) {
 	last := e.chat.reqs[len(e.chat.reqs)-1]
 	if last.Messages[2].Role != llm.RoleAssistant || last.Messages[2].Reasoning == "" {
 		t.Fatalf("历史助手消息应带思考过程: %+v", last.Messages[2])
+	}
+}
+
+func TestToolImages(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, config.QuotaConfig{})
+	e.models.tools = true
+	png := pngData(t)
+	e.svc.tools = fakeTools{images: []tools.Image{{Name: "chart.png", Data: png}, {Name: "fake.png", Data: []byte("not an image")}}}
+	e.chat.script = []*fakeStream{
+		{chunks: []llm.Chunk{{ToolCalls: []llm.ToolCallDelta{{Index: 0, ID: "c1", Name: "run_python", Arguments: `{"code":"plot()"}`}}}}},
+		{chunks: []llm.Chunk{{Delta: "画好了"}}},
+	}
+	sink := &recordSink{}
+	res, err := e.svc.Send(ctx, e.user, SendInput{Content: "画个图"}, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := sink.tools[len(sink.tools)-1]
+	if len(done.Images) != 1 || done.Images[0].Filename != "chart.png" || done.Images[0].Kind != store.AttachmentImage {
+		t.Fatalf("images=%+v", done.Images)
+	}
+	// 图片保存为回复的附件，不会被当作未发送的上传清理掉，并随对话一起删除。
+	a, err := e.db.Attachments().Get(ctx, e.user.ID, done.Images[0].ID)
+	if err != nil || a.MessageID == nil || *a.MessageID != res.Reply.ID || a.ConversationID == nil || *a.ConversationID != res.Conversation.ID {
+		t.Fatalf("a=%+v err=%v", a, err)
+	}
+	if !strings.Contains(res.Reply.ToolLog, `"images":[{"id":`) {
+		t.Fatalf("tool_log=%q", res.Reply.ToolLog)
+	}
+	tool := e.chat.reqs[1].Messages[len(e.chat.reqs[1].Messages)-1]
+	if !strings.Contains(tool.Content, "已经显示在你的回复里") || !strings.Contains(tool.Content, "fake.png") {
+		t.Fatalf("tool=%q", tool.Content)
+	}
+	if err := e.svc.DeleteConversation(ctx, e.user, res.Conversation.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.db.Attachments().Get(ctx, e.user.ID, a.ID); err == nil {
+		t.Fatal("图片应随对话删除")
+	}
+	if _, err := os.Stat(filepath.Join(e.dir, filepath.FromSlash(a.Path))); !os.IsNotExist(err) {
+		t.Fatalf("图片文件应删除: %v", err)
 	}
 }
 

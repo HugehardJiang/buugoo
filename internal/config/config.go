@@ -419,7 +419,7 @@ func Default() *Config {
 		Tools: ToolsConfig{Python: PythonConfig{
 			Runner: PythonDocker, Image: "python:3.12-slim", Docker: "docker", Python: "python3",
 			Timeout: 30 * time.Second, MemoryMB: 256,
-			Packages:     []string{"numpy", "scipy", "sympy", "pandas", "mpmath"},
+			Packages:     []string{"numpy", "scipy", "sympy", "pandas", "mpmath", "matplotlib"},
 			AllowInstall: true, LibMaxMB: 2048, InstallTimeout: 5 * time.Minute,
 		}},
 		Quota: QuotaConfig{ExemptAdmins: true},
