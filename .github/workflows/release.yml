@@ -3,6 +3,15 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # 也可以在 Actions 页面手动发布：填写版本号，由工作流创建 tag 后发布。
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发布的版本号，例如 v0.1.0"
+        required: true
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 permissions:
   contents: write
@@ -16,6 +25,14 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      - name: 创建 tag（手动发布时）
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+' || { echo "版本号无效：$TAG"; exit 1; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "布谷 $TAG"
+          git push origin "$TAG"
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -34,6 +51,7 @@ jobs:
 
   docker:
     name: 构建并推送多架构 Docker 镜像
+    needs: goreleaser
     runs-on: ubuntu-latest
     env:
       # 阿里云 ACR 为可选：配置了以下 secrets 才推送，否则跳过。
@@ -43,6 +61,8 @@ jobs:
       ALIYUN_PASSWORD: ${{ secrets.ALIYUN_PASSWORD }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - name: 登录 GHCR
@@ -76,9 +96,9 @@ jobs:
         with:
           images: ${{ steps.images.outputs.list }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+            type=semver,pattern={{version}},value=${{ env.TAG }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.TAG }}
+            type=raw,value=latest,enable=${{ !contains(env.TAG, '-') }}
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -88,5 +108,5 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ env.TAG }}
             COMMIT=${{ github.sha }}

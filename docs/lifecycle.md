@@ -2,7 +2,7 @@
 
 ## 发布产物
 
-打 `v*` tag 后 GitHub Actions 运行 GoReleaser，发布到 GitHub Releases：
+打 `v*` tag 后（或在 Actions 页面手动运行 Release 工作流并填写版本号，由工作流创建 tag），GitHub Actions 运行 GoReleaser，发布到 GitHub Releases：
 
 ```
 buugoo_<版本>_<os>_<arch>.tar.gz   linux/darwin（amd64、arm64）
