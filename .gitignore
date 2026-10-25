@@ -1,0 +1,24 @@
+# 构建产物
+/bin/
+/dist/
+/internal/web/dist/*
+!/internal/web/dist/.gitkeep
+
+# 前端
+/web/node_modules/
+/web/dist/
+
+# 本地配置与数据（可能包含密钥，禁止提交）
+/config.yaml
+/buugoo.yaml
+/data/
+*.db
+*.db-shm
+*.db-wal
+.env
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
+.DS_Store

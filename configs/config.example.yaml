@@ -1,0 +1,136 @@
+# Buugoo（布谷）配置文件
+#
+# 所有配置项都可以用环境变量覆盖：前缀 BUUGOO_，层级之间用双下划线。
+# 例如 BUUGOO_LLM__CHAT__API_KEY=sk-xxx 会覆盖 llm.chat.api_key。
+# 请不要把填写了密钥的配置文件提交到任何代码仓库。
+
+# 部署模式：single（自部署，单用户，无需注册）| multi（多用户，注册登录）
+mode: {{MODE}}
+
+# 数据目录（SQLite 数据库、备份等）
+data_dir: "{{DATA_DIR}}"
+
+# 时区：影响每日用量统计、定时任务和对话中的"现在几点"
+timezone: Asia/Shanghai
+
+server:
+  # 监听地址。只在本机使用请保持 127.0.0.1；对外提供服务时改为 0.0.0.0:8080 并务必设置访问密码。
+  listen: "{{LISTEN}}"
+  # 对外访问地址（反向代理后的域名），仅用于打印提示，可留空
+  base_url: ""
+  # 允许跨域访问的来源（同域部署无需填写）
+  cors_origins: []
+
+auth:
+  # single 模式的访问密码，留空表示无需密码
+  access_password: ""
+  # JWT 签名密钥，buugoo init 会自动生成随机值；multi 模式必须设置（至少 32 字符）
+  jwt_secret: "{{JWT_SECRET}}"
+  # 登录有效期
+  token_ttl: 720h
+  # multi 模式的注册方式：open（开放注册）| invite（邀请码注册）| closed（关闭注册）
+  registration: invite
+
+database:
+  # sqlite（默认，零配置）| mysql
+  driver: sqlite
+  # sqlite：数据库文件路径，留空则使用 <data_dir>/buugoo.db
+  # mysql：例如 buugoo:密码@tcp(127.0.0.1:3306)/buugoo?charset=utf8mb4&parseTime=True&loc=Local
+  #        建议用环境变量 BUUGOO_DATABASE__DSN 传入，避免密码写在文件里
+  dsn: ""
+  max_open_conns: 10
+  max_idle_conns: 5
+
+llm:
+  # 聊天模型（OpenAI 兼容协议，可接 DeepSeek、通义千问、OpenAI 等）
+  chat:
+    provider: openai
+    base_url: https://api.deepseek.com/v1
+    api_key: ""          # 必填，或使用环境变量 BUUGOO_LLM__CHAT__API_KEY
+    model: deepseek-chat
+    temperature: 0.8
+    max_tokens: 1024
+    timeout: 120s
+  # 后台任务模型（记忆提取与打分），留空的字段沿用 chat 的配置，可换成更便宜的模型
+  utility:
+    provider: ""
+    base_url: ""
+    api_key: ""
+    model: ""
+    temperature: 0.2
+    max_tokens: 1024
+  # 向量模型（OpenAI 兼容协议）
+  # 默认：硅基流动 BAAI/bge-m3（1024 维）
+  # 可选：阿里云百炼 text-embedding-v3
+  #   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  #   model: text-embedding-v3
+  #   dim: 1024
+  # 更换向量模型后请执行 buugoo reembed 重新计算全部记忆的向量。
+  embedding:
+    provider: openai
+    base_url: https://api.siliconflow.cn/v1
+    api_key: ""          # 必填，或使用环境变量 BUUGOO_LLM__EMBEDDING__API_KEY
+    model: BAAI/bge-m3
+    dim: 0               # 0 表示使用模型默认维度
+    batch_size: 32
+    timeout: 60s
+
+memory:
+  # 检索打分：score = alpha·recency + beta·importance + gamma·relevance
+  #   recency    = decay ^ 距上次访问的小时数
+  #   importance = 重要性 / 10
+  #   relevance  = 与当前话题的余弦相似度
+  retrieval:
+    alpha: 1.0
+    beta: 1.0
+    gamma: 1.5
+    decay: 0.995
+    candidate_k: 100     # 先按相似度取出的候选数量
+    top_k: 8             # 最终放进提示词的记忆数量
+    min_relevance: 0.3   # 相似度低于该值的记忆不使用
+  write:
+    enabled: true
+    importance_threshold: 4  # 重要性低于该值（1-10）的内容不记
+    access_boost: 0.2        # 记忆每被使用一次增加的强度
+    dedup_similarity: 0.95   # 与已有记忆相似度高于该值视为重复，不再写入
+    workers: 2
+    queue_size: 256
+  # 内存向量缓存（按用户缓存）
+  cache:
+    max_users: 1000
+    max_bytes: 536870912
+    ttl: 30m
+
+chat:
+  history_messages: 20      # 提示词中带上的最近消息条数
+  max_context_tokens: 6000  # 提示词的近似 token 预算
+
+persona:
+  # 人格档案文件，留空使用内置的"布谷"
+  file: ""
+
+# 每个用户的每日用量限额，0 表示不限制（官网部署建议设置，防止 API 费用失控）
+quota:
+  daily_messages: 0
+  daily_tokens: 0
+  exempt_admins: true
+
+scheduler:
+  enabled: true
+  # 每日记忆巩固（第二阶段实现），cron 表达式，按 timezone 解释
+  consolidation_spec: "0 4 * * *"
+
+update:
+  # 启动时检查是否有新版本（只在日志中提示，不会自动更新）
+  check_on_start: true
+  repo: HugehardJiang/buugoo
+  # 下载镜像地址，留空从 GitHub 下载；也可用环境变量 BUUGOO_MIRROR 指定
+  mirror: ""
+
+log:
+  level: info    # debug | info | warn | error
+  format: text   # text | json
+
+debug:
+  # 开放 /api/v1/debug/prompt 查看组装后的提示词（single 模式总是开放）
+  prompt_endpoint: false
