@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import Icon from './Icon.vue'
+import { memoriesUnlocked } from './memoryLock'
 import { session } from './session'
 import { toasts } from './toast'
 
@@ -9,11 +10,12 @@ const route = useRoute()
 const inWorkspace = computed(() => route.name !== 'login' && session.loaded && !!session.meta)
 const name = computed(() => session.meta?.name ?? '布谷')
 
-const items = [
+// 记忆本默认藏起来，用户在设置里确认翻开后才出现在导航中。
+const items = computed(() => [
   { to: '/', route: 'chat', label: '聊天', icon: 'message' as const },
-  { to: '/memories', route: 'memories', label: '记忆', icon: 'book' as const },
+  ...(memoriesUnlocked.value ? [{ to: '/memories', route: 'memories', label: '记忆', icon: 'book' as const }] : []),
   { to: '/settings', route: 'settings', label: '设置', icon: 'settings' as const },
-]
+])
 </script>
 
 <template>

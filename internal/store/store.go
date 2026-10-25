@@ -90,6 +90,8 @@ type ModelRepo interface {
 	ListVisible(ctx context.Context, userID uint64) ([]ModelConfig, error)
 	Update(ctx context.Context, m *ModelConfig) error
 	Delete(ctx context.Context, id uint64) error
+	// ClearDefault 取消该所有者的默认模型。
+	ClearDefault(ctx context.Context, ownerID uint64) error
 	// SetDefault 把 id 设为该所有者的默认模型（同一所有者只有一个默认模型）。
 	SetDefault(ctx context.Context, ownerID, id uint64) error
 }

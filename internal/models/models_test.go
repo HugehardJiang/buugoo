@@ -147,6 +147,29 @@ func TestPersonalAndPublicModels(t *testing.T) {
 		t.Fatalf("r=%+v", r)
 	}
 
+	// 改回站点默认；管理员设置公共默认后所有人生效，再设回配置文件模型。
+	if err := svc.ClearDefault(ctx, alice); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ = svc.Resolve(ctx, alice, nil); r.ID != BuiltinID {
+		t.Fatalf("取消个人默认后应使用站点默认: %+v", r)
+	}
+	if err := svc.SetDefault(ctx, alice, BuiltinID); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("普通用户不能设置站点默认: %v", err)
+	}
+	if err := svc.SetDefault(ctx, admin, pub.ID); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ = svc.Resolve(ctx, bob, nil); r.ID != pub.ID {
+		t.Fatalf("公共默认应对所有人生效: %+v", r)
+	}
+	if err := svc.SetDefault(ctx, admin, BuiltinID); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ = svc.Resolve(ctx, bob, nil); r.ID != BuiltinID {
+		t.Fatalf("r=%+v", r)
+	}
+
 	// 删除模型后，使用它的对话改回默认。
 	conv := &store.Conversation{UserID: alice.ID, ModelID: &mine.ID, Thinking: store.ThinkingOff}
 	if err := db.Conversations().Create(ctx, conv); err != nil {

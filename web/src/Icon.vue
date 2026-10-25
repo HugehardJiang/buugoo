@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 设计系统 Icons 组的线性图标：24px 网格、1.8 描边、圆角端点、无填充，颜色继承 currentColor。
-defineProps<{ name: 'message' | 'book' | 'settings'; size?: number }>()
+defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' | 'trash' | 'chevron'; size?: number }>()
 </script>
 
 <template>
@@ -22,6 +22,23 @@ defineProps<{ name: 'message' | 'book' | 'settings'; size?: number }>()
     <template v-else-if="name === 'book'">
       <path d="M2 4h6a4 4 0 0 1 4 4v13a4 4 0 0 0-4-4H2z" />
       <path d="M22 4h-6a4 4 0 0 0-4 4v13a4 4 0 0 1 4-4h6z" />
+    </template>
+    <template v-else-if="name === 'plus'">
+      <path d="M12 5v14M5 12h14" />
+    </template>
+    <template v-else-if="name === 'menu'">
+      <path d="M4 7h16M4 12h16M4 17h10" />
+    </template>
+    <template v-else-if="name === 'edit'">
+      <path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z" />
+      <path d="M13.5 6.5l4 4" />
+    </template>
+    <template v-else-if="name === 'trash'">
+      <path d="M4 7h16M10 11v6M14 11v6" />
+      <path d="M6 7l1 13h10l1-13M9 7V4h6v3" />
+    </template>
+    <template v-else-if="name === 'chevron'">
+      <path d="M9 6l6 6-6 6" />
     </template>
     <template v-else-if="name === 'settings'">
       <path d="M4 6h4M12 6h8M4 12h9M17 12h3M4 18h2M10 18h10" />

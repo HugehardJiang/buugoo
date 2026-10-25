@@ -2,8 +2,10 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { api, ApiError, type Memory } from '../api'
 import { dateTime } from '../format'
+import { memoriesUnlocked, setMemoriesUnlocked } from '../memoryLock'
 import { session } from '../session'
 import { toast } from '../toast'
+import { useRouter } from 'vue-router'
 
 const PAGE = 30
 const memories = ref<Memory[]>([])
@@ -70,7 +72,18 @@ async function remove(id: number) {
   }
 }
 
-onMounted(load)
+const router = useRouter()
+
+function hideAgain() {
+  setMemoriesUnlocked(false)
+  toast(`记忆本合上了。${name.value}还是记得，只是不再摊开给你看`)
+  router.push('/')
+}
+
+onMounted(() => {
+  if (memoriesUnlocked.value) load()
+  else router.replace('/settings#memory')
+})
 </script>
 
 <template>
@@ -80,7 +93,10 @@ onMounted(load)
         <span class="eyebrow">MEMORY · 记忆</span>
         <h1>{{ name }}记得的事</h1>
       </div>
-      <span class="chip-meta">{{ total }} 条</span>
+      <div class="head-actions">
+        <span class="chip-meta">{{ total }} 条</span>
+        <button class="btn btn-ghost" @click="hideAgain">重新藏起来</button>
+      </div>
     </header>
 
     <div class="page">
@@ -132,6 +148,8 @@ onMounted(load)
 </template>
 
 <style scoped>
+.head-actions { display: flex; align-items: center; gap: 8px; }
+@media (max-width: 767px) { .head-actions .chip-meta { display: none; } }
 .intro { margin: 0 0 20px; font-size: 15px; line-height: 1.7; }
 .filters { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; margin-bottom: 20px; }
 .filters .type-switch { min-width: 220px; }

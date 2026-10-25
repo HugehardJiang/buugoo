@@ -1,14 +1,37 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
-import { api, ApiError, sendChat, type Message, type UsedMemory } from '../api'
-import { dayKey, dayLabel, renderMarkdown, timeOf } from '../format'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import {
+  api,
+  ApiError,
+  sendChat,
+  type Conversation,
+  type Message,
+  type ModelView,
+  type Thinking,
+  type UsedMemory,
+} from '../api'
+import Icon from '../Icon.vue'
+import Modal from '../components/Modal.vue'
+import { dayKey, dayLabel, renderMarkdown, shortWhen, timeOf } from '../format'
+import { memoriesUnlocked } from '../memoryLock'
 import { session } from '../session'
+import { toast } from '../toast'
 
 interface Item extends Message {
   memories?: UsedMemory[]
   streaming?: boolean
   error?: string
 }
+
+const route = useRoute()
+const router = useRouter()
+
+const convs = ref<Conversation[]>([])
+const currentId = ref(0)
+const models = ref<ModelView[]>([])
+const hasModel = ref(true)
+const embeddingReady = ref(true)
 
 const items = ref<Item[]>([])
 const hasMore = ref(false)
@@ -19,11 +42,48 @@ const sending = ref(false)
 const scroller = ref<HTMLElement | null>(null)
 const textarea = ref<HTMLTextAreaElement | null>(null)
 const openMemories = ref<Set<number>>(new Set())
+const openThinking = ref<Set<number>>(new Set())
+const drawer = ref(false)
+const renaming = ref(false)
+const renameText = ref('')
+const deleting = ref(false)
 let controller: AbortController | null = null
 
 const name = computed(() => session.meta?.name ?? '布谷')
-const notReady = computed(() => session.meta && !session.meta.llm_ready)
-const embeddingMissing = computed(() => session.meta && session.meta.llm_ready && !session.meta.embedding_ready)
+const isAdmin = computed(() => !!session.user?.is_admin)
+const current = computed(() => convs.value.find((c) => c.id === currentId.value) ?? null)
+const title = computed(() => current.value?.title || '新对话')
+const defaultModel = computed(() => models.value.find((m) => m.is_default) ?? models.value[0] ?? null)
+// 对话实际使用的模型：未选择或已不可用时使用默认模型。
+const activeModel = computed(() => {
+  const id = current.value?.model_id
+  return (id != null && models.value.find((m) => m.id === id)) || defaultModel.value
+})
+const thinkingOptions = computed<{ v: Thinking; l: string }[]>(() => {
+  switch (activeModel.value?.thinking_style) {
+    case 'model_switch':
+      return [
+        { v: 'off', l: '不思考' },
+        { v: 'medium', l: '深度思考' },
+      ]
+    case 'reasoning_effort':
+    case 'enable_thinking':
+      return [
+        { v: 'off', l: '关' },
+        { v: 'low', l: '低' },
+        { v: 'medium', l: '中' },
+        { v: 'high', l: '高' },
+      ]
+    default:
+      return []
+  }
+})
+const thinkingValue = computed(() => {
+  const t = current.value?.thinking ?? 'off'
+  // 「换用推理模型」只有开和关，任何等级都视为开。
+  if (activeModel.value?.thinking_style === 'model_switch' && t !== 'off') return 'medium'
+  return t
+})
 
 // 在每天第一条消息前插入日期分隔条。
 const rows = computed(() => {
@@ -40,6 +100,10 @@ const rows = computed(() => {
   return out
 })
 
+function errText(e: unknown, fallback: string) {
+  return e instanceof ApiError ? e.message : fallback
+}
+
 function nearBottom(): boolean {
   const el = scroller.value
   return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 120
@@ -52,15 +116,44 @@ async function scrollToBottom(force = false) {
   if (el) el.scrollTop = el.scrollHeight
 }
 
-async function loadInitial() {
+async function loadSide() {
+  const [c, m, me] = await Promise.all([api.conversations(), api.models(), api.me()])
+  convs.value = c.conversations
+  models.value = m.models
+  hasModel.value = me.has_model
+  embeddingReady.value = me.embedding_ready
+}
+
+async function openConversation(id: number) {
+  currentId.value = id
+  drawer.value = false
+  items.value = []
+  hasMore.value = false
+  loadError.value = ''
+  openMemories.value = new Set()
+  openThinking.value = new Set()
+  if (String(route.query.c ?? '') !== String(id)) router.replace({ query: { c: String(id) } })
   try {
-    const r = await api.messages(0, 50)
+    const r = await api.messages(id, 0, 50)
+    if (currentId.value !== id) return
     items.value = r.messages
     hasMore.value = r.has_more
     await scrollToBottom(true)
   } catch (e) {
-    loadError.value = e instanceof ApiError ? e.message : '加载失败'
+    loadError.value = errText(e, '加载失败')
   }
+}
+
+async function loadInitial() {
+  try {
+    await loadSide()
+  } catch (e) {
+    loadError.value = errText(e, '加载失败')
+    return
+  }
+  const wanted = Number(route.query.c)
+  const target = convs.value.find((c) => c.id === wanted) ?? convs.value[0]
+  if (target) await openConversation(target.id)
 }
 
 async function loadMore() {
@@ -69,15 +162,80 @@ async function loadMore() {
   const el = scroller.value
   const prevHeight = el?.scrollHeight ?? 0
   try {
-    const r = await api.messages(items.value[0].id, 50)
+    const r = await api.messages(currentId.value, items.value[0].id, 50)
     items.value = [...r.messages, ...items.value]
     hasMore.value = r.has_more
     await nextTick()
     if (el) el.scrollTop = el.scrollHeight - prevHeight
   } catch (e) {
-    loadError.value = e instanceof ApiError ? e.message : '加载失败'
+    loadError.value = errText(e, '加载失败')
   } finally {
     loadingMore.value = false
+  }
+}
+
+async function newConversation() {
+  if (sending.value) return
+  // 当前对话还是空的就直接用它，避免堆出一串空对话。
+  if (current.value && !items.value.length) {
+    drawer.value = false
+    textarea.value?.focus()
+    return
+  }
+  try {
+    const c = await api.createConversation()
+    convs.value = [c, ...convs.value]
+    await openConversation(c.id)
+    textarea.value?.focus()
+  } catch (e) {
+    toast(errText(e, '新建对话失败'))
+  }
+}
+
+function replaceConv(c: Conversation) {
+  const i = convs.value.findIndex((x) => x.id === c.id)
+  if (i >= 0) convs.value[i] = c
+}
+
+async function patchCurrent(patch: { title?: string; model_id?: number | null; thinking?: Thinking }) {
+  if (!current.value) return
+  try {
+    replaceConv(await api.updateConversation(current.value.id, patch))
+  } catch (e) {
+    toast(errText(e, '修改失败'))
+  }
+}
+
+function onModelChange(e: Event) {
+  const v = (e.target as HTMLSelectElement).value
+  patchCurrent({ model_id: v === '' ? null : Number(v) })
+}
+
+function startRename() {
+  renameText.value = current.value?.title ?? ''
+  renaming.value = true
+}
+
+async function saveRename() {
+  await patchCurrent({ title: renameText.value })
+  renaming.value = false
+}
+
+async function confirmDelete() {
+  const id = currentId.value
+  try {
+    await api.deleteConversation(id)
+    deleting.value = false
+    convs.value = convs.value.filter((c) => c.id !== id)
+    toast('对话已删除，聊过的事布谷仍然记得')
+    if (convs.value.length) await openConversation(convs.value[0].id)
+    else {
+      const c = await api.createConversation()
+      convs.value = [c]
+      await openConversation(c.id)
+    }
+  } catch (e) {
+    toast(errText(e, '删除失败'))
   }
 }
 
@@ -90,7 +248,8 @@ function autoGrow() {
 
 async function send() {
   const content = input.value.trim()
-  if (!content || sending.value) return
+  if (!content || sending.value || !current.value) return
+  const convId = current.value.id
   sending.value = true
   input.value = ''
   await nextTick()
@@ -98,7 +257,7 @@ async function send() {
 
   const now = new Date().toISOString()
   const userItem: Item = { id: -Date.now(), role: 'user', content, status: 'complete', created_at: now }
-  const reply: Item = { id: -Date.now() - 1, role: 'assistant', content: '', status: 'complete', created_at: now, streaming: true }
+  const reply: Item = { id: -Date.now() - 1, role: 'assistant', content: '', reasoning: '', status: 'complete', created_at: now, streaming: true }
   items.value.push(userItem, reply)
   const r = items.value[items.value.length - 1]
   await scrollToBottom(true)
@@ -106,14 +265,27 @@ async function send() {
   controller = new AbortController()
   try {
     const final = await sendChat(
+      convId,
       content,
       {
         onStart: (d) => {
           Object.assign(items.value[items.value.length - 2], d.user_message)
           r.id = d.assistant_message_id
+          replaceConv(d.conversation)
         },
         onMemories: (m) => (r.memories = m),
+        onReasoning: (t) => {
+          if (!r.reasoning) openThinking.value = new Set(openThinking.value).add(r.id)
+          r.reasoning += t
+          scrollToBottom()
+        },
         onDelta: (t) => {
+          // 正式回复开始后收起思考过程。
+          if (!r.content && openThinking.value.has(r.id)) {
+            const s = new Set(openThinking.value)
+            s.delete(r.id)
+            openThinking.value = s
+          }
           r.content += t
           scrollToBottom()
         },
@@ -126,7 +298,7 @@ async function send() {
       r.status = 'interrupted'
     } else {
       r.status = 'error'
-      r.error = e instanceof ApiError ? e.message : '这次没有发送成功'
+      r.error = errText(e, '这次没有发送成功')
       // 请求在开始推送前就失败（例如超出限额），用户消息并未保存，放回输入框。
       if (r.id < 0) {
         items.value.splice(items.value.length - 2, 1)
@@ -138,6 +310,12 @@ async function send() {
     sending.value = false
     controller = null
     scrollToBottom()
+    // 对话的最近时间与标题变了，重新排序。
+    const c = convs.value.find((x) => x.id === convId)
+    if (c) {
+      c.last_message_at = new Date().toISOString()
+      convs.value = [c, ...convs.value.filter((x) => x.id !== convId)]
+    }
   }
 }
 
@@ -152,100 +330,229 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
-function toggleMemories(id: number) {
+function toggle(which: 'memories' | 'thinking', id: number) {
+  const set = which === 'memories' ? openMemories : openThinking
   const wasAtBottom = nearBottom()
-  const s = new Set(openMemories.value)
+  const s = new Set(set.value)
   if (s.has(id)) s.delete(id)
   else s.add(id)
-  openMemories.value = s
+  set.value = s
   if (wasAtBottom) scrollToBottom(true)
 }
+
+function modelLabel(m: ModelView) {
+  return m.scope === 'personal' ? `${m.name}（我的）` : m.name
+}
+
+watch(
+  () => route.query.c,
+  (c) => {
+    const id = Number(c)
+    if (id && id !== currentId.value && convs.value.some((x) => x.id === id)) openConversation(id)
+  },
+)
 
 onMounted(loadInitial)
 </script>
 
 <template>
-  <main class="main chat">
-    <header class="topbar">
-      <div class="topbar__titles">
-        <span class="eyebrow">CHAT · 聊天</span>
-        <h1>{{ name }}</h1>
+  <div class="chat-shell">
+    <div v-if="drawer" class="drawer-backdrop" @click="drawer = false" />
+    <aside class="sidebar" :class="{ 'is-open': drawer }" aria-label="对话列表">
+      <div class="sidebar__head">
+        <span class="eyebrow">对话</span>
+        <button class="btn" :disabled="sending" @click="newConversation">
+          <Icon name="plus" :size="16" />新对话
+        </button>
       </div>
-    </header>
+      <nav class="category-filter-list sidebar__list">
+        <button
+          v-for="c in convs"
+          :key="c.id"
+          class="category-filter"
+          :class="{ 'is-active': c.id === currentId }"
+          :disabled="sending && c.id !== currentId"
+          @click="openConversation(c.id)"
+        >
+          <span>{{ c.title || '新对话' }}</span>
+          <small>{{ shortWhen(c.last_message_at ?? c.created_at) }}</small>
+        </button>
+      </nav>
+      <p class="caption sidebar__foot">每段对话各自独立，但{{ name }}记得的事在所有对话里都通用。</p>
+    </aside>
 
-    <div ref="scroller" class="scroller">
-      <div class="thread">
-        <p v-if="notReady" class="form-flash">
-          还没有配置聊天模型。在配置文件中填写 <code>llm.chat.api_key</code>，然后重启服务。
-        </p>
-        <p v-else-if="embeddingMissing" class="form-flash">
-          还没有配置向量模型（<code>llm.embedding.api_key</code>），{{ name }}暂时记不住聊过的事。
-        </p>
-        <p v-if="loadError" class="form-flash form-flash--error">{{ loadError }}</p>
-
-        <div v-if="hasMore" class="more">
-          <button class="btn btn-ghost" :disabled="loadingMore" @click="loadMore">
-            {{ loadingMore ? '正在加载' : '加载更早的消息' }}
-          </button>
+    <main class="main chat">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" aria-label="对话列表" @click="drawer = true"><Icon name="menu" /></button>
+        <div class="topbar__titles">
+          <span class="eyebrow">CHAT · 和{{ name }}聊天</span>
+          <h1 class="conv-title">{{ title }}</h1>
         </div>
-
-        <div v-if="!items.length && !loadError" class="empty">
-          <h2>最近过得怎么样。</h2>
-          <p class="muted">随便说点什么。{{ name }}会记住你提到的事，下次自然地接上。</p>
+        <div v-if="current" class="topbar__actions">
+          <button class="icon-btn" aria-label="重命名对话" title="重命名" @click="startRename"><Icon name="edit" :size="18" /></button>
+          <button class="icon-btn" aria-label="删除对话" title="删除" :disabled="sending" @click="deleting = true"><Icon name="trash" :size="18" /></button>
         </div>
+      </header>
 
-        <template v-for="row in rows" :key="row.kind === 'day' ? row.key : row.item.id">
-          <div v-if="row.kind === 'day'" class="day"><span>{{ row.label }}</span></div>
-          <article v-else class="msg" :class="row.item.role">
-            <div v-if="row.item.role === 'assistant'" class="md body" v-html="renderMarkdown(row.item.content)" />
-            <div v-else class="bubble">{{ row.item.content }}</div>
-            <span v-if="row.item.streaming && !row.item.content" class="typing" aria-label="正在回复"><i /><i /><i /></span>
-            <div class="meta">
-              <span>{{ timeOf(row.item.created_at) }}</span>
-              <span v-if="row.item.status === 'interrupted'">· 已停止</span>
-              <span v-if="row.item.status === 'error'" class="err">· {{ row.item.error || '这次没有回复成功' }}</span>
-              <button
-                v-if="row.item.memories?.length"
-                class="chip-note recall-toggle"
-                :aria-expanded="openMemories.has(row.item.id)"
-                @click="toggleMemories(row.item.id)"
-              >
-                想起了 {{ row.item.memories.length }} 件事
-              </button>
-            </div>
-            <ul v-if="row.item.memories?.length && openMemories.has(row.item.id)" class="recalled">
-              <li v-for="m in row.item.memories" :key="m.id">
-                <span class="badge-pill">{{ m.source === 'stated' ? '你说过' : '推测' }}</span>
-                <span>{{ m.content }}</span>
-              </li>
-            </ul>
-          </article>
-        </template>
-      </div>
-    </div>
+      <div ref="scroller" class="scroller">
+        <div class="thread">
+          <p v-if="!hasModel" class="form-flash">
+            还没有可用的聊天模型。去 <RouterLink to="/settings#models" class="link">设置 → 模型</RouterLink> 添加一个，就可以开始聊天了。
+          </p>
+          <p v-else-if="!embeddingReady" class="form-flash">
+            <template v-if="isAdmin">
+              还没有配置向量模型，{{ name }}暂时记不住聊过的事。去 <RouterLink to="/settings#embedding" class="link">设置 → 向量模型</RouterLink> 配置。
+            </template>
+            <template v-else>记忆功能暂时不可用，{{ name }}这段时间记不住聊过的事。</template>
+          </p>
+          <p v-if="loadError" class="form-flash form-flash--error">{{ loadError }}</p>
 
-    <form class="composer" @submit.prevent="send">
-      <div class="composer__box">
-        <textarea
-          ref="textarea"
-          v-model="input"
-          class="textarea"
-          rows="1"
-          :placeholder="`和${name}说点什么`"
-          aria-label="消息"
-          maxlength="4000"
-          @input="autoGrow"
-          @keydown="onKeydown"
-        />
-        <button v-if="sending" type="button" class="btn" @click="stop">停止</button>
-        <button v-else class="btn btn-primary" :disabled="!input.trim()">发送</button>
+          <div v-if="hasMore" class="more">
+            <button class="btn btn-ghost" :disabled="loadingMore" @click="loadMore">
+              {{ loadingMore ? '正在加载' : '加载更早的消息' }}
+            </button>
+          </div>
+
+          <div v-if="!items.length && !loadError" class="empty">
+            <h2>最近过得怎么样。</h2>
+            <p class="muted">随便说点什么。{{ name }}会记住你提到的事，下次自然地接上。</p>
+          </div>
+
+          <template v-for="row in rows" :key="row.kind === 'day' ? row.key : row.item.id">
+            <div v-if="row.kind === 'day'" class="day"><span>{{ row.label }}</span></div>
+            <article v-else class="msg" :class="row.item.role">
+              <div v-if="row.item.reasoning" class="thinking">
+                <button
+                  class="thinking__toggle"
+                  :aria-expanded="openThinking.has(row.item.id)"
+                  @click="toggle('thinking', row.item.id)"
+                >
+                  <Icon name="chevron" :size="14" class="chev" :class="{ 'is-open': openThinking.has(row.item.id) }" />
+                  {{ row.item.streaming && !row.item.content ? '正在思考…' : '思考过程' }}
+                </button>
+                <div v-if="openThinking.has(row.item.id)" class="thinking__body">{{ row.item.reasoning }}</div>
+              </div>
+              <div v-if="row.item.role === 'assistant'" class="md body" v-html="renderMarkdown(row.item.content)" />
+              <div v-else class="bubble">{{ row.item.content }}</div>
+              <span v-if="row.item.streaming && !row.item.content && !row.item.reasoning" class="typing" aria-label="正在回复"><i /><i /><i /></span>
+              <div class="meta">
+                <span>{{ timeOf(row.item.created_at) }}</span>
+                <span v-if="row.item.role === 'assistant' && row.item.model && !row.item.streaming">· {{ row.item.model }}</span>
+                <span v-if="row.item.status === 'interrupted'">· 已停止</span>
+                <span v-if="row.item.status === 'error'" class="err">· {{ row.item.error || '这次没有回复成功' }}</span>
+                <button
+                  v-if="memoriesUnlocked && row.item.memories?.length"
+                  class="chip-note recall-toggle"
+                  :aria-expanded="openMemories.has(row.item.id)"
+                  @click="toggle('memories', row.item.id)"
+                >
+                  想起了 {{ row.item.memories.length }} 件事
+                </button>
+              </div>
+              <ul v-if="memoriesUnlocked && row.item.memories?.length && openMemories.has(row.item.id)" class="recalled">
+                <li v-for="m in row.item.memories" :key="m.id">
+                  <span class="badge-pill">{{ m.source === 'stated' ? '你说过' : '推测' }}</span>
+                  <span>{{ m.content }}</span>
+                </li>
+              </ul>
+            </article>
+          </template>
+        </div>
       </div>
-      <p class="caption hint">Enter 发送，Shift+Enter 换行</p>
-    </form>
-  </main>
+
+      <form class="composer" @submit.prevent="send">
+        <div class="composer__box">
+          <textarea
+            ref="textarea"
+            v-model="input"
+            class="textarea"
+            rows="1"
+            :placeholder="`和${name}说点什么`"
+            aria-label="消息"
+            maxlength="4000"
+            @input="autoGrow"
+            @keydown="onKeydown"
+          />
+          <button v-if="sending" type="button" class="btn" @click="stop">停止</button>
+          <button v-else class="btn btn-primary" :disabled="!input.trim() || !current">发送</button>
+        </div>
+        <div class="composer__tools">
+          <select
+            v-if="models.length"
+            class="text-input model-select"
+            aria-label="本对话使用的模型"
+            :value="current?.model_id ?? ''"
+            :disabled="sending"
+            @change="onModelChange"
+          >
+            <option value="">默认模型<template v-if="defaultModel">（{{ defaultModel.name }}）</template></option>
+            <option v-for="m in models" :key="m.id" :value="m.id">{{ modelLabel(m) }}</option>
+          </select>
+          <div v-if="thinkingOptions.length" class="type-switch thinking-switch" role="group" aria-label="思考等级">
+            <button
+              v-for="o in thinkingOptions"
+              :key="o.v"
+              type="button"
+              :class="{ 'is-active': thinkingValue === o.v }"
+              :disabled="sending"
+              @click="patchCurrent({ thinking: o.v })"
+            >
+              {{ o.l }}
+            </button>
+          </div>
+          <span class="caption hint">Enter 发送，Shift+Enter 换行</span>
+        </div>
+      </form>
+    </main>
+
+    <Modal v-if="renaming" title="重命名对话" @close="renaming = false">
+      <form @submit.prevent="saveRename">
+        <div class="field">
+          <label class="field__label" for="conv-title">标题</label>
+          <input id="conv-title" v-model="renameText" class="text-input" maxlength="60" placeholder="新对话" />
+          <p class="field__hint">留空则用第一句话自动生成。</p>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" @click="renaming = false">取消</button>
+          <button class="btn btn-primary">保存</button>
+        </div>
+      </form>
+    </Modal>
+
+    <Modal
+      v-if="deleting"
+      title="删除这段对话？"
+      :subtitle="`聊天记录会被删除，无法恢复。${name}从中记住的事不受影响，可以在记忆本里单独删除。`"
+      @close="deleting = false"
+    >
+      <div class="modal-actions">
+        <button class="btn" @click="deleting = false">取消</button>
+        <button class="btn btn-danger" @click="confirmDelete">删除对话</button>
+      </div>
+    </Modal>
+  </div>
 </template>
 
 <style scoped>
+.chat-shell { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.sidebar {
+  display: flex; width: var(--sidebar-width); flex: 0 0 var(--sidebar-width); flex-direction: column; min-height: 0;
+  border-right: 1px solid var(--color-divider); background: var(--color-canvas);
+}
+.sidebar__head {
+  display: flex; flex: 0 0 var(--topbar-height); align-items: center; justify-content: space-between; gap: 12px;
+  padding: 0 var(--surface-inset-md); border-bottom: 1px solid var(--color-divider);
+}
+.sidebar__head .eyebrow { margin: 0; }
+.sidebar__list { flex: 1; overflow-y: auto; align-content: start; padding: 12px; }
+.sidebar__foot { margin: 0; padding: 12px var(--surface-inset-md) 16px; }
+.drawer-backdrop { display: none; }
+.menu-btn { display: none; margin-left: -8px; }
+.topbar__titles { flex: 1; }
+.conv-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar__actions { display: flex; gap: 4px; }
+.link { color: var(--color-accent-active); text-decoration: underline; text-underline-offset: 3px; }
+
 .chat { min-height: 0; }
 .scroller { flex: 1; overflow-y: auto; }
 .thread { max-width: 760px; margin: 0 auto; padding: 24px 32px 12px; }
@@ -262,6 +569,18 @@ onMounted(loadInitial)
   color: var(--color-ink); font-size: 16px; line-height: 1.65; white-space: pre-wrap; word-break: break-word;
 }
 .body { max-width: 640px; color: var(--color-ink); font-size: 16px; line-height: 1.75; word-break: break-word; }
+.thinking { max-width: 640px; margin-bottom: 8px; }
+.thinking__toggle {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 8px 0 4px; margin-left: -4px;
+  border-radius: var(--radius-sm); color: var(--color-muted); font-size: 13px;
+}
+.thinking__toggle:hover { background: var(--color-hover-wash); color: var(--color-text-secondary); }
+.chev { transition: transform var(--motion-fast) var(--ease-editorial); }
+.chev.is-open { transform: rotate(90deg); }
+.thinking__body {
+  margin: 6px 0 4px; padding: 2px 0 2px 14px; border-left: 2px solid var(--color-divider);
+  color: var(--color-text-secondary); font-size: 14px; line-height: 1.7; white-space: pre-wrap; word-break: break-word;
+}
 .meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 6px; color: var(--color-muted); font-size: 12px; }
 .meta .err { color: var(--color-danger); }
 .recall-toggle { cursor: pointer; height: 24px; font-size: 12px; margin-left: 4px; }
@@ -276,14 +595,33 @@ onMounted(loadInitial)
 .typing i:nth-child(2) { animation-delay: .2s; }
 .typing i:nth-child(3) { animation-delay: .4s; }
 @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
-.composer { padding: 12px 32px calc(14px + env(safe-area-inset-bottom)); border-top: 1px solid var(--color-divider); }
+.composer { padding: 12px 32px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--color-divider); }
 .composer__box { display: flex; align-items: flex-end; gap: 8px; max-width: 760px; margin: 0 auto; }
 .composer .textarea { min-height: 42px; max-height: 180px; resize: none; font-size: 15px; }
 .composer .btn { flex-shrink: 0; min-height: 42px; }
-.hint { max-width: 760px; margin: 6px auto 0; }
+.composer__tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; max-width: 760px; margin: 8px auto 0; }
+.model-select { width: auto; max-width: 260px; min-height: 34px; padding: 5px 8px; font-size: 13px; }
+.thinking-switch { padding: 3px; }
+.thinking-switch button { min-height: 28px; padding: 0 12px; }
+.hint { margin-left: auto; }
+
+@media (max-width: 960px) {
+  .sidebar {
+    position: fixed; top: 0; bottom: 0; left: 0; z-index: 30; width: min(var(--sidebar-width), 86vw);
+    box-shadow: var(--shadow-modal); transform: translateX(-102%);
+    transition: transform var(--motion-page) var(--ease-editorial);
+  }
+  .sidebar.is-open { transform: none; }
+  .drawer-backdrop { display: block; position: fixed; inset: 0; z-index: 25; background: var(--color-backdrop); }
+  .menu-btn { display: inline-flex; }
+}
 @media (max-width: 767px) {
   .thread { padding: 16px var(--mobile-gutter) 8px; }
   .composer { padding: 10px var(--mobile-gutter) 10px; }
   .hint { display: none; }
+  .composer__tools { flex-wrap: nowrap; }
+  .model-select { flex: 1 1 auto; min-width: 0; max-width: none; }
+  .thinking-switch { flex: 0 0 auto; }
+  .thinking-switch button { padding: 0 9px; }
 }
 </style>

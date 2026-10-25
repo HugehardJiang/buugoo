@@ -1,12 +1,30 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { api, ApiError, type Invite, type Quota } from '../api'
+import EmbeddingPanel from '../components/EmbeddingPanel.vue'
+import Modal from '../components/Modal.vue'
+import ModelsPanel from '../components/ModelsPanel.vue'
 import { dateTime } from '../format'
+import { memoriesUnlocked, setMemoriesUnlocked } from '../memoryLock'
 import { applySession, logout, session } from '../session'
 import { toast } from '../toast'
 
 const router = useRouter()
+const route = useRoute()
+const name = computed(() => session.meta?.name ?? '布谷')
+const peeking = ref(false)
+
+function openMemories() {
+  setMemoriesUnlocked(true)
+  peeking.value = false
+  router.push('/memories')
+}
+
+function hideMemories() {
+  setMemoriesUnlocked(false)
+  toast(`记忆本合上了。${name.value}还是记得，只是不再摊开给你看`)
+}
 const quota = ref<Quota | null>(null)
 const error = ref('')
 const message = ref('')
@@ -106,7 +124,14 @@ function percent(used: number, limit: number) {
   return limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
 }
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  // 从聊天页的提示跳转过来时滚动到对应区块。
+  if (route.hash) {
+    await nextTick()
+    document.querySelector(route.hash)?.scrollIntoView({ block: 'start' })
+  }
+})
 </script>
 
 <template>
@@ -134,6 +159,27 @@ onMounted(load)
             <button class="btn" @click="signOut">退出登录</button>
             <button class="btn btn-ghost" @click="signOutAll">退出所有设备</button>
           </div>
+        </section>
+
+        <ModelsPanel />
+
+        <EmbeddingPanel v-if="isAdmin" />
+
+        <section id="memory" class="panel panel--inset">
+          <h2>记忆本</h2>
+          <template v-if="memoriesUnlocked">
+            <p class="muted">记忆本已经翻开，可以在导航里的「记忆」查看和删除{{ name }}记住的事。</p>
+            <div class="actions">
+              <button class="btn" @click="router.push('/memories')">打开记忆本</button>
+              <button class="btn btn-ghost" @click="hideMemories">重新藏起来</button>
+            </div>
+          </template>
+          <template v-else>
+            <p class="muted">{{ name }}会悄悄记住你们聊过的事，下次自然地想起来。这本小本子默认是合上的。</p>
+            <div class="actions">
+              <button class="btn" @click="peeking = true">翻开记忆本</button>
+            </div>
+          </template>
         </section>
 
         <section v-if="quota" class="panel panel--inset">
@@ -202,6 +248,19 @@ onMounted(load)
         </section>
 
         <p class="caption version">BUUGOO {{ session.meta?.version }}</p>
+
+        <Modal
+          v-if="peeking"
+          title="要翻开记忆本吗？"
+          :subtitle="`${name}记得的事，就像朋友心里的小本子。翻开它会少一点惊喜，确定要看吗？`"
+          @close="peeking = false"
+        >
+          <p class="muted peek-note">翻开后可以查看、删除每一条记忆，聊天里也会显示{{ name }}这次想起了哪些事。随时可以重新藏起来。</p>
+          <div class="modal-actions">
+            <button class="btn" @click="peeking = false">还是保持神秘</button>
+            <button class="btn btn-primary" @click="openMemories">翻开看看</button>
+          </div>
+        </Modal>
       </div>
     </div>
   </main>
@@ -224,4 +283,5 @@ onMounted(load)
 .invite .code { font-size: 14px; letter-spacing: .06em; }
 .spacer { flex: 1; }
 .version { text-align: center; margin-top: 28px; }
+.peek-note { margin: 0; font-size: 14px; line-height: 1.65; }
 </style>

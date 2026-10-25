@@ -20,8 +20,80 @@ export interface Meta {
   mode: 'single' | 'multi'
   password_required: boolean
   registration: 'open' | 'invite' | 'closed'
-  llm_ready: boolean
   embedding_ready: boolean
+}
+
+export type Thinking = 'off' | 'low' | 'medium' | 'high'
+export type ThinkingStyle = 'none' | 'reasoning_effort' | 'enable_thinking' | 'model_switch'
+
+export interface Conversation {
+  id: number
+  title: string
+  model_id: number | null
+  thinking: Thinking
+  created_at: string
+  last_message_at: string | null
+}
+
+export interface ModelView {
+  id: number
+  name: string
+  base_url: string
+  model: string
+  thinking_style: ThinkingStyle
+  thinking_model: string
+  temperature: number
+  max_tokens: number
+  scope: 'builtin' | 'public' | 'personal'
+  is_default: boolean
+  key_mask: string
+  editable: boolean
+}
+
+export interface ModelInput {
+  name: string
+  base_url: string
+  api_key: string
+  model: string
+  thinking_style: ThinkingStyle
+  thinking_model: string
+  temperature: number
+  max_tokens: number
+  public: boolean
+}
+
+export interface TestResult {
+  ok: boolean
+  latency_ms: number
+  reply?: string
+  error?: string
+}
+
+export interface EmbeddingView {
+  base_url: string
+  model: string
+  dim: number
+  key_mask: string
+  ready: boolean
+  source: 'web' | 'config'
+}
+
+export interface EmbeddingInput {
+  base_url: string
+  api_key: string
+  model: string
+  dim: number
+}
+
+export interface ReembedStatus {
+  running: boolean
+  model: string
+  total: number
+  done: number
+  failed: number
+  error?: string
+  started_at?: string
+  finished_at?: string
 }
 
 export interface Quota {
@@ -37,6 +109,8 @@ export interface Message {
   id: number
   role: 'user' | 'assistant'
   content: string
+  reasoning?: string
+  model?: string
   status: 'complete' | 'interrupted' | 'error'
   created_at: string
 }
@@ -164,12 +238,37 @@ export const api = {
   logoutAll: () => request<void>('POST', '/auth/logout-all'),
   changePassword: (old_password: string, new_password: string) =>
     request<Session>('POST', '/auth/password', { old_password, new_password }),
-  me: () => request<{ user: User; quota: Quota }>('GET', '/me'),
-  messages: (beforeId = 0, limit = 50) =>
+  me: () => request<{ user: User; quota: Quota; has_model: boolean; embedding_ready: boolean }>('GET', '/me'),
+  conversations: () => request<{ conversations: Conversation[] }>('GET', '/conversations'),
+  createConversation: (input: { title?: string; model_id?: number | null; thinking?: Thinking } = {}) =>
+    request<Conversation>('POST', '/conversations', input),
+  updateConversation: (id: number, patch: { title?: string; model_id?: number | null; thinking?: Thinking }) =>
+    request<Conversation>('PATCH', `/conversations/${id}`, patch),
+  deleteConversation: (id: number) => request<void>('DELETE', `/conversations/${id}`),
+  messages: (conversationId: number, beforeId = 0, limit = 50) =>
     request<{ conversation_id: number; messages: Message[]; has_more: boolean }>(
       'GET',
-      `/messages?limit=${limit}${beforeId ? `&before_id=${beforeId}` : ''}`,
+      `/conversations/${conversationId}/messages?limit=${limit}${beforeId ? `&before_id=${beforeId}` : ''}`,
     ),
+  models: () => request<{ models: ModelView[] }>('GET', '/models'),
+  createModel: (input: ModelInput) => request<ModelView>('POST', '/models', input),
+  updateModel: (id: number, input: ModelInput) => request<ModelView>('PUT', `/models/${id}`, input),
+  deleteModel: (id: number) => request<void>('DELETE', `/models/${id}`),
+  setDefaultModel: (id: number) => request<void>('POST', `/models/${id}/default`),
+  clearDefaultModel: () => request<void>('DELETE', '/models/default'),
+  // 不带 input 时测试已保存的模型；带 input 时测试表单中的配置（id 为 0 表示尚未保存）。
+  testModel: (id: number, input?: ModelInput) =>
+    input && !id ? request<TestResult>('POST', '/models/test', input) : request<TestResult>('POST', `/models/${id}/test`, input),
+  embedding: () =>
+    request<{ embedding: EmbeddingView; pending: number; counts: Record<string, number>; reembed: ReembedStatus }>(
+      'GET',
+      '/admin/embedding',
+    ),
+  setEmbedding: (input: EmbeddingInput) =>
+    request<{ embedding: EmbeddingView; changed: boolean; pending: number }>('PUT', '/admin/embedding', input),
+  testEmbedding: (input: EmbeddingInput) => request<TestResult>('POST', '/admin/embedding/test', input),
+  reembedStatus: () => request<ReembedStatus>('GET', '/admin/embedding/reembed'),
+  startReembed: (all = false) => request<ReembedStatus>('POST', '/admin/embedding/reembed', { all }),
   memories: (params: { type?: string; source?: string; q?: string; limit?: number; offset?: number }) => {
     const qs = new URLSearchParams()
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, String(v))
@@ -183,19 +282,30 @@ export const api = {
 }
 
 export interface ChatHandlers {
-  onStart?: (data: { conversation_id: number; user_message: Message; assistant_message_id: number }) => void
+  onStart?: (data: {
+    conversation: Conversation
+    user_message: Message
+    assistant_message_id: number
+    model: { id: number; name: string }
+  }) => void
   onMemories?: (memories: UsedMemory[]) => void
+  onReasoning?: (text: string) => void
   onDelta: (text: string) => void
 }
 
 // sendChat 发送消息并解析 SSE 事件流。正常结束时返回最终的助手消息。
-export async function sendChat(content: string, h: ChatHandlers, signal?: AbortSignal): Promise<Message> {
+export async function sendChat(
+  conversationId: number,
+  content: string,
+  h: ChatHandlers,
+  signal?: AbortSignal,
+): Promise<Message> {
   let resp: Response
   try {
     resp = await fetch('/api/v1/chat', {
       method: 'POST',
       headers: headers(true),
-      body: JSON.stringify({ content, stream: true }),
+      body: JSON.stringify({ conversation_id: conversationId, content, stream: true }),
       signal,
     })
   } catch (e) {
@@ -232,6 +342,9 @@ export async function sendChat(content: string, h: ChatHandlers, signal?: AbortS
           break
         case 'memories':
           h.onMemories?.(payload.memories ?? [])
+          break
+        case 'reasoning':
+          h.onReasoning?.(payload.text)
           break
         case 'delta':
           h.onDelta(payload.text)

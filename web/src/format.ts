@@ -41,3 +41,13 @@ export function dateTime(iso: string | null): string {
   const d = new Date(iso)
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${timeOf(iso)}`
 }
+
+// shortWhen 返回侧栏中对话的时间：今天显示时刻，今年显示月/日，更早显示年份。
+export function shortWhen(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const today = new Date()
+  if (dayKey(iso) === dayKey(today.toISOString())) return timeOf(iso)
+  if (d.getFullYear() === today.getFullYear()) return `${d.getMonth() + 1}/${d.getDate()}`
+  return `${d.getFullYear()}/${d.getMonth() + 1}`
+}

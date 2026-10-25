@@ -218,7 +218,7 @@ func (s *Service) Send(ctx context.Context, u *store.User, in SendInput, sink Si
 	modelID := model.ID
 	// 助手消息先以"中断"状态占位，正常结束后再更新为完成。
 	reply := &store.Message{ConversationID: conv.ID, UserID: u.ID, Role: store.RoleAssistant,
-		Model: model.Model, ModelID: &modelID, Status: store.MessageInterrupted}
+		Model: model.ModelFor(conv.Thinking), ModelID: &modelID, Status: store.MessageInterrupted}
 	if err := s.store.Messages().Create(ctx, reply); err != nil {
 		return nil, fmt.Errorf("保存消息: %w", err)
 	}

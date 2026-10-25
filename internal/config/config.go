@@ -455,6 +455,12 @@ func (c *Config) Validate() error {
 			errs = append(errs, fmt.Errorf("不支持的 LLM provider %q", p))
 		}
 	}
+	// 默认的「换用 deepseek-reasoner」只适用于 DeepSeek；旧配置换了别家模型又没写 thinking_style 时，
+	// 关闭思考选项，避免开启思考时去调用不存在的模型。
+	if c.LLM.Chat.ThinkingStyle == "model_switch" && c.LLM.Chat.ThinkingModel == "deepseek-reasoner" &&
+		!strings.Contains(strings.ToLower(c.LLM.Chat.Model), "deepseek") {
+		c.LLM.Chat.ThinkingStyle = "none"
+	}
 	switch c.LLM.Chat.ThinkingStyle {
 	case "", "none", "reasoning_effort", "enable_thinking", "model_switch":
 	default:

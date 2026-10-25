@@ -87,9 +87,18 @@ type Resolved struct {
 	Name          string
 	Model         string
 	ThinkingStyle string
+	ThinkingModel string
 	Chat          llm.ChatProvider
 	// Personal 为 true 表示使用用户自己的 API Key，不计入每日限额。
 	Personal bool
+}
+
+// ModelFor 返回指定思考等级下实际调用的模型名（「换用推理模型」开启思考时为推理模型）。
+func (r *Resolved) ModelFor(thinking string) string {
+	if r.ThinkingStyle == store.ThinkingStyleSwitchMod && thinking != "" && thinking != store.ThinkingOff && r.ThinkingModel != "" {
+		return r.ThinkingModel
+	}
+	return r.Model
 }
 
 // Service 是模型管理服务。
@@ -141,7 +150,7 @@ func (s *Service) builtinView(isDefault bool) View {
 		style = store.ThinkingStyleNone
 	}
 	return View{
-		ID: BuiltinID, Name: "默认模型（" + c.Model + "）", BaseURL: c.BaseURL, Model: c.Model,
+		ID: BuiltinID, Name: c.Model, BaseURL: c.BaseURL, Model: c.Model,
 		ThinkingStyle: style, ThinkingModel: c.ThinkingModel, Temperature: float64(c.Temperature), MaxTokens: c.MaxTokens,
 		Scope: ScopeBuiltin, IsDefault: isDefault, KeyMask: secret.Mask(c.APIKey),
 	}
@@ -256,7 +265,7 @@ func (s *Service) resolveID(ctx context.Context, u User, id uint64) (*Resolved, 
 		}
 		c := s.cfg.LLM.Chat
 		return &Resolved{ID: BuiltinID, Name: s.builtinView(false).Name, Model: c.Model,
-			ThinkingStyle: c.ThinkingStyle, Chat: s.newChat(c, false)}, nil
+			ThinkingStyle: c.ThinkingStyle, ThinkingModel: c.ThinkingModel, Chat: s.newChat(c, false)}, nil
 	}
 	m, err := s.store.Models().Get(ctx, id)
 	if err != nil {
@@ -267,7 +276,7 @@ func (s *Service) resolveID(ctx context.Context, u User, id uint64) (*Resolved, 
 		return nil, fmt.Errorf("模型「%s」: %w", m.Name, err)
 	}
 	return &Resolved{
-		ID: m.ID, Name: m.Name, Model: m.Model, ThinkingStyle: m.ThinkingStyle,
+		ID: m.ID, Name: m.Name, Model: m.Model, ThinkingStyle: m.ThinkingStyle, ThinkingModel: m.ThinkingModel,
 		Chat:     s.newChat(s.chatConfig(m, key), !m.Public() && s.untrusted(u)),
 		Personal: !m.Public() && !s.singleMode(),
 	}, nil
@@ -397,12 +406,33 @@ func (s *Service) Delete(ctx context.Context, u User, id uint64) error {
 }
 
 // SetDefault 设为默认模型：个人模型设为自己的默认，公共模型设为全站默认（仅管理员）。
+// 内置模型（配置文件）只能由管理员设为全站默认。
 func (s *Service) SetDefault(ctx context.Context, u User, id uint64) error {
+	if id == BuiltinID {
+		if !u.IsAdmin || !s.builtinAvailable() {
+			return ErrForbidden
+		}
+		if err := s.store.Models().ClearDefault(ctx, u.ID); err != nil {
+			return err
+		}
+		return s.store.Models().ClearDefault(ctx, store.PublicOwner)
+	}
 	m, err := s.editable(ctx, u, id)
 	if err != nil {
 		return err
 	}
+	if m.Public() && u.ID != store.PublicOwner {
+		// 管理员设置全站默认时，同时取消自己的个人默认，否则看不到效果。
+		if err := s.store.Models().ClearDefault(ctx, u.ID); err != nil {
+			return err
+		}
+	}
 	return s.store.Models().SetDefault(ctx, m.OwnerID, m.ID)
+}
+
+// ClearDefault 取消用户自己的默认模型，改用全站默认。
+func (s *Service) ClearDefault(ctx context.Context, u User) error {
+	return s.store.Models().ClearDefault(ctx, u.ID)
 }
 
 // TestResult 是连通性测试结果。

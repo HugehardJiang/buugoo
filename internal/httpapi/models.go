@@ -66,10 +66,17 @@ func (s *server) deleteModel(c echo.Context) error {
 
 func (s *server) setDefaultModel(c echo.Context) error {
 	id, err := pathID(c)
-	if err != nil {
+	if err != nil && c.Param("id") != "0" {
 		return err
 	}
 	if err := s.Models.SetDefault(c.Request().Context(), modelUser(currentUser(c)), id); err != nil {
+		return err
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (s *server) clearDefaultModel(c echo.Context) error {
+	if err := s.Models.ClearDefault(c.Request().Context(), modelUser(currentUser(c))); err != nil {
 		return err
 	}
 	return c.NoContent(http.StatusNoContent)

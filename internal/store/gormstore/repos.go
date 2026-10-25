@@ -264,6 +264,10 @@ func (r modelRepo) Delete(ctx context.Context, id uint64) error {
 	return nil
 }
 
+func (r modelRepo) ClearDefault(ctx context.Context, ownerID uint64) error {
+	return mapErr(r.db.WithContext(ctx).Model(&store.ModelConfig{}).Where("owner_id = ?", ownerID).Update("is_default", false).Error)
+}
+
 func (r modelRepo) SetDefault(ctx context.Context, ownerID, id uint64) error {
 	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&store.ModelConfig{}).Where("owner_id = ?", ownerID).Update("is_default", false).Error; err != nil {

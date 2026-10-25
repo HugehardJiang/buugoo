@@ -65,7 +65,7 @@ code { font-family: var(--font-mono); font-size: 12px; }
 .text-input:focus, .textarea:focus { border-color: var(--color-accent); box-shadow: 0 0 0 3px rgba(91, 122, 74, .14); }
 .text-input::placeholder, .textarea::placeholder { color: var(--color-tertiary); }
 select.text-input { appearance: auto; }
-.form-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.form-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
 @media (max-width: 767px) { .form-row { grid-template-columns: 1fr; } }
 
 /* Chips */
@@ -114,6 +114,58 @@ select.text-input { appearance: auto; }
 .form-flash--error { border-color: rgba(181, 51, 51, .3); background: var(--color-danger-tint); color: var(--color-danger); }
 .workspace-progress { position: relative; height: 4px; overflow: hidden; border-radius: 999px; background: var(--color-divider); }
 .workspace-progress > i { display: block; height: 100%; border-radius: inherit; background: var(--color-accent); }
+
+/* Modal（设计系统 Modal） */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: var(--color-backdrop); backdrop-filter: blur(2px); animation: backdrop-in 170ms ease;
+}
+.modal {
+  width: min(620px, 100%); max-height: calc(100dvh - 48px); overflow: auto; border: 1px solid var(--color-divider);
+  border-radius: var(--radius-xl); background: var(--color-surface); box-shadow: var(--shadow-modal); color: var(--color-ink);
+  animation: modal-in 230ms var(--ease-editorial);
+}
+.modal--wide { width: min(1080px, 100%); }
+.modal__header {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 28px 30px 22px;
+  border-bottom: 1px solid var(--color-divider);
+}
+.modal__title { margin: 0; color: var(--color-ink); font-family: var(--font-display); font-size: 24px; font-weight: 400; line-height: 1.25; }
+.modal__subtitle { max-width: 680px; margin: 8px 0 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; }
+.modal__body { padding: 26px 30px 30px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
+@keyframes backdrop-in { from { opacity: 0; } }
+@keyframes modal-in { from { opacity: 0; transform: translateY(10px) scale(.992); } }
+@media (max-width: 767px) {
+  .modal-backdrop { align-items: flex-end; padding: 0; }
+  .modal { width: 100%; max-height: 92dvh; border-radius: 20px 20px 0 0; padding-bottom: env(safe-area-inset-bottom); }
+  .modal__header { padding: 22px var(--mobile-gutter) 16px; }
+  .modal__body { padding: 20px var(--mobile-gutter) 24px; }
+}
+
+/* Icon button（10px 圆角，按下缩放 .94） */
+.icon-btn {
+  display: inline-flex; width: 36px; height: 36px; flex: 0 0 36px; align-items: center; justify-content: center;
+  border-radius: var(--radius-rail); color: var(--color-text-secondary);
+  transition: background var(--motion-fast) ease, color var(--motion-fast) ease, transform var(--motion-fast) ease;
+}
+.icon-btn:hover { background: var(--color-hover-wash); color: var(--color-ink); }
+.icon-btn:active { transform: scale(.94); }
+.check-row { display: flex; align-items: flex-start; gap: 9px; margin: 4px 0 8px; color: var(--color-text-secondary); font-size: 13px; line-height: 1.45; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--color-accent); }
+
+/* Category filter（侧栏列表行） */
+.category-filter-list { display: grid; gap: 5px; }
+.category-filter {
+  --category-mark: transparent; position: relative; display: flex; width: 100%; min-width: 0; min-height: 40px; align-items: center;
+  justify-content: space-between; gap: 12px; padding: 9px 11px 9px 14px; border: 0; border-radius: var(--radius-md);
+  background: transparent; color: var(--color-category-text); font-size: 13px; line-height: 1.35; text-align: left;
+}
+.category-filter::before { position: absolute; top: 10px; bottom: 10px; left: 5px; width: 3px; border-radius: 999px; background: var(--category-mark); content: ""; }
+.category-filter > span { min-width: 0; overflow: hidden; padding-left: 3px; text-overflow: ellipsis; white-space: nowrap; }
+.category-filter small { flex: 0 0 auto; color: var(--color-tertiary); font-size: 12px; }
+.category-filter:hover { background: var(--color-surface-hover); color: var(--color-ink); }
+.category-filter.is-active { --category-mark: var(--color-accent); background: var(--color-canvas-soft); color: var(--color-ink); }
 
 /* Workspace shell: app rail + main */
 .workspace { display: flex; height: 100%; overflow: hidden; }
