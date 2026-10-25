@@ -3,10 +3,12 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -103,7 +105,7 @@ func TestLocalRunner(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("没有 python3")
 	}
-	l := NewLocal(config.PythonConfig{Python: "python3", Timeout: 3 * time.Second, MemoryMB: 256})
+	l := NewLocal(config.PythonConfig{Python: "python3", Timeout: 3 * time.Second, MemoryMB: 256, LibDir: t.TempDir()}, nil)
 	ctx := context.Background()
 	res, err := l.Run(ctx, "import os\nprint(sum(range(101)), os.getcwd().startswith(os.environ['HOME']))")
 	if err != nil || res.Stdout != "5050 True\n" || res.ExitCode != 0 {
@@ -141,5 +143,79 @@ func TestDockerRunner(t *testing.T) {
 	res, err = d.Run(ctx, "while True: pass")
 	if err != nil || !res.TimedOut {
 		t.Fatalf("应超时: %+v %v", res, err)
+	}
+}
+
+func TestLibraryInstallValidation(t *testing.T) {
+	lib := newLibrary(config.PythonConfig{LibDir: t.TempDir(), LibMaxMB: 1, InstallTimeout: time.Second,
+		IndexURL: "http://mirror.example/simple"}, slog.Default())
+	var got []string
+	pip := func(_ context.Context, args []string) ([]byte, error) {
+		got = args
+		return []byte("Successfully installed"), nil
+	}
+	ctx := context.Background()
+	for _, bad := range [][]string{{}, {"--index-url=http://evil"}, {"https://evil/x.whl"}, {"../x"}, {"a;rm -rf /"},
+		{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"}} {
+		if _, err := lib.install(ctx, bad, pip); err == nil {
+			t.Errorf("%v 应被拒绝", bad)
+		}
+	}
+	if _, err := lib.install(ctx, []string{"numpy==2.1.0", "requests[socks]", "pandas>=2,<3"}, pip); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(got, " ")
+	for _, want := range []string{"install --user --only-binary=:all:", "--index-url http://mirror.example/simple",
+		"--trusted-host mirror.example", "-- numpy==2.1.0 requests[socks] pandas>=2,<3"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("pip 参数缺少 %q: %s", want, joined)
+		}
+	}
+	// 库目录超过上限后不再安装。
+	_ = os.WriteFile(filepath.Join(lib.dir, "big"), make([]byte, 2<<20), 0o644)
+	if _, err := lib.install(ctx, []string{"six"}, pip); err == nil || !strings.Contains(err.Error(), "上限") {
+		t.Fatalf("超过上限应拒绝: %v", err)
+	}
+}
+
+func TestInstallTool(t *testing.T) {
+	set := New(Options{Python: fakeRunner{}, Packages: []string{"numpy"}, Installer: fakeInstaller{}})
+	defs := set.Defs()
+	if len(defs) != 2 || !strings.Contains(defs[0].Description, "numpy") || !strings.Contains(defs[0].Description, "install_package") {
+		t.Fatalf("defs=%+v", defs)
+	}
+	r := set.Run(context.Background(), llm.ToolCall{Name: NameInstall, Arguments: `{"packages":["networkx"]}`})
+	if !r.OK || r.Input != "networkx" || !strings.Contains(r.Output, "安装完成") {
+		t.Fatalf("%+v", r)
+	}
+	if len(New(Options{Python: fakeRunner{}}).Defs()) != 1 {
+		t.Fatal("没有 Installer 时不应提供安装工具")
+	}
+}
+
+type fakeInstaller struct{}
+
+func (fakeInstaller) Install(context.Context, []string) (string, error) {
+	return "Successfully installed networkx", nil
+}
+
+// TestDockerInstall 需要 Docker 与一个可访问的软件源：BUUGOO_TEST_DOCKER=1 BUUGOO_TEST_PIP_INDEX=http://…/simple，
+// 软件源中需要有 tabulate。
+func TestDockerInstall(t *testing.T) {
+	index := os.Getenv("BUUGOO_TEST_PIP_INDEX")
+	if os.Getenv("BUUGOO_TEST_DOCKER") == "" || index == "" {
+		t.Skip("设置 BUUGOO_TEST_DOCKER=1 与 BUUGOO_TEST_PIP_INDEX 运行")
+	}
+	lib := t.TempDir()
+	_ = os.Chmod(lib, 0o755)
+	d := NewDocker(config.PythonConfig{Docker: "docker", Image: "python:3.12-slim", Timeout: 20 * time.Second, MemoryMB: 256,
+		LibDir: lib, LibMaxMB: 100, InstallTimeout: 2 * time.Minute, IndexURL: index}, nil)
+	ctx := context.Background()
+	if out, err := d.Install(ctx, []string{"tabulate"}); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	res, err := d.Run(ctx, "import tabulate\nprint(tabulate.tabulate([[1, 2]]).count('1'))\ntry:\n    open(tabulate.__file__, 'a')\nexcept OSError:\n    print('ro')")
+	if err != nil || res.Stdout != "1\nro\n" {
+		t.Fatalf("运行时应能 import 且库目录只读: %+v %v", res, err)
 	}
 }

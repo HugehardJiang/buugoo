@@ -14,10 +14,16 @@ import (
 
 // 工具名。
 const (
-	NameSearch = "web_search"
-	NameFetch  = "web_fetch"
-	NamePython = "run_python"
+	NameSearch  = "web_search"
+	NameFetch   = "web_fetch"
+	NamePython  = "run_python"
+	NameInstall = "install_package"
 )
+
+// Installer 安装第三方库。
+type Installer interface {
+	Install(ctx context.Context, pkgs []string) (string, error)
+}
 
 // Result 是一次工具调用的结果。
 type Result struct {
@@ -46,6 +52,10 @@ type Options struct {
 	DeepSeek *DeepSeek
 	// Python 不为空时提供运行 Python。
 	Python Runner
+	// Packages 是已经预装的第三方库（写进工具说明）。
+	Packages []string
+	// Installer 不为空时提供安装第三方库。
+	Installer Installer
 }
 
 // New 按选项组装工具集。
@@ -70,16 +80,58 @@ func New(o Options) *Set {
 		}, o.DeepSeek.fetch)
 	}
 	if o.Python != nil {
+		libs := "只有标准库"
+		if len(o.Packages) > 0 {
+			libs = "除标准库外已预装：" + strings.Join(o.Packages, "、")
+		}
+		if o.Installer != nil {
+			libs += "；缺少别的库时先用 install_package 安装"
+		}
 		s.add(llm.Tool{
 			Name: NamePython,
 			Description: "运行一段 Python 3 代码并返回标准输出与错误输出。用于需要准确结果的计算、换算、日期推算、统计与数据处理；" +
-				"不要心算。用 print 输出结果。没有网络，只有标准库；单次运行有时间与内存限制。",
+				"不要心算。用 print 输出结果。运行时没有网络；" + libs + "；单次运行有时间与内存限制。",
 			Parameters: object(map[string]any{
 				"code": map[string]any{"type": "string", "description": "完整的 Python 代码"},
 			}, "code"),
 		}, pythonHandler(o.Python))
+		if o.Installer != nil {
+			s.add(llm.Tool{
+				Name: NameInstall,
+				Description: "从 PyPI 安装 Python 第三方库，装好后 run_python 就能 import。只能安装有预编译包（wheel）的库，" +
+					"一次最多 10 个；已经装好的不会重复安装。只在确实需要、而预装库做不到时使用。",
+				Parameters: object(map[string]any{
+					"packages": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
+						"description": "PyPI 包名，可带版本号，例如 [\"networkx\", \"statsmodels==0.14.4\"]"},
+				}, "packages"),
+			}, installHandler(o.Installer))
+		}
 	}
 	return s
+}
+
+func installHandler(in Installer) handler {
+	return func(ctx context.Context, args json.RawMessage) Result {
+		var req struct {
+			Packages []string `json:"packages"`
+		}
+		_ = json.Unmarshal(args, &req)
+		res := Result{Input: strings.Join(req.Packages, " ")}
+		out, err := in.Install(ctx, req.Packages)
+		if err != nil {
+			res.Summary = err.Error()
+			res.Output = "安装失败：" + err.Error()
+			if out != "" {
+				res.Output += "\n" + truncate(out, 3000)
+			}
+			res.Detail = truncate(out, 3000)
+			return res
+		}
+		res.OK, res.Summary = true, "已安装 "+strings.Join(req.Packages, "、")
+		res.Output = "安装完成，现在可以在 run_python 中 import。\n" + truncate(out, 1500)
+		res.Detail = truncate(out, 3000)
+		return res
+	}
 }
 
 func object(props map[string]any, required ...string) map[string]any {
@@ -124,6 +176,8 @@ func Label(name string) string {
 		return "读取网页"
 	case NamePython:
 		return "运行代码"
+	case NameInstall:
+		return "安装 Python 库"
 	}
 	return name
 }

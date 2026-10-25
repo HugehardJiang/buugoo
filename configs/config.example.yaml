@@ -130,6 +130,15 @@ tools:
     python: python3
     timeout: 30s
     memory_mb: 256
+    # 预装的第三方库（启动时在后台安装，已经装好的不会重复安装）
+    packages: [numpy, scipy, sympy, pandas, mpmath]
+    # 允许布谷按需安装 PyPI 上的库：只装预编译包（不运行安装脚本），只有安装时联网，运行代码时仍然断网。
+    # multi 模式下只有管理员的对话可以安装。装好的库所有人共用。
+    allow_install: true
+    index_url: ""          # 国内服务器建议 https://pypi.tuna.tsinghua.edu.cn/simple
+    lib_dir: ""            # 留空为 <data_dir>/pylib
+    lib_max_mb: 2048       # 库目录大小上限，超过后不再安装
+    install_timeout: 5m
 
 memory:
   # 检索打分：score = alpha·recency + beta·importance + gamma·relevance

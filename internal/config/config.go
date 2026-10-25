@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -261,7 +262,25 @@ type PythonConfig struct {
 	Python   string        `koanf:"python"` // local 方式使用的解释器
 	Timeout  time.Duration `koanf:"timeout"`
 	MemoryMB int           `koanf:"memory_mb"`
+	// Packages 是预装的第三方库，启动时安装到 LibDir（已经装好的不会重复安装）。
+	Packages []string `koanf:"packages"`
+	// AllowInstall 允许模型按需安装 PyPI 上的库（multi 模式下仅管理员的对话）。
+	AllowInstall bool `koanf:"allow_install"`
+	// IndexURL 是 pip 使用的软件源，留空为官方 PyPI，例如 https://pypi.tuna.tsinghua.edu.cn/simple。
+	IndexURL string `koanf:"index_url"`
+	// LibDir 是第三方库的存放目录，所有人共用，留空为 <data_dir>/pylib。
+	LibDir string `koanf:"lib_dir"`
+	// LibMaxMB 是第三方库目录的大小上限，超过后不再安装新库。
+	LibMaxMB int `koanf:"lib_max_mb"`
+	// InstallTimeout 是一次安装的时间上限。
+	InstallTimeout time.Duration `koanf:"install_timeout"`
 }
+
+// packageSpec 只允许「包名[extras][版本约束]」，不允许以 - 开头的 pip 参数、网址或路径。
+var packageSpec = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(\[[A-Za-z0-9._,-]{1,100}\])?((==|>=|<=|~=|!=|>|<)[A-Za-z0-9.*+!-]{1,50}(,(==|>=|<=|~=|!=|>|<)[A-Za-z0-9.*+!-]{1,50})*)?$`)
+
+// ValidPackageSpec 报告是否为合法的 pip 包名（可带版本约束）。
+func ValidPackageSpec(s string) bool { return packageSpec.MatchString(s) }
 
 // PersonaConfig 是人格档案配置。
 type PersonaConfig struct {
@@ -400,6 +419,8 @@ func Default() *Config {
 		Tools: ToolsConfig{Python: PythonConfig{
 			Runner: PythonDocker, Image: "python:3.12-slim", Docker: "docker", Python: "python3",
 			Timeout: 30 * time.Second, MemoryMB: 256,
+			Packages:     []string{"numpy", "scipy", "sympy", "pandas", "mpmath"},
+			AllowInstall: true, LibMaxMB: 2048, InstallTimeout: 5 * time.Minute,
 		}},
 		Quota: QuotaConfig{ExemptAdmins: true},
 		Scheduler: SchedulerConfig{
@@ -539,6 +560,9 @@ func (c *Config) applyDerived() {
 	if c.Database.Driver == DriverSQLite && c.Database.DSN == "" && c.DataDir != "" {
 		c.Database.DSN = filepath.Join(c.DataDir, "buugoo.db")
 	}
+	if c.Tools.Python.LibDir == "" && c.DataDir != "" {
+		c.Tools.Python.LibDir = filepath.Join(c.DataDir, "pylib")
+	}
 	if c.Uploads.Dir == "" && c.DataDir != "" {
 		c.Uploads.Dir = filepath.Join(c.DataDir, "uploads")
 	}
@@ -626,8 +650,16 @@ func (c *Config) Validate() error {
 	default:
 		errs = append(errs, fmt.Errorf("tools.python.runner %q 无效（可选 docker、local、off）", c.Tools.Python.Runner))
 	}
-	if c.Tools.Python.Timeout <= 0 || c.Tools.Python.MemoryMB <= 0 {
-		errs = append(errs, errors.New("tools.python.timeout 与 memory_mb 必须大于 0"))
+	if c.Tools.Python.Timeout <= 0 || c.Tools.Python.MemoryMB <= 0 || c.Tools.Python.InstallTimeout <= 0 || c.Tools.Python.LibMaxMB < 0 {
+		errs = append(errs, errors.New("tools.python.timeout、memory_mb、install_timeout 必须大于 0，lib_max_mb 不能小于 0"))
+	}
+	for _, p := range c.Tools.Python.Packages {
+		if !ValidPackageSpec(p) {
+			errs = append(errs, fmt.Errorf("tools.python.packages 中的 %q 不是合法的包名", p))
+		}
+	}
+	if u := c.Tools.Python.IndexURL; u != "" && !strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {
+		errs = append(errs, errors.New("tools.python.index_url 需以 http:// 或 https:// 开头"))
 	}
 	if c.LLM.Embedding.Provider != "openai" {
 		errs = append(errs, fmt.Errorf("不支持的 embedding provider %q", c.LLM.Embedding.Provider))

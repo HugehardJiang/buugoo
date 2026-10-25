@@ -544,6 +544,8 @@ func toolHints(set *tools.Set) string {
 			b.WriteString("\n- web_fetch：需要网页的详细内容时读取（包括对方发来的链接）")
 		case tools.NamePython:
 			b.WriteString("\n- run_python：需要精确计算、日期推算、换算或数据处理时写代码运行，用 print 输出结果，不要心算")
+		case tools.NameInstall:
+			b.WriteString("\n- install_package：运行代码缺少第三方库（ModuleNotFoundError）时安装后再运行")
 		}
 	}
 	b.WriteString("\n- 用了搜索结果时，在回答里自然地提到来源（网站名即可，必要时附链接）；日常聊天不需要用工具")

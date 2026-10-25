@@ -99,6 +99,10 @@ buugoo chat
 模型写的 Python 代码默认在**一次性的 Docker 容器**里运行：断网、只读、以 nobody 用户运行、去掉所有权限、
 限制内存（256 MB）、CPU、进程数和时间（30 秒），看不到服务器上的任何文件。这种方式下所有用户都可以用。
 
+- 已预装 numpy、scipy、sympy、pandas、mpmath（启动时在后台安装到 `<数据目录>/pylib`，所有人共用）。
+  缺少别的库时，布谷会自己调用「安装 Python 库」：只能从 PyPI（或配置的国内镜像 `tools.python.index_url`）安装
+  **预编译包**，安装过程中不运行任何安装脚本；只有安装那一步联网，运行代码时库目录只读、仍然断网。
+  multi 模式下只有管理员的对话可以安装；不想让布谷装库可以设置 `tools.python.allow_install: false`。
 - 服务器需要装好 Docker，并且布谷的服务用户能使用 `docker` 命令。用安装脚本注册的服务以 `buugoo` 用户运行，
   需要执行 `sudo usermod -aG docker buugoo && sudo systemctl restart buugoo`。**注意：能使用 Docker 等同于拥有 root 权限**，
   请确认你接受这一点。第一次启动时会自动拉取 `python:3.12-slim` 镜像（只有标准库）。
