@@ -50,16 +50,26 @@ type (
 	streamStart struct{ ch <-chan tea.Msg }
 )
 
+// 配色来自设计系统（布谷 BUUGOO tokens.json）：浅色终端用 ink / text-secondary / accent，
+// 深色终端用 on-dark 系列。
 var (
-	styleHeader  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#3f5637", Dark: "#9cc28a"})
-	styleMuted   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#8a8578", Dark: "#8d8a80"})
-	styleUser    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#2f6f8f", Dark: "#7fbfdf"})
-	styleBot     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#5b7a4f", Dark: "#9cc28a"})
-	styleError   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#b5483b", Dark: "#e07a6c"})
-	styleSystem  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#6d5a2a", Dark: "#d8c08a"})
-	styleDivider = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#cfc8b8", Dark: "#4a4d44"})
-	styleInput   = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.AdaptiveColor{Light: "#b8c9ad", Dark: "#4c6741"}).Padding(0, 1)
+	colorInk       = lipgloss.AdaptiveColor{Light: "#141413", Dark: "#faf9f5"} // color-ink / color-on-dark
+	colorSecondary = lipgloss.AdaptiveColor{Light: "#5e5d59", Dark: "#c9c7bf"} // color-text-secondary
+	colorMuted     = lipgloss.AdaptiveColor{Light: "#87867f", Dark: "#87867f"} // color-muted
+	colorAccent    = lipgloss.AdaptiveColor{Light: "#5b7a4a", Dark: "#8fa67f"} // color-accent / illo-sage
+	colorDanger    = lipgloss.AdaptiveColor{Light: "#b53333", Dark: "#e07a6c"} // color-danger
+	colorWarning   = lipgloss.AdaptiveColor{Light: "#a0701c", Dark: "#d8b46a"} // color-warning
+	colorDivider   = lipgloss.AdaptiveColor{Light: "#d1cfc5", Dark: "#3d3d3a"} // color-hairline-strong / color-ink-hover
+
+	styleHeader  = lipgloss.NewStyle().Bold(true).Foreground(colorInk)
+	styleMuted   = lipgloss.NewStyle().Foreground(colorMuted)
+	styleUser    = lipgloss.NewStyle().Bold(true).Foreground(colorSecondary)
+	styleBot     = lipgloss.NewStyle().Bold(true).Foreground(colorInk)
+	styleRecall  = lipgloss.NewStyle().Foreground(colorAccent)
+	styleError   = lipgloss.NewStyle().Foreground(colorDanger)
+	styleSystem  = lipgloss.NewStyle().Foreground(colorWarning)
+	styleDivider = lipgloss.NewStyle().Foreground(colorDivider)
+	styleInput   = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(colorDivider).Padding(0, 1)
 )
 
 const helpText = `可用命令：
@@ -442,7 +452,7 @@ func (m *Model) renderEntry(e *entry, width int) string {
 			for _, x := range e.memories {
 				fmt.Fprintf(&mem, "\n · [%s] %s", sourceLabel(x.Source), x.Content)
 			}
-			b.WriteString(lipgloss.NewStyle().PaddingLeft(2).Width(width).Inherit(styleMuted).Render(mem.String()) + "\n")
+			b.WriteString(lipgloss.NewStyle().PaddingLeft(2).Width(width).Inherit(styleRecall).Render(mem.String()) + "\n")
 		}
 		switch {
 		case streaming && e.content == "":
@@ -495,7 +505,7 @@ func dayLabel(t time.Time) string {
 }
 
 func (m *Model) header() string {
-	title := styleHeader.Render("🐦 " + m.opt.Name)
+	title := styleHeader.Render("BUUGOO " + m.opt.Name)
 	info := styleMuted.Render(" · " + m.opt.Server)
 	return lipgloss.NewStyle().Padding(0, 1).Render(title+info) + "\n"
 }

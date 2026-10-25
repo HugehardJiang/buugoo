@@ -11,10 +11,14 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/web"
 )
 
-const notBuiltPage = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>布谷</title>
-<body style="font-family:sans-serif;max-width:40em;margin:4em auto;line-height:1.7">
-<h1>布谷服务已启动</h1><p>当前可执行文件未内嵌 Web 界面。请使用正式发布版本，或在源码目录执行 <code>make web build</code> 后重新运行。</p>
-<p>API 位于 <code>/api/v1</code>，也可以使用 <code>buugoo chat</code> 在终端聊天。</p></body></html>`
+// notBuiltPage 在未内嵌前端时显示，配色取自设计系统。
+const notBuiltPage = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>布谷</title>
+<body style="margin:0;background:#faf9f5;color:#141413;font:16px/1.65 -apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif">
+<main style="max-width:560px;margin:14vh auto;padding:0 16px">
+<p style="margin:0 0 6px;color:#87867f;font-size:12px;font-weight:700;letter-spacing:.13em">BUUGOO · 布谷</p>
+<h1 style="margin:0 0 14px;font:400 36px/1.2 'Iowan Old Style',Georgia,'Noto Serif SC','Songti SC',serif">服务已经启动。</h1>
+<p style="margin:0;color:#5e5d59">这个可执行文件没有内嵌 Web 界面。请使用正式发布版本，或在源码目录运行 <code>make web build</code> 后重新启动。也可以用 <code>buugoo chat</code> 在终端里聊天。</p>
+</main></body></html>`
 
 // mountWeb 挂载内嵌的前端：静态资源直接返回，其余路径回退到 index.html（前端路由）。
 func (s *server) mountWeb(e *echo.Echo) {

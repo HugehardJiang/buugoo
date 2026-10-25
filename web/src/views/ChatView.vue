@@ -126,7 +126,7 @@ async function send() {
       r.status = 'interrupted'
     } else {
       r.status = 'error'
-      r.error = e instanceof ApiError ? e.message : '发送失败'
+      r.error = e instanceof ApiError ? e.message : '这次没有发送成功'
       // 请求在开始推送前就失败（例如超出限额），用户消息并未保存，放回输入框。
       if (r.id < 0) {
         items.value.splice(items.value.length - 2, 1)
@@ -153,119 +153,137 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 function toggleMemories(id: number) {
+  const wasAtBottom = nearBottom()
   const s = new Set(openMemories.value)
   if (s.has(id)) s.delete(id)
   else s.add(id)
   openMemories.value = s
+  if (wasAtBottom) scrollToBottom(true)
 }
 
 onMounted(loadInitial)
 </script>
 
 <template>
-  <main class="chat">
+  <main class="main chat">
+    <header class="topbar">
+      <div class="topbar__titles">
+        <span class="eyebrow">CHAT · 聊天</span>
+        <h1>{{ name }}</h1>
+      </div>
+    </header>
+
     <div ref="scroller" class="scroller">
-      <div class="inner">
-        <div v-if="notReady" class="notice">
-          还没有配置聊天模型。请在配置文件中填写 <code>llm.chat.api_key</code> 后重启服务。
-        </div>
-        <div v-else-if="embeddingMissing" class="notice">
-          还没有配置向量模型（<code>llm.embedding.api_key</code>），{{ name }}暂时记不住事情。
-        </div>
-        <p v-if="loadError" class="error">{{ loadError }}</p>
+      <div class="thread">
+        <p v-if="notReady" class="form-flash">
+          还没有配置聊天模型。在配置文件中填写 <code>llm.chat.api_key</code>，然后重启服务。
+        </p>
+        <p v-else-if="embeddingMissing" class="form-flash">
+          还没有配置向量模型（<code>llm.embedding.api_key</code>），{{ name }}暂时记不住聊过的事。
+        </p>
+        <p v-if="loadError" class="form-flash form-flash--error">{{ loadError }}</p>
 
         <div v-if="hasMore" class="more">
-          <button class="btn ghost small" :disabled="loadingMore" @click="loadMore">
-            {{ loadingMore ? '加载中…' : '加载更早的消息' }}
+          <button class="btn btn-ghost" :disabled="loadingMore" @click="loadMore">
+            {{ loadingMore ? '正在加载' : '加载更早的消息' }}
           </button>
         </div>
 
         <div v-if="!items.length && !loadError" class="empty">
-          <img src="/favicon.svg" alt="" width="56" height="56" />
-          <p>嗨，我是{{ name }}。最近过得怎么样？</p>
+          <h2>最近过得怎么样。</h2>
+          <p class="muted">随便说点什么。{{ name }}会记住你提到的事，下次自然地接上。</p>
         </div>
 
         <template v-for="row in rows" :key="row.kind === 'day' ? row.key : row.item.id">
           <div v-if="row.kind === 'day'" class="day"><span>{{ row.label }}</span></div>
-          <div v-else class="msg" :class="row.item.role">
-            <div class="bubble">
-              <div v-if="row.item.role === 'assistant'" class="md" v-html="renderMarkdown(row.item.content)" />
-              <div v-else class="plain">{{ row.item.content }}</div>
-              <span v-if="row.item.streaming && !row.item.content" class="typing"><i /><i /><i /></span>
-            </div>
+          <article v-else class="msg" :class="row.item.role">
+            <div v-if="row.item.role === 'assistant'" class="md body" v-html="renderMarkdown(row.item.content)" />
+            <div v-else class="bubble">{{ row.item.content }}</div>
+            <span v-if="row.item.streaming && !row.item.content" class="typing" aria-label="正在回复"><i /><i /><i /></span>
             <div class="meta">
               <span>{{ timeOf(row.item.created_at) }}</span>
-              <span v-if="row.item.status === 'interrupted'" class="warn">· 已中断</span>
-              <span v-if="row.item.status === 'error'" class="err">· {{ row.item.error || '生成失败' }}</span>
+              <span v-if="row.item.status === 'interrupted'">· 已停止</span>
+              <span v-if="row.item.status === 'error'" class="err">· {{ row.item.error || '这次没有回复成功' }}</span>
               <button
                 v-if="row.item.memories?.length"
-                class="linklike"
+                class="chip-note recall-toggle"
+                :aria-expanded="openMemories.has(row.item.id)"
                 @click="toggleMemories(row.item.id)"
               >
-                · 想起了 {{ row.item.memories.length }} 件事
+                想起了 {{ row.item.memories.length }} 件事
               </button>
             </div>
             <ul v-if="row.item.memories?.length && openMemories.has(row.item.id)" class="recalled">
               <li v-for="m in row.item.memories" :key="m.id">
-                <span class="tag" :class="m.source">{{ m.source === 'stated' ? '你说过' : '推测' }}</span>
-                {{ m.content }}
-                <span class="muted score">{{ m.score.total.toFixed(2) }}</span>
+                <span class="badge-pill">{{ m.source === 'stated' ? '你说过' : '推测' }}</span>
+                <span>{{ m.content }}</span>
               </li>
             </ul>
-          </div>
+          </article>
         </template>
       </div>
     </div>
 
     <form class="composer" @submit.prevent="send">
-      <textarea
-        ref="textarea"
-        v-model="input"
-        class="input"
-        rows="1"
-        :placeholder="`和${name}说点什么…`"
-        title="Enter 发送，Shift+Enter 换行"
-        maxlength="4000"
-        @input="autoGrow"
-        @keydown="onKeydown"
-      />
-      <button v-if="sending" type="button" class="btn ghost" @click="stop">停止</button>
-      <button v-else class="btn" :disabled="!input.trim()">发送</button>
+      <div class="composer__box">
+        <textarea
+          ref="textarea"
+          v-model="input"
+          class="textarea"
+          rows="1"
+          :placeholder="`和${name}说点什么`"
+          aria-label="消息"
+          maxlength="4000"
+          @input="autoGrow"
+          @keydown="onKeydown"
+        />
+        <button v-if="sending" type="button" class="btn" @click="stop">停止</button>
+        <button v-else class="btn btn-primary" :disabled="!input.trim()">发送</button>
+      </div>
+      <p class="caption hint">Enter 发送，Shift+Enter 换行</p>
     </form>
   </main>
 </template>
 
 <style scoped>
-.chat { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.chat { min-height: 0; }
 .scroller { flex: 1; overflow-y: auto; }
-.inner { padding: 16px 16px 8px; }
+.thread { max-width: 760px; margin: 0 auto; padding: 24px 32px 12px; }
 .more { text-align: center; margin-bottom: 12px; }
-.empty { text-align: center; color: var(--muted); margin-top: 18vh; }
-.day { display: flex; align-items: center; gap: 10px; margin: 18px 0 10px; color: var(--muted); font-size: 12px; }
-.day::before, .day::after { content: ''; flex: 1; height: 1px; background: var(--border); }
-.msg { display: flex; flex-direction: column; margin: 6px 0 10px; max-width: 86%; }
-.msg.user { margin-left: auto; align-items: flex-end; }
-.msg.assistant { align-items: flex-start; }
-.bubble { padding: 9px 14px; border-radius: 18px; word-break: break-word; }
-.user .bubble { background: var(--user-bubble); color: var(--user-text); border-bottom-right-radius: 6px; }
-.assistant .bubble { background: var(--bot-bubble); border: 1px solid var(--border); border-bottom-left-radius: 6px; box-shadow: var(--shadow); }
-.plain { white-space: pre-wrap; }
-.meta { font-size: 12px; color: var(--muted); margin-top: 3px; padding: 0 6px; display: flex; gap: 4px; flex-wrap: wrap; }
-.meta .warn { color: #b08a2e; }
-.meta .err { color: var(--danger); }
-.linklike { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; font-size: 12px; }
-.recalled { list-style: none; margin: 6px 0 0; padding: 8px 10px; background: var(--surface-2); border-radius: 10px; font-size: 13px; }
-.recalled li + li { margin-top: 4px; }
-.score { font-size: 11px; margin-left: 4px; }
-.typing { display: inline-flex; gap: 4px; padding: 4px 0; }
-.typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite ease-in-out; }
+.empty { margin-top: 14vh; text-align: center; }
+.empty h2 { font-size: 30px; line-height: 1.2; margin-bottom: 10px; }
+.empty p { font-size: 16px; line-height: 1.65; margin: 0; }
+.day { display: flex; align-items: center; gap: 12px; margin: 22px 0 14px; color: var(--color-muted); font-size: 12px; }
+.day::before, .day::after { content: ''; flex: 1; height: 1px; background: var(--color-divider); }
+.msg { display: flex; flex-direction: column; margin: 8px 0 18px; }
+.msg.user { align-items: flex-end; }
+.bubble {
+  max-width: min(560px, 86%); padding: 10px 14px; border-radius: var(--radius-lg); background: var(--color-canvas-soft);
+  color: var(--color-ink); font-size: 16px; line-height: 1.65; white-space: pre-wrap; word-break: break-word;
+}
+.body { max-width: 640px; color: var(--color-ink); font-size: 16px; line-height: 1.75; word-break: break-word; }
+.meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 6px; color: var(--color-muted); font-size: 12px; }
+.meta .err { color: var(--color-danger); }
+.recall-toggle { cursor: pointer; height: 24px; font-size: 12px; margin-left: 4px; }
+.recalled {
+  display: grid; gap: 8px; max-width: 640px; margin: 10px 0 0; padding: 12px 14px; list-style: none;
+  border-radius: var(--radius-md); background: var(--color-canvas-soft); color: var(--color-text-secondary); font-size: 14px; line-height: 1.45;
+}
+.recalled li { display: flex; align-items: baseline; gap: 8px; }
+.recalled .badge-pill { flex-shrink: 0; background: var(--color-surface); }
+.typing { display: inline-flex; gap: 4px; padding: 8px 0 2px; }
+.typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--color-muted); animation: blink 1.2s infinite ease-in-out; }
 .typing i:nth-child(2) { animation-delay: .2s; }
 .typing i:nth-child(3) { animation-delay: .4s; }
 @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
-.composer {
-  display: flex; gap: 8px; align-items: flex-end; padding: 10px 16px calc(12px + env(safe-area-inset-bottom));
-  border-top: 1px solid var(--border); background: var(--bg);
+.composer { padding: 12px 32px calc(14px + env(safe-area-inset-bottom)); border-top: 1px solid var(--color-divider); }
+.composer__box { display: flex; align-items: flex-end; gap: 8px; max-width: 760px; margin: 0 auto; }
+.composer .textarea { min-height: 42px; max-height: 180px; resize: none; font-size: 15px; }
+.composer .btn { flex-shrink: 0; min-height: 42px; }
+.hint { max-width: 760px; margin: 6px auto 0; }
+@media (max-width: 767px) {
+  .thread { padding: 16px var(--mobile-gutter) 8px; }
+  .composer { padding: 10px var(--mobile-gutter) 10px; }
+  .hint { display: none; }
 }
-.composer textarea { resize: none; max-height: 180px; line-height: 1.5; }
-.composer .btn { flex-shrink: 0; height: 40px; }
 </style>
