@@ -1,0 +1,143 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"time"
+)
+
+// 通用错误。实现层必须把底层错误映射为以下错误（用 errors.Is 判断）。
+var (
+	ErrNotFound      = errors.New("记录不存在")
+	ErrConflict      = errors.New("记录已存在")
+	ErrInviteInvalid = errors.New("邀请码无效、已过期或已用完")
+)
+
+// TableName 固定表名，避免依赖 GORM 的复数化规则。
+func (UsageDaily) TableName() string { return "usage_daily" }
+
+// TableName 固定表名。
+func (AppMeta) TableName() string { return "app_meta" }
+
+// Store 聚合所有 Repository，屏蔽 MySQL 与 SQLite 的差异。
+type Store interface {
+	Users() UserRepo
+	Invites() InviteRepo
+	Conversations() ConversationRepo
+	Messages() MessageRepo
+	Memories() MemoryRepo
+	Usage() UsageRepo
+	Jobs() JobRepo
+	Meta() MetaRepo
+
+	// Tx 在一个事务中执行 fn，fn 返回错误时回滚。
+	Tx(ctx context.Context, fn func(tx Store) error) error
+	Ping(ctx context.Context) error
+	Close() error
+	// Driver 返回 "sqlite" 或 "mysql"。
+	Driver() string
+}
+
+// UserRepo 是用户数据访问接口。
+type UserRepo interface {
+	// Create 创建用户；用户名重复时返回 ErrConflict。
+	Create(ctx context.Context, u *User) error
+	GetByID(ctx context.Context, id uint64) (*User, error)
+	GetByUsername(ctx context.Context, username string) (*User, error)
+	Count(ctx context.Context) (int64, error)
+	List(ctx context.Context, limit, offset int) ([]User, error)
+	// EnsureOwner 确保 single 模式下的唯一用户存在并返回它。
+	EnsureOwner(ctx context.Context) (*User, error)
+	// UpdatePassword 更新密码哈希并使旧令牌全部失效。
+	UpdatePassword(ctx context.Context, id uint64, hash string) error
+	// BumpTokenVersion 使该用户的全部令牌失效。
+	BumpTokenVersion(ctx context.Context, id uint64) error
+	SetAdmin(ctx context.Context, id uint64, admin bool) error
+}
+
+// InviteRepo 是邀请码数据访问接口。
+type InviteRepo interface {
+	Create(ctx context.Context, inv *Invite) error
+	List(ctx context.Context, limit, offset int) ([]Invite, error)
+	// Redeem 原子地校验并消耗一次邀请码，不可用时返回 ErrInviteInvalid。
+	Redeem(ctx context.Context, code string, now time.Time) (*Invite, error)
+	Delete(ctx context.Context, id uint64) error
+}
+
+// ConversationRepo 是对话数据访问接口。
+type ConversationRepo interface {
+	// Primary 返回用户的主对话（第一阶段每个用户一条连续对话），不存在时创建。
+	Primary(ctx context.Context, userID uint64) (*Conversation, error)
+	Get(ctx context.Context, userID, id uint64) (*Conversation, error)
+	List(ctx context.Context, userID uint64) ([]Conversation, error)
+	Touch(ctx context.Context, userID, id uint64, at time.Time) error
+}
+
+// MessageRepo 是消息数据访问接口。
+type MessageRepo interface {
+	Create(ctx context.Context, m *Message) error
+	// Finish 更新助手消息的内容、状态与用量（流式输出结束后调用）。
+	Finish(ctx context.Context, m *Message) error
+	// Recent 按时间正序返回对话中最近 limit 条消息。
+	Recent(ctx context.Context, userID, conversationID uint64, limit int) ([]Message, error)
+	// Before 按时间正序返回 ID 小于 beforeID 的最近 limit 条消息（beforeID 为 0 表示从最新开始）。
+	Before(ctx context.Context, userID, conversationID, beforeID uint64, limit int) ([]Message, error)
+}
+
+// MemoryFilter 是记忆列表的筛选条件。
+type MemoryFilter struct {
+	Type   string // 为空表示不限
+	Source string // 为空表示不限
+	Query  string // 内容关键字，为空表示不限
+}
+
+// EmbeddingRow 是检索时加载的向量行。
+type EmbeddingRow struct {
+	ID        uint64
+	Embedding []byte
+}
+
+// MemoryRepo 是记忆数据访问接口。所有面向用户的方法都必须带 userID，严格隔离。
+type MemoryRepo interface {
+	Create(ctx context.Context, m *Memory) error
+	Get(ctx context.Context, userID, id uint64) (*Memory, error)
+	GetMany(ctx context.Context, userID uint64, ids []uint64) ([]Memory, error)
+	List(ctx context.Context, userID uint64, f MemoryFilter, limit, offset int) ([]Memory, int64, error)
+	// LoadEmbeddings 加载该用户由指定模型生成的全部未删除记忆向量。
+	LoadEmbeddings(ctx context.Context, userID uint64, model string) ([]EmbeddingRow, error)
+	// TouchAccessed 更新被使用记忆的访问时间、次数，并增加 boost 的强度。
+	TouchAccessed(ctx context.Context, userID uint64, ids []uint64, boost float64, at time.Time) error
+	// Delete 清空记忆内容与向量并标记删除（不可恢复）。不存在时返回 ErrNotFound。
+	Delete(ctx context.Context, userID, id uint64) error
+	RecordUsage(ctx context.Context, usages []MemoryUsage) error
+
+	// ListForReembed 跨用户按 ID 升序列出 ID 大于 afterID、且向量不是由 model 生成的未删除记忆。
+	// onlyStale 为 false 时列出全部未删除记忆。供 buugoo reembed 使用。
+	ListForReembed(ctx context.Context, afterID uint64, model string, onlyStale bool, limit int) ([]Memory, error)
+	UpdateEmbedding(ctx context.Context, id uint64, embedding []byte, model string, dim int) error
+	// CountByModel 统计未删除记忆按向量模型的分布。
+	CountByModel(ctx context.Context) (map[string]int64, error)
+}
+
+// UsageRepo 是每日用量数据访问接口。
+type UsageRepo interface {
+	// Get 返回某天的用量，不存在时返回零值（不报错）。
+	Get(ctx context.Context, userID uint64, day string) (UsageDaily, error)
+	// Add 原子地累加某天的用量。
+	Add(ctx context.Context, userID uint64, day string, messages, promptTokens, completionTokens int) error
+}
+
+// JobRepo 是后台任务运行记录的数据访问接口。
+type JobRepo interface {
+	Start(ctx context.Context, name string, at time.Time) (*JobRun, error)
+	Finish(ctx context.Context, id uint64, status, errMsg string, at time.Time) error
+	// LastSucceeded 返回最近一次成功的运行，没有时返回 ErrNotFound。
+	LastSucceeded(ctx context.Context, name string) (*JobRun, error)
+}
+
+// MetaRepo 是全局键值对数据访问接口。
+type MetaRepo interface {
+	// Get 返回键对应的值；不存在时 ok 为 false。
+	Get(ctx context.Context, key string) (value string, ok bool, err error)
+	Set(ctx context.Context, key, value string) error
+}

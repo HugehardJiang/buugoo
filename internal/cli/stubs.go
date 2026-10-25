@@ -16,7 +16,6 @@ func newServeCmd(*globalOpts) *cobra.Command {
 	return stub("serve", "启动服务（含 Web 界面）")
 }
 func newChatCmd(*globalOpts) *cobra.Command      { return stub("chat", "终端聊天") }
-func newMigrateCmd(*globalOpts) *cobra.Command   { return stub("migrate", "执行数据库迁移") }
 func newUpdateCmd(*globalOpts) *cobra.Command    { return stub("update", "自更新") }
 func newUninstallCmd(*globalOpts) *cobra.Command { return stub("uninstall", "卸载") }
 func newReembedCmd(*globalOpts) *cobra.Command   { return stub("reembed", "重新计算记忆向量") }

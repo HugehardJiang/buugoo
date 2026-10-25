@@ -1,0 +1,183 @@
+// Package store 定义领域数据模型与数据访问接口（Repository），
+// 具体实现见 gormstore 子包，同时支持 MySQL 与 SQLite。
+package store
+
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
+
+// User 是用户。single 模式下只有一个 ID 为 OwnerID 的用户。
+type User struct {
+	ID           uint64 `gorm:"primaryKey"`
+	Username     string `gorm:"size:64;uniqueIndex;not null"`
+	PasswordHash string `gorm:"size:255;not null;default:''"`
+	DisplayName  string `gorm:"size:64;not null;default:''"`
+	IsAdmin      bool   `gorm:"not null;default:false"`
+	// TokenVersion 每次修改密码或"退出所有设备"时加一，使旧的 JWT 全部失效。
+	TokenVersion int     `gorm:"not null;default:0"`
+	InviteID     *uint64 `gorm:"index"`
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// OwnerID 是 single 模式下唯一用户的 ID。
+const OwnerID uint64 = 1
+
+// OwnerUsername 是 single 模式下唯一用户的用户名。
+const OwnerUsername = "owner"
+
+// Invite 是邀请码。
+type Invite struct {
+	ID        uint64     `gorm:"primaryKey"`
+	Code      string     `gorm:"size:32;uniqueIndex;not null"`
+	CreatedBy uint64     `gorm:"index;not null"`
+	MaxUses   int        `gorm:"not null;default:1"` // 0 表示不限次数
+	UsedCount int        `gorm:"not null;default:0"`
+	ExpiresAt *time.Time ``
+	Note      string     `gorm:"size:255;not null;default:''"`
+	CreatedAt time.Time
+}
+
+// Usable 报告邀请码在 now 时刻是否仍可使用。
+func (i *Invite) Usable(now time.Time) bool {
+	if i.ExpiresAt != nil && !now.Before(*i.ExpiresAt) {
+		return false
+	}
+	return i.MaxUses == 0 || i.UsedCount < i.MaxUses
+}
+
+// Conversation 是一段对话。第一阶段每个用户只有一条连续对话，表结构为多会话预留。
+type Conversation struct {
+	ID            uint64 `gorm:"primaryKey"`
+	UserID        uint64 `gorm:"index:idx_conv_user_last,priority:1;not null"`
+	Title         string `gorm:"size:255;not null;default:''"`
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	LastMessageAt *time.Time `gorm:"index:idx_conv_user_last,priority:2"`
+}
+
+// 消息角色。
+const (
+	RoleUser      = "user"
+	RoleAssistant = "assistant"
+	RoleSystem    = "system"
+)
+
+// 消息状态。
+const (
+	MessageComplete    = "complete"
+	MessageInterrupted = "interrupted" // 流式输出被客户端中断，保存了已生成部分
+	MessageError       = "error"
+)
+
+// Message 是对话中的一条消息。
+type Message struct {
+	ID               uint64 `gorm:"primaryKey"`
+	ConversationID   uint64 `gorm:"index:idx_msg_conv,priority:1;not null"`
+	UserID           uint64 `gorm:"index;not null"`
+	Role             string `gorm:"size:16;not null"`
+	Content          string `gorm:"size:65536;not null"`
+	Model            string `gorm:"size:128;not null;default:''"`
+	PromptTokens     int    `gorm:"not null;default:0"`
+	CompletionTokens int    `gorm:"not null;default:0"`
+	Status           string `gorm:"size:16;not null;default:'complete'"`
+	CreatedAt        time.Time
+}
+
+// 记忆类型。
+const (
+	MemoryEpisodic = "episodic" // 情景记忆：具体发生的事
+	MemorySemantic = "semantic" // 语义记忆：提炼出的事实
+)
+
+// 记忆来源。
+const (
+	SourceStated   = "stated"   // 用户亲口说的
+	SourceInferred = "inferred" // AI 推断的
+)
+
+// Memory 是一条记忆。
+//
+// 用户删除记忆时立即清空 Content 与 Embedding，只保留 ID、时间戳和删除标记，不可恢复。
+type Memory struct {
+	ID     uint64 `gorm:"primaryKey"`
+	UserID uint64 `gorm:"index:idx_mem_user_del,priority:1;index:idx_mem_user_type,priority:1;index:idx_mem_user_model,priority:1;not null"`
+	Type   string `gorm:"size:16;index:idx_mem_user_type,priority:2;not null"`
+	// Content 是记忆文本。
+	Content string `gorm:"size:65536;not null"`
+	// Embedding 是归一化后的 float32 小端序向量，见 vector.Encode。
+	Embedding      []byte `gorm:"size:65536"`
+	EmbeddingModel string `gorm:"size:128;index:idx_mem_user_model,priority:2;not null;default:''"`
+	EmbeddingDim   int    `gorm:"not null;default:0"`
+	// Importance 为 1-10，写入时由 LLM 打分。
+	Importance int `gorm:"not null;default:5"`
+	// Emotion 为情绪强度 0-1。
+	Emotion float64 `gorm:"not null;default:0"`
+	// Strength 是记忆强度（遗忘曲线中的 S），每次被检索使用时增强。
+	Strength float64 `gorm:"not null;default:1"`
+	// Source 区分用户亲口所说与 AI 推断，防止记忆失真。
+	Source          string  `gorm:"size:16;not null"`
+	SourceMessageID *uint64 `gorm:"index"`
+	ConversationID  *uint64 ``
+	// SupersededBy 指向更新后的记忆（第二阶段：记忆冲突更新）。
+	SupersededBy *uint64 `gorm:"index"`
+	// ConsolidatedAt 是最近一次被巩固的时间（第二阶段：每日巩固）。
+	ConsolidatedAt *time.Time ``
+	// Metadata 是扩展字段（JSON）。
+	Metadata       string `gorm:"size:65536;not null"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	LastAccessedAt *time.Time     ``
+	AccessCount    int            `gorm:"not null;default:0"`
+	DeletedAt      gorm.DeletedAt `gorm:"index:idx_mem_user_del,priority:2"`
+}
+
+// MemoryUsage 记录某条回复用到了哪些记忆，便于调试与后续巩固。
+type MemoryUsage struct {
+	ID        uint64  `gorm:"primaryKey"`
+	MessageID uint64  `gorm:"index;not null"`
+	MemoryID  uint64  `gorm:"index;not null"`
+	UserID    uint64  `gorm:"index;not null"`
+	Score     float64 `gorm:"not null;default:0"`
+	CreatedAt time.Time
+}
+
+// UsageDaily 是每个用户每天的用量，用于限额。Day 为配置时区下的 YYYY-MM-DD。
+type UsageDaily struct {
+	ID               uint64 `gorm:"primaryKey"`
+	UserID           uint64 `gorm:"uniqueIndex:idx_usage_user_day,priority:1;not null"`
+	Day              string `gorm:"size:10;uniqueIndex:idx_usage_user_day,priority:2;not null"`
+	Messages         int    `gorm:"not null;default:0"`
+	PromptTokens     int    `gorm:"not null;default:0"`
+	CompletionTokens int    `gorm:"not null;default:0"`
+	UpdatedAt        time.Time
+}
+
+// TotalTokens 返回当日总 token 数。
+func (u UsageDaily) TotalTokens() int { return u.PromptTokens + u.CompletionTokens }
+
+// 任务运行状态。
+const (
+	JobRunning   = "running"
+	JobSucceeded = "succeeded"
+	JobFailed    = "failed"
+)
+
+// JobRun 是一次后台任务运行记录。
+type JobRun struct {
+	ID         uint64    `gorm:"primaryKey"`
+	JobName    string    `gorm:"size:64;index:idx_job_name_start,priority:1;not null"`
+	StartedAt  time.Time `gorm:"index:idx_job_name_start,priority:2;not null"`
+	FinishedAt *time.Time
+	Status     string `gorm:"size:16;not null"`
+	Error      string `gorm:"size:4096;not null;default:''"`
+}
+
+// AppMeta 是全局键值对（实例 ID、上次检查更新时间等）。
+type AppMeta struct {
+	Key       string `gorm:"column:meta_key;primaryKey;size:64"`
+	Value     string `gorm:"size:4096;not null"`
+	UpdatedAt time.Time
+}
