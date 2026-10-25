@@ -19,4 +19,3 @@ func newChatCmd(*globalOpts) *cobra.Command      { return stub("chat", "终端�
 func newUpdateCmd(*globalOpts) *cobra.Command    { return stub("update", "自更新") }
 func newUninstallCmd(*globalOpts) *cobra.Command { return stub("uninstall", "卸载") }
 func newReembedCmd(*globalOpts) *cobra.Command   { return stub("reembed", "重新计算记忆向量") }
-func newAdminCmd(*globalOpts) *cobra.Command     { return stub("admin", "管理命令") }
