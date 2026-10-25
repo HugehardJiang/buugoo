@@ -19,6 +19,7 @@ import AttachmentList from '../components/AttachmentList.vue'
 import Modal from '../components/Modal.vue'
 import FatBird from '../components/FatBird.vue'
 import ToolSteps from '../components/ToolSteps.vue'
+import { splitBubbles } from '../bubbles'
 import { dayKey, dayLabel, formatSize, renderMarkdown, shortWhen, timeOf } from '../format'
 import { memoriesUnlocked } from '../memoryLock'
 import Collapse from '../components/Collapse.vue'
@@ -634,7 +635,14 @@ onMounted(loadInitial)
               </div>
               <ToolSteps v-if="row.item.tools?.length" :steps="row.item.tools" />
               <AttachmentList v-if="row.item.attachments?.length" :items="row.item.attachments" align="end" />
-              <div v-if="row.item.role === 'assistant'" class="md body" v-html="renderMarkdown(row.item.content)" />
+              <div v-if="row.item.role === 'assistant'" class="bubbles">
+                <div
+                  v-for="(b, i) in row.item.content ? splitBubbles(row.item.content) : []"
+                  :key="i"
+                  class="bubble bubble--bot md"
+                  v-html="renderMarkdown(b)"
+                />
+              </div>
               <div v-else-if="row.item.content" class="bubble">{{ row.item.content }}</div>
               <AttachmentList v-if="toolImages(row.item).length" :items="toolImages(row.item)" size="large" />
               <FatBird
@@ -876,10 +884,21 @@ onMounted(loadInitial)
 .msg.user { align-items: flex-end; }
 .msg.user :deep(.att-list) { margin-bottom: 6px; }
 .bubble {
-  max-width: min(560px, 86%); padding: 10px 14px; border-radius: var(--radius-lg); background: var(--color-canvas-soft);
-  color: var(--color-ink); font-size: 16px; line-height: 1.65; white-space: pre-wrap; word-break: break-word;
+  max-width: min(560px, 86%); padding: 9px 14px; border-radius: 16px 16px 4px 16px; background: var(--color-accent-tint);
+  color: var(--color-ink); font-size: 16px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
 }
-.body { max-width: 640px; color: var(--color-ink); font-size: 16px; line-height: 1.75; word-break: break-word; }
+/* 助手的回复像微信一样拆成几条气泡，一条条冒出来 */
+.bubbles { display: grid; gap: 6px; justify-items: start; max-width: min(640px, 92%); }
+.bubbles:empty { display: none; }
+.bubble--bot {
+  max-width: 100%; min-width: 0; border: 1px solid var(--color-divider); border-radius: 4px 16px 16px 16px; background: var(--color-surface);
+  white-space: normal;
+}
+.bubble--bot + .bubble--bot { border-top-left-radius: 16px; }
+.bubble--bot :deep(pre) { max-width: 100%; }
+.bubble--bot :deep(.math-display) { max-width: 100%; }
+.is-fresh .bubble--bot { animation: bubble-in 320ms var(--ease-editorial) both; transform-origin: left top; }
+@keyframes bubble-in { from { opacity: 0; transform: translateY(6px) scale(.96); } }
 .thinking { max-width: 640px; margin-bottom: 8px; }
 .thinking__toggle {
   display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 8px 0 4px; margin-left: -4px;
