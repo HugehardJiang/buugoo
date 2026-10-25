@@ -21,19 +21,22 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/persona"
 	"github.com/HugehardJiang/buugoo/internal/prompt"
 	"github.com/HugehardJiang/buugoo/internal/quota"
+	"github.com/HugehardJiang/buugoo/internal/scheduler"
 	"github.com/HugehardJiang/buugoo/internal/store/gormstore"
 	"github.com/HugehardJiang/buugoo/internal/vector/memstore"
 )
 
 // App 持有所有组件。
 type App struct {
-	Config  *config.Config
-	Log     *slog.Logger
-	DB      *gormstore.DB
-	Auth    *auth.Service
-	Chat    *chat.Service
-	Writer  *memory.Writer
-	Handler http.Handler
+	Config *config.Config
+	Log    *slog.Logger
+	DB     *gormstore.DB
+	Auth   *auth.Service
+	Chat   *chat.Service
+	Writer *memory.Writer
+	// Scheduler 为空表示配置中关闭了定时任务。
+	Scheduler *scheduler.Scheduler
+	Handler   http.Handler
 
 	// UpdateCheck 在服务启动后于后台执行（检查新版本），可为空。
 	UpdateCheck func(ctx context.Context)
@@ -100,7 +103,15 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 		Quota: limiter, PersonaName: p.Name, Logger: log,
 		LLMReady: func() (bool, bool) { return cfg.LLM.Chat.APIKey != "", cfg.LLM.Embedding.APIKey != "" },
 	})
-	return &App{Config: cfg, Log: log, DB: db, Auth: authSvc, Chat: chatSvc, Writer: writer, Handler: handler}, nil
+	a := &App{Config: cfg, Log: log, DB: db, Auth: authSvc, Chat: chatSvc, Writer: writer, Handler: handler}
+	if cfg.Scheduler.Enabled {
+		a.Scheduler = scheduler.New(db.Jobs(), loc, log)
+		// 第二阶段在此注入 Consolidator 实现。
+		if err := a.Scheduler.Register(memory.NewConsolidationJob(cfg.Scheduler.ConsolidationSpec, nil, log)); err != nil {
+			return nil, err
+		}
+	}
+	return a, nil
 }
 
 // Run 启动后台组件与 HTTP 服务，阻塞直到 ctx 取消，然后优雅关闭。
@@ -111,6 +122,9 @@ func (a *App) Run(ctx context.Context) error {
 	bgCtx, cancelBg := context.WithCancel(ctx)
 	defer cancelBg()
 	a.Writer.Start(bgCtx)
+	if a.Scheduler != nil {
+		a.Scheduler.Start(bgCtx)
+	}
 	if a.OnStart != nil {
 		if err := a.OnStart(bgCtx, a); err != nil {
 			return err
@@ -152,6 +166,11 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		errs = append(errs, fmt.Errorf("关闭 HTTP 服务: %w", err))
+	}
+	if a.Scheduler != nil {
+		if err := a.Scheduler.Stop(shutdownCtx); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	cancelBg()
 	if err := a.Writer.Close(shutdownCtx); err != nil {
