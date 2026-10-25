@@ -1,12 +1,15 @@
-# 从源码构建 Buugoo 镜像：docker build -f deploy/Dockerfile -t buugoo .
-# 发布流程中 GoReleaser 使用 deploy/Dockerfile.release（直接复制已编译的二进制）。
+# Buugoo 镜像（多架构）。本地构建：
+#   docker build -f deploy/Dockerfile -t buugoo .
+# 多架构（发布流程使用）：
+#   docker buildx build --platform linux/amd64,linux/arm64 -f deploy/Dockerfile -t ghcr.io/hugehardjiang/buugoo .
+#
+# 构建阶段运行在构建机自身的架构上（--platform=$BUILDPLATFORM），由 Go 交叉编译到目标架构，
+# 不需要 QEMU 模拟，速度快。
 #
 # 国内网络可指定镜像源：
-#   docker build -f deploy/Dockerfile \
-#     --build-arg GOPROXY=https://goproxy.cn,direct \
-#     --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t buugoo .
+#   --build-arg GOPROXY=https://goproxy.cn,direct --build-arg NPM_REGISTRY=https://registry.npmmirror.com
 
-FROM node:22-alpine AS web
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 ARG NPM_REGISTRY=https://registry.npmjs.org
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
@@ -14,7 +17,9 @@ RUN npm ci --no-audit --no-fund --registry "${NPM_REGISTRY}"
 COPY web/ ./
 RUN npm run build
 
-FROM golang:1.27.3-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS build
+ARG TARGETOS
+ARG TARGETARCH
 ARG VERSION=dev
 ARG COMMIT=none
 ARG GOPROXY=https://proxy.golang.org,direct
@@ -24,7 +29,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=web /src/web/dist/ ./internal/web/dist/
-RUN CGO_ENABLED=0 go build -trimpath \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
       -ldflags "-s -w -X github.com/HugehardJiang/buugoo/internal/buildinfo.Version=${VERSION} -X github.com/HugehardJiang/buugoo/internal/buildinfo.Commit=${COMMIT} -X github.com/HugehardJiang/buugoo/internal/buildinfo.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       -o /out/buugoo ./cmd/buugoo
 

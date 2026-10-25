@@ -1,0 +1,65 @@
+# GoReleaser 配置：打 tag（v*）后由 .github/workflows/release.yml 调用。
+# 本地试跑：goreleaser release --snapshot --clean
+version: 2
+
+project_name: buugoo
+
+before:
+  hooks:
+    # 构建前端并复制到 internal/web/dist，供 go:embed 打包。
+    - make web
+
+builds:
+  - id: buugoo
+    main: ./cmd/buugoo
+    binary: buugoo
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/HugehardJiang/buugoo/internal/buildinfo.Version=v{{ .Version }}
+      - -X github.com/HugehardJiang/buugoo/internal/buildinfo.Commit={{ .ShortCommit }}
+      - -X github.com/HugehardJiang/buugoo/internal/buildinfo.Date={{ .Date }}
+    targets:
+      - linux_amd64
+      - linux_arm64
+      - darwin_amd64
+      - darwin_arm64
+      - windows_amd64
+
+archives:
+  - id: default
+    # 安装脚本与 buugoo update 依赖这个命名，修改时需同步 scripts/install.* 与 internal/selfupdate。
+    name_template: "buugoo_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+release:
+  github:
+    owner: HugehardJiang
+    name: buugoo
+  # 安装/卸载脚本随版本一起发布，方便镜像站同步。
+  extra_files:
+    - glob: scripts/install.sh
+    - glob: scripts/install.ps1
+    - glob: scripts/uninstall.sh
+    - glob: scripts/uninstall.ps1
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^style:"

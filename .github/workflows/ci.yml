@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go 检查与单元测试（SQLite）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - run: go vet ./...
+      - run: go test -race ./...
+
+  mysql:
+    name: 数据库测试（MySQL 8.4）
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: buugoo-test
+          MYSQL_DATABASE: buugoo_test
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pbuugoo-test"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: go test（store / app）
+        env:
+          BUUGOO_TEST_MYSQL_DSN: root:buugoo-test@tcp(127.0.0.1:3306)/buugoo_test
+        run: go test -p 1 -count=1 ./internal/store/... ./internal/app/...
+
+  web:
+    name: 前端类型检查与构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+
+  docker:
+    name: Docker 镜像构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: false
+          load: true
+          tags: buugoo:ci
+      - name: 冒烟测试
+        run: |
+          docker run -d --name buugoo -p 18080:8080 buugoo:ci
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:18080/healthz && break; sleep 1; done
+          curl -fsS http://127.0.0.1:18080/api/v1/meta
+          docker logs buugoo
+
+  lifecycle:
+    name: 安装 / 更新 / 回滚 / 卸载（systemd 容器）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: ./tests/e2e/lifecycle/run.sh
+
+  windows-install:
+    name: Windows 安装脚本
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: 生成测试发布包
+        shell: bash
+        env:
+          E2E_GOOS: windows
+          E2E_GOARCH: amd64
+        run: |
+          ./tests/e2e/lifecycle/make-release.sh v0.0.1 mirror
+          ./tests/e2e/lifecycle/make-release.sh v0.0.2 mirror
+          echo v0.0.2 > mirror/latest
+      - name: 启动镜像站
+        shell: pwsh
+        run: Start-Process -FilePath python -ArgumentList "-m","http.server","9000","--directory","mirror" -WindowStyle Hidden; Start-Sleep 2
+      - name: 运行测试
+        shell: pwsh
+        run: ./tests/e2e/lifecycle/windows.ps1
