@@ -1,9 +1,10 @@
 <script setup lang="ts">
-// 消息中的附件：图片显示缩略图（点击查看原图），文档显示文件名（点击下载）。
+// 消息中的附件：图片显示缩略图（点击放大查看），文档显示文件名（点击下载）；已删除的显示占位。
 // size 为 large 时按原比例显示大图（用于代码生成的图表）。
-// 附件需要带登录令牌读取，所以先取回 Blob 再生成本地地址。
 import { ref, watch } from 'vue'
-import { api, type Attachment } from '../api'
+import { type Attachment } from '../api'
+import { blobURL, download as save } from '../blobs'
+import { openLightbox } from '../lightbox'
 import { formatSize } from '../format'
 import Icon from '../Icon.vue'
 import { toast } from '../toast'
@@ -12,24 +13,12 @@ const props = defineProps<{ items: Attachment[]; align?: 'end' | 'start'; size?:
 
 const urls = ref<Record<number, string>>({})
 
-// 同一张图片在页面中只取一次。
-const cache = new Map<number, Promise<string>>()
-function blobURL(id: number): Promise<string> {
-  let p = cache.get(id)
-  if (!p) {
-    p = api.fetchUpload(id).then((b) => URL.createObjectURL(b))
-    cache.set(id, p)
-    p.catch(() => cache.delete(id))
-  }
-  return p
-}
-
 // 生成回复的过程中可能陆续加入新图片。
 watch(
   () => props.items.map((a) => a.id).join(','),
   () => {
     for (const a of props.items) {
-      if (a.kind === 'image' && !urls.value[a.id]) {
+      if (a.kind === 'image' && !a.deleted && !urls.value[a.id]) {
         blobURL(a.id).then((u) => (urls.value = { ...urls.value, [a.id]: u })).catch(() => {})
       }
     }
@@ -37,21 +26,13 @@ watch(
   { immediate: true },
 )
 
-async function openImage(a: Attachment) {
-  try {
-    window.open(await blobURL(a.id), '_blank', 'noopener')
-  } catch {
-    toast('图片打不开了')
-  }
+function openImage(a: Attachment) {
+  openLightbox(a.id, a.filename)
 }
 
 async function download(a: Attachment) {
   try {
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(await api.fetchUpload(a.id))
-    link.download = a.filename
-    link.click()
-    setTimeout(() => URL.revokeObjectURL(link.href), 10000)
+    await save(a.id, a.filename)
   } catch {
     toast('文件下载失败')
   }
@@ -61,7 +42,12 @@ async function download(a: Attachment) {
 <template>
   <div class="att-list" :class="{ 'att-list--end': align === 'end', 'att-list--large': size === 'large' }">
     <template v-for="a in items" :key="a.id">
-      <button v-if="a.kind === 'image'" type="button" class="att-image" :title="a.filename" @click="openImage(a)">
+      <span v-if="a.deleted" class="att-gone" :title="`${a.filename}（已在文件管理中删除）`">
+        <Icon :name="a.kind === 'image' ? 'image' : 'file'" :size="16" />
+        <span class="att-gone__text">{{ a.kind === 'image' ? '图片已删除' : '文件已删除' }}</span>
+        <span class="att-gone__name">{{ a.filename }}</span>
+      </span>
+      <button v-else-if="a.kind === 'image'" type="button" class="att-image" :class="{ 'is-loading': !urls[a.id] }" :title="a.filename" @click="openImage(a)">
         <img v-if="urls[a.id]" :src="urls[a.id]" :alt="a.filename" />
       </button>
       <button v-else type="button" class="att-file" :title="`下载 ${a.filename}`" @click="download(a)">
@@ -81,10 +67,18 @@ async function download(a: Attachment) {
   transition: transform var(--motion-fast) var(--ease-editorial);
 }
 .att-image:active { transform: scale(.982); }
-.att-image img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.att-image img { display: block; width: 100%; height: 100%; object-fit: cover; animation: img-in 260ms ease; }
+.att-image.is-loading { background: linear-gradient(90deg, var(--color-canvas-soft) 0%, var(--color-surface-hover) 40%, var(--color-canvas-soft) 80%); background-size: 200% 100%; animation: shimmer 1.3s infinite linear; }
+@keyframes img-in { from { opacity: 0; } }
+.att-gone {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 280px; min-height: 36px; padding: 6px 12px;
+  border: 1px dashed var(--color-hairline-strong); border-radius: var(--radius-lg); color: var(--color-muted); font-size: 12px;
+}
+.att-gone__text { flex-shrink: 0; }
+.att-gone__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-tertiary); text-decoration: line-through; }
 .att-list--large { max-width: 640px; margin: 4px 0 8px; }
 .att-list--large .att-image {
-  width: auto; height: auto; max-width: 100%; min-height: 80px; border: 1px solid var(--color-divider); background: #fff;
+  width: auto; height: auto; max-width: 100%; min-width: 200px; min-height: 120px; border: 1px solid var(--color-divider); background: #fff;
 }
 .att-list--large .att-image img { width: auto; height: auto; max-width: 100%; max-height: 480px; object-fit: contain; }
 .att-file {

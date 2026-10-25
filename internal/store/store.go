@@ -54,8 +54,16 @@ type AttachmentRepo interface {
 	ListByConversation(ctx context.Context, userID, conversationID uint64) ([]Attachment, error)
 	// ListStale 返回 before 之前上传、一直没有发送的附件（所有用户）。
 	ListStale(ctx context.Context, before time.Time, limit int) ([]Attachment, error)
-	// TotalSize 返回用户所有附件的总字节数。
+	// TotalSize 返回用户所有附件（不含已删除的）的总字节数。
 	TotalSize(ctx context.Context, userID uint64) (int64, error)
+	// ListFiles 按上传时间倒序列出用户已经发送的、没有删除的附件（文件管理），并返回总数。kind 为空时不限类型。
+	ListFiles(ctx context.Context, userID uint64, kind string, limit, offset int) ([]Attachment, int64, error)
+	// ListBefore 返回用户在 before 之前上传、没有删除的全部附件。
+	ListBefore(ctx context.Context, userID uint64, before time.Time) ([]Attachment, error)
+	// ListByIDs 返回 ids 中属于该用户、没有删除的附件。
+	ListByIDs(ctx context.Context, userID uint64, ids []uint64) ([]Attachment, error)
+	// MarkDeleted 把附件标记为已删除，并清掉提取的文字（看图描述保留，供对话上下文使用）。
+	MarkDeleted(ctx context.Context, userID uint64, ids []uint64, at time.Time) error
 	SetDescription(ctx context.Context, id uint64, desc string) error
 	// Delete 删除附件记录（文件由调用方删除）。
 	Delete(ctx context.Context, ids []uint64) error
@@ -89,6 +97,8 @@ type UserRepo interface {
 	// BumpTokenVersion 使该用户的全部令牌失效。
 	BumpTokenVersion(ctx context.Context, id uint64) error
 	SetAdmin(ctx context.Context, id uint64, admin bool) error
+	// SetPersonaPreset 设置用户选的预设性格（空为默认）。
+	SetPersonaPreset(ctx context.Context, id uint64, preset string) error
 }
 
 // InviteRepo 是邀请码数据访问接口。

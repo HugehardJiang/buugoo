@@ -52,6 +52,9 @@ func (s *server) getUpload(c echo.Context) error {
 	if err != nil {
 		return err
 	}
+	if a.DeletedAt != nil {
+		return &apiError{Status: http.StatusNotFound, Code: "file_deleted", Message: "文件已删除"}
+	}
 	f, err := s.Uploads.Open(a)
 	if err != nil {
 		return echo.ErrNotFound

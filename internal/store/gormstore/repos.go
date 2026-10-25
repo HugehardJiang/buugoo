@@ -78,6 +78,10 @@ func (r userRepo) SetAdmin(ctx context.Context, id uint64, admin bool) error {
 	return r.update(ctx, id, map[string]any{"is_admin": admin})
 }
 
+func (r userRepo) SetPersonaPreset(ctx context.Context, id uint64, preset string) error {
+	return r.update(ctx, id, map[string]any{"persona_preset": preset})
+}
+
 func (r userRepo) update(ctx context.Context, id uint64, values map[string]any) error {
 	res := r.db.WithContext(ctx).Model(&store.User{}).Where("id = ?", id).Updates(values)
 	if res.Error != nil {

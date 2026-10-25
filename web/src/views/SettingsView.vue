@@ -5,6 +5,7 @@ import { api, ApiError, type Invite, type Quota } from '../api'
 import EmbeddingPanel from '../components/EmbeddingPanel.vue'
 import Modal from '../components/Modal.vue'
 import ModelsPanel from '../components/ModelsPanel.vue'
+import PersonaPanel from '../components/PersonaPanel.vue'
 import { dateTime } from '../format'
 import { memoriesUnlocked, setMemoriesUnlocked } from '../memoryLock'
 import { applySession, logout, session } from '../session'
@@ -148,18 +149,7 @@ onMounted(async () => {
         <p v-if="error" class="form-flash form-flash--error">{{ error }}</p>
         <p v-if="message" class="form-flash">{{ message }}</p>
 
-        <section class="panel panel--inset">
-          <h2>账号</h2>
-          <div v-if="isMulti" class="row-line">
-            <span>{{ session.user?.username }}</span>
-            <span v-if="isAdmin" class="badge-pill">管理员</span>
-          </div>
-          <p v-else class="muted">自部署单用户模式，数据只保存在你自己的服务器上。</p>
-          <div v-if="canLogout" class="actions">
-            <button class="btn" @click="signOut">退出登录</button>
-            <button class="btn btn-ghost" @click="signOutAll">退出所有设备</button>
-          </div>
-        </section>
+        <PersonaPanel />
 
         <ModelsPanel />
 
@@ -197,6 +187,19 @@ onMounted(async () => {
             </div>
           </dl>
           <p class="caption">按 {{ quota.day }} 统计<template v-if="!quota.messages_limit && !quota.tokens_limit">，当前不限量</template><template v-else-if="quota.exempt">，管理员不受限额限制</template>。</p>
+        </section>
+
+        <section class="panel panel--inset">
+          <h2>账号</h2>
+          <div v-if="isMulti" class="row-line">
+            <span>{{ session.user?.username }}</span>
+            <span v-if="isAdmin" class="badge-pill">管理员</span>
+          </div>
+          <p v-else class="muted">自部署单用户模式，数据只保存在你自己的服务器上。</p>
+          <div v-if="canLogout" class="actions">
+            <button class="btn" @click="signOut">退出登录</button>
+            <button class="btn btn-ghost" @click="signOutAll">退出所有设备</button>
+          </div>
         </section>
 
         <section v-if="isMulti" class="panel panel--inset">
@@ -258,7 +261,7 @@ onMounted(async () => {
         <p class="caption version">BUUGOO {{ session.meta?.version }}</p>
 
         <Modal
-          v-if="peeking"
+          :open="peeking"
           title="要看看大脑皮层吗？"
           :subtitle="`${name}记得的事和此刻的心情，就像朋友藏在心里的东西。看了会少一点惊喜，确定要看吗？`"
           @close="peeking = false"

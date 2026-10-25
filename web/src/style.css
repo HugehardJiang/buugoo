@@ -99,13 +99,43 @@ select.text-input { appearance: auto; }
 .panel--inset { padding: var(--surface-inset-md); }
 .panel + .panel { margin-top: 20px; }
 .panel h2 { font-size: 24px; line-height: 1.3; margin: 0 0 14px; }
-.toast-stack { position: fixed; right: 18px; bottom: 18px; z-index: 50; display: grid; gap: 8px; }
+.toast-stack { position: fixed; top: calc(var(--topbar-height) + 12px); right: 18px; z-index: 50; display: grid; gap: 8px; justify-items: end; pointer-events: none; }
 .toast {
   max-width: 360px; padding: 12px 14px; border: 1px solid var(--color-divider); border-radius: var(--radius-lg);
   background: var(--color-surface); color: var(--color-ink); box-shadow: var(--shadow-float); font-size: 13px; line-height: 1.5;
-  animation: toast-in 220ms var(--ease-editorial);
+  pointer-events: auto;
 }
+.toast-enter-active, .toast-move { transition: transform 260ms var(--ease-editorial), opacity 220ms ease; }
+.toast-leave-active { position: absolute; right: 0; top: 0; transition: opacity 180ms ease, transform 180ms ease; }
+.toast-enter-from { opacity: 0; transform: translateY(-8px) scale(.98); }
+.toast-leave-to { opacity: 0; transform: translateX(12px); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+@media (max-width: 767px) {
+  .toast-stack { top: calc(64px + 8px); left: 16px; right: 16px; justify-items: stretch; }
+  .toast { max-width: none; }
+}
+
+/* 弹出层（模型选择等）：从锚点方向轻微放大出现 */
+.pop-enter-active { transition: opacity 160ms ease, transform 200ms var(--ease-editorial); }
+.pop-leave-active { transition: opacity 120ms ease, transform 120ms ease; }
+.pop-enter-from, .pop-leave-to { opacity: 0; transform: translateY(6px) scale(.97); }
+.fade-enter-active, .fade-leave-active { transition: opacity 200ms ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+
+/* 列表项增删 */
+.list-enter-active { transition: opacity 240ms ease, transform 260ms var(--ease-editorial); }
+.list-leave-active { transition: opacity 180ms ease, transform 200ms ease; }
+.list-move { transition: transform 280ms var(--ease-editorial); }
+.list-enter-from { opacity: 0; transform: translateY(-6px); }
+.list-leave-to { opacity: 0; transform: scale(.96); }
+
+/* 骨架屏 */
+.skeleton {
+  border-radius: var(--radius-md);
+  background: linear-gradient(90deg, var(--color-canvas-soft) 0%, var(--color-surface-hover) 40%, var(--color-canvas-soft) 80%);
+  background-size: 200% 100%; animation: shimmer 1.3s infinite linear;
+}
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 .form-flash {
   margin: 0 0 14px; padding: 12px 14px; border: 1px solid var(--color-divider); border-radius: var(--radius-lg);
   background: var(--color-surface); font-size: 13px; line-height: 1.5;
@@ -118,12 +148,11 @@ select.text-input { appearance: auto; }
 /* Modal（设计系统 Modal） */
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; padding: 24px;
-  background: var(--color-backdrop); backdrop-filter: blur(2px); animation: backdrop-in 170ms ease;
+  background: var(--color-backdrop); backdrop-filter: blur(2px);
 }
 .modal {
   width: min(620px, 100%); max-height: calc(100dvh - 48px); overflow: auto; border: 1px solid var(--color-divider);
   border-radius: var(--radius-xl); background: var(--color-surface); box-shadow: var(--shadow-modal); color: var(--color-ink);
-  animation: modal-in 230ms var(--ease-editorial);
 }
 .modal--wide { width: min(1080px, 100%); }
 .modal__header {
@@ -134,9 +163,15 @@ select.text-input { appearance: auto; }
 .modal__subtitle { max-width: 680px; margin: 8px 0 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; }
 .modal__body { padding: 26px 30px 30px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
-@keyframes backdrop-in { from { opacity: 0; } }
-@keyframes modal-in { from { opacity: 0; transform: translateY(10px) scale(.992); } }
+/* 打开与关闭的过渡（Modal 组件内的 <Transition name="modal">） */
+.modal-enter-active, .modal-leave-active { transition: opacity 200ms ease; }
+.modal-enter-active .modal, .modal-leave-active .modal { transition: transform 260ms var(--ease-editorial), opacity 200ms ease; }
+.modal-leave-active { transition-duration: 160ms; }
+.modal-leave-active .modal { transition-duration: 160ms; }
+.modal-enter-from, .modal-leave-to { opacity: 0; }
+.modal-enter-from .modal, .modal-leave-to .modal { opacity: 0; transform: translateY(12px) scale(.985); }
 @media (max-width: 767px) {
+  .modal-enter-from .modal, .modal-leave-to .modal { transform: translateY(40%); opacity: 1; }
   .modal-backdrop { align-items: flex-end; padding: 0; }
   .modal { width: 100%; max-height: 92dvh; border-radius: 20px 20px 0 0; padding-bottom: env(safe-area-inset-bottom); }
   .modal__header { padding: 22px var(--mobile-gutter) 16px; }

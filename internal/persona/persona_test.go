@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -87,5 +88,37 @@ func TestManager(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, WebFile)); !os.IsNotExist(err) {
 		t.Fatal("恢复后应删除网页保存的人格")
+	}
+}
+
+func TestPresets(t *testing.T) {
+	list := Presets()
+	if len(list) != 4 {
+		t.Fatalf("presets=%d", len(list))
+	}
+	base, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range list {
+		got := p.Apply(base)
+		if got.Name != base.Name || !strings.Contains(got.Identity, base.Name) || strings.Contains(got.Identity, "{name}") {
+			t.Fatalf("%s: 名字应来自人格档案: %q", p.ID, got.Identity)
+		}
+		if !slices.Equal(got.Principles, base.Principles) || !slices.Equal(got.Values, base.Values) {
+			t.Fatalf("%s: 原则和价值观不应改变", p.ID)
+		}
+		if err := got.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if Find("snarky", nil) == nil || Find("snarky", []string{"snarky"}) != nil || Find("nope", nil) != nil || Find("", nil) != nil {
+		t.Fatal("Find")
+	}
+	if len(Available([]string{"gentle", "bubbly"})) != 2 {
+		t.Fatal("Available")
+	}
+	if _, err := parsePresets([]byte("- id: a\n  label: x\n")); err == nil {
+		t.Fatal("缺少字段应报错")
 	}
 }

@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import Icon from './Icon.vue'
+import Lightbox from './components/Lightbox.vue'
 import { memoriesUnlocked } from './memoryLock'
 import { needsLogin, session } from './session'
 import { toasts } from './toast'
@@ -16,6 +17,7 @@ const name = computed(() => session.meta?.name ?? '布谷')
 const items = computed(() => [
   { to: '/', route: 'chat', label: '聊天', icon: 'message' as const },
   ...(memoriesUnlocked.value ? [{ to: '/memories', route: 'memories', label: '大脑皮层', icon: 'brain' as const }] : []),
+  ...(session.meta?.uploads ? [{ to: '/files', route: 'files', label: '文件', icon: 'folder' as const }] : []),
   { to: '/settings', route: 'settings', label: '设置', icon: 'settings' as const },
 ])
 </script>
@@ -49,9 +51,10 @@ const items = computed(() => [
   </div>
   <RouterView v-else />
 
-  <div class="toast-stack" aria-live="polite">
+  <Lightbox />
+  <TransitionGroup tag="div" name="toast" class="toast-stack" aria-live="polite">
     <div v-for="t in toasts" :key="t.id" class="toast">{{ t.text }}</div>
-  </div>
+  </TransitionGroup>
 </template>
 
 <style scoped>

@@ -131,6 +131,8 @@ func New(d Deps) http.Handler {
 	priv.POST("/auth/logout-all", s.logoutAll)
 	priv.POST("/auth/password", s.changePassword)
 	priv.GET("/me", s.me)
+	priv.GET("/persona/presets", s.listPresets)
+	priv.PUT("/persona/preset", s.setPreset)
 	priv.GET("/conversations", s.listConversations)
 	priv.POST("/conversations", s.createConversation)
 	priv.PATCH("/conversations/:id", s.updateConversation)
@@ -158,6 +160,9 @@ func New(d Deps) http.Handler {
 		e.POST("/api/v1/uploads", s.uploadFile, middleware.BodyLimit(limit), s.requireUser)
 		priv.GET("/uploads/:id", s.getUpload)
 		priv.DELETE("/uploads/:id", s.deleteUpload)
+		priv.GET("/files", s.listFiles)
+		priv.GET("/files/usage", s.usage)
+		priv.POST("/files/delete", s.deleteFiles)
 	}
 
 	admin := priv.Group("/admin", s.requireAdmin)
@@ -285,11 +290,14 @@ func toAPIError(err error) *apiError {
 	var ue *uploads.UserError
 	switch {
 	case errors.As(err, &ue):
-		status := http.StatusBadRequest
-		if errors.Is(err, uploads.ErrTooLarge) || errors.Is(err, uploads.ErrQuota) {
+		status, code := http.StatusBadRequest, "invalid_file"
+		switch {
+		case errors.Is(err, uploads.ErrQuota):
+			status, code = http.StatusRequestEntityTooLarge, "quota_exceeded"
+		case errors.Is(err, uploads.ErrTooLarge):
 			status = http.StatusRequestEntityTooLarge
 		}
-		return &apiError{Status: status, Code: "invalid_file", Message: ue.Msg}
+		return &apiError{Status: status, Code: code, Message: ue.Msg}
 	case errors.Is(err, chat.ErrAttachmentNotFound), errors.Is(err, chat.ErrTooManyFiles),
 		errors.Is(err, chat.ErrUploadsDisabled), errors.Is(err, chat.ErrImagesUnsupported):
 		return &apiError{Status: http.StatusBadRequest, Code: "invalid_attachment", Message: err.Error()}

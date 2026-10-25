@@ -13,3 +13,8 @@ var ConfigTemplate string
 //
 //go:embed persona.default.yaml
 var DefaultPersona []byte
+
+// PersonaPresets 是用户可以选的预设性格。
+//
+//go:embed persona.presets.yaml
+var PersonaPresets []byte

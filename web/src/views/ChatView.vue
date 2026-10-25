@@ -6,6 +6,8 @@ import {
   ApiError,
   sendChat,
   type Attachment,
+  type PersonaPreset,
+  type Usage,
   type Conversation,
   type Message,
   type ModelView,
@@ -19,6 +21,7 @@ import FatBird from '../components/FatBird.vue'
 import ToolSteps from '../components/ToolSteps.vue'
 import { dayKey, dayLabel, formatSize, renderMarkdown, shortWhen, timeOf } from '../format'
 import { memoriesUnlocked } from '../memoryLock'
+import Collapse from '../components/Collapse.vue'
 import { session } from '../session'
 import { toast } from '../toast'
 
@@ -26,6 +29,10 @@ interface Item extends Message {
   memories?: UsedMemory[]
   streaming?: boolean
   error?: string
+  // key 是本页面内稳定的标识：新消息先用临时 ID，保存后 id 会变，key 不变，避免重新渲染造成闪动。
+  key?: number
+  // fresh 表示本次新发出的消息，出现时带入场动画。
+  fresh?: boolean
 }
 
 // Pending 是输入框中待发送的文件：选择后立即上传，发送消息时带上已上传的 ID。
@@ -68,9 +75,14 @@ const pending = ref<Pending[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 const dragging = ref(false)
 let pendingSeq = 0
+const usage = ref<Usage | null>(null)
+const persona = ref<PersonaPreset | null>(null)
+const showJump = ref(false)
 const accept = 'image/jpeg,image/png,image/gif,image/webp,.pdf,.docx,.txt,.md,.markdown,.csv,.tsv,.json,.yaml,.yml,.xml,.html,.log,.py,.js,.ts,.go,.java,.c,.cpp,.h,.rs,.sh,.sql'
 const uploading = computed(() => pending.value.some((p) => p.status === 'uploading'))
 const readyFiles = computed(() => pending.value.filter((p) => p.status === 'done'))
+// 文件空间用满后不能再上传任何文件。
+const uploadBlocked = computed(() => !!usage.value?.full)
 const canSend = computed(() => !!current.value && !uploading.value && (!!input.value.trim() || readyFiles.value.length > 0))
 
 const name = computed(() => session.meta?.name ?? '布谷')
@@ -141,15 +153,40 @@ function nearBottom(): boolean {
   return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 120
 }
 
-async function scrollToBottom(force = false) {
+async function scrollToBottom(force = false, smooth = false) {
   if (!force && !nearBottom()) return
   await nextTick()
   const el = scroller.value
-  if (el) el.scrollTop = el.scrollHeight
+  if (!el) return
+  if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  else el.scrollTop = el.scrollHeight
+}
+
+// 往上翻看时出现「回到最新」按钮。
+function onScroll() {
+  showJump.value = !nearBottom()
+}
+
+function uid(it: Item) {
+  return it.key ?? it.id
+}
+
+async function refreshUsage() {
+  if (!session.meta?.uploads) return
+  try {
+    usage.value = await api.usage()
+  } catch {
+    // 用量只用于提示，读取失败不影响聊天。
+  }
 }
 
 async function loadSide() {
   const [c, m, me] = await Promise.all([api.conversations(), api.models(), api.me()])
+  refreshUsage()
+  api
+    .presets()
+    .then((r) => (persona.value = r.presets.find((p) => p.id === r.current) ?? null))
+    .catch(() => {})
   convs.value = c.conversations
   models.value = m.models
   hasModel.value = me.has_model
@@ -321,6 +358,10 @@ async function addFiles(files: FileList | File[]) {
     toast('当前服务不支持上传文件')
     return
   }
+  if (uploadBlocked.value) {
+    toast('文件空间已经用满，去「文件」里删除一些不需要的文件后才能上传')
+    return
+  }
   for (const file of Array.from(files)) {
     if (pending.value.length >= maxFiles()) {
       toast(`一条消息最多带 ${maxFiles()} 个文件`)
@@ -344,6 +385,7 @@ async function addFiles(files: FileList | File[]) {
       p.status = 'error'
       p.error = errText(e, '上传失败')
       toast(`「${p.name}」${p.error}`)
+      if (e instanceof ApiError && e.code === 'quota_exceeded') refreshUsage()
     }
   }
 }
@@ -388,13 +430,14 @@ async function send() {
   autoGrow()
 
   const now = new Date().toISOString()
-  const userItem: Item = { id: -Date.now(), role: 'user', content, attachments, status: 'complete', created_at: now }
+  const tmp = -Date.now()
+  const userItem: Item = { id: tmp, key: tmp, fresh: true, role: 'user', content, attachments, status: 'complete', created_at: now }
   const reply: Item = {
-    id: -Date.now() - 1, role: 'assistant', content: '', reasoning: '', tools: [], status: 'complete', created_at: now, streaming: true,
+    id: tmp - 1, key: tmp - 1, fresh: true, role: 'assistant', content: '', reasoning: '', tools: [], status: 'complete', created_at: now, streaming: true,
   }
   items.value.push(userItem, reply)
   const r = items.value[items.value.length - 1]
-  await scrollToBottom(true)
+  await scrollToBottom(true, true)
 
   controller = new AbortController()
   try {
@@ -448,6 +491,8 @@ async function send() {
     sending.value = false
     controller = null
     scrollToBottom()
+    // 上传了文件或代码画了图，更新空间用量。
+    if (attachments.length || r.tools?.some((t) => t.images?.length)) refreshUsage()
     // 对话的最近时间与标题变了，重新排序。
     const c = convs.value.find((x) => x.id === convId)
     if (c) {
@@ -474,6 +519,7 @@ function toolImages(m: Item): Attachment[] {
 }
 
 function toggle(which: 'memories' | 'thinking', id: number) {
+  // id 是 uid(item)
   const set = which === 'memories' ? openMemories : openThinking
   const wasAtBottom = nearBottom()
   const s = new Set(set.value)
@@ -500,7 +546,9 @@ onMounted(loadInitial)
 
 <template>
   <div class="chat-shell">
-    <div v-if="drawer" class="drawer-backdrop" @click="drawer = false" />
+    <Transition name="fade">
+      <div v-if="drawer" class="drawer-backdrop" @click="drawer = false" />
+    </Transition>
     <aside class="sidebar" :class="{ 'is-open': drawer }" aria-label="对话列表">
       <div class="sidebar__head">
         <span class="eyebrow">对话</span>
@@ -508,7 +556,7 @@ onMounted(loadInitial)
           <Icon name="plus" :size="16" />新对话
         </button>
       </div>
-      <nav class="category-filter-list sidebar__list">
+      <TransitionGroup tag="nav" name="list" class="category-filter-list sidebar__list">
         <button
           v-for="c in convs"
           :key="c.id"
@@ -520,7 +568,7 @@ onMounted(loadInitial)
           <span>{{ c.title || '新对话' }}</span>
           <small>{{ shortWhen(c.last_message_at ?? c.created_at) }}</small>
         </button>
-      </nav>
+      </TransitionGroup>
       <p class="caption sidebar__foot">每段对话各自独立，但{{ name }}记得的事在所有对话里都通用。</p>
     </aside>
 
@@ -537,7 +585,7 @@ onMounted(loadInitial)
         </div>
       </header>
 
-      <div ref="scroller" class="scroller">
+      <div ref="scroller" class="scroller" @scroll.passive="onScroll">
         <div class="thread">
           <p v-if="!hasModel" class="form-flash">
             还没有可用的聊天模型。去 <RouterLink to="/settings#models" class="link">设置 → 模型</RouterLink> 添加一个，就可以开始聊天了。
@@ -556,24 +604,33 @@ onMounted(loadInitial)
             </button>
           </div>
 
-          <div v-if="!items.length && !loadError" class="empty">
-            <h2>最近过得怎么样。</h2>
-            <p class="muted">随便说点什么。{{ name }}会记住你提到的事，下次自然地接上。</p>
-          </div>
+          <Transition name="fade">
+            <div v-if="!items.length && !loadError && current" class="empty">
+              <h2>最近过得怎么样。</h2>
+              <p class="muted">随便说点什么。{{ name }}会记住你提到的事，下次自然地接上。</p>
+              <RouterLink v-if="persona" to="/settings#persona" class="persona-chip" title="换一种性格">
+                <Icon name="sparkle" :size="14" />
+                <span>现在的性格：{{ persona.label === '默认' ? '默认' : persona.label }}</span>
+                <span class="persona-chip__go">换一个</span>
+              </RouterLink>
+            </div>
+          </Transition>
 
-          <template v-for="row in rows" :key="row.kind === 'day' ? row.key : row.item.id">
+          <template v-for="row in rows" :key="row.kind === 'day' ? row.key : uid(row.item)">
             <div v-if="row.kind === 'day'" class="day"><span>{{ row.label }}</span></div>
-            <article v-else class="msg" :class="row.item.role">
+            <article v-else class="msg" :class="[row.item.role, { 'is-fresh': row.item.fresh }]">
               <div v-if="row.item.reasoning" class="thinking">
                 <button
                   class="thinking__toggle"
-                  :aria-expanded="openThinking.has(row.item.id)"
-                  @click="toggle('thinking', row.item.id)"
+                  :aria-expanded="openThinking.has(uid(row.item))"
+                  @click="toggle('thinking', uid(row.item))"
                 >
-                  <Icon name="chevron" :size="14" class="chev" :class="{ 'is-open': openThinking.has(row.item.id) }" />
-                  {{ row.item.streaming && !row.item.content ? '正在思考…' : '思考过程' }}
+                  <Icon name="chevron" :size="14" class="chev" :class="{ 'is-open': openThinking.has(uid(row.item)) }" />
+                  <span :class="{ 'thinking__live': row.item.streaming && !row.item.content }">{{ row.item.streaming && !row.item.content ? '正在思考…' : '思考过程' }}</span>
                 </button>
-                <div v-if="openThinking.has(row.item.id)" class="thinking__body">{{ row.item.reasoning }}</div>
+                <Collapse :open="openThinking.has(uid(row.item))">
+                  <div class="thinking__body">{{ row.item.reasoning }}</div>
+                </Collapse>
               </div>
               <ToolSteps v-if="row.item.tools?.length" :steps="row.item.tools" />
               <AttachmentList v-if="row.item.attachments?.length" :items="row.item.attachments" align="end" />
@@ -592,21 +649,31 @@ onMounted(loadInitial)
                 <button
                   v-if="memoriesUnlocked && row.item.memories?.length"
                   class="chip-note recall-toggle"
-                  :aria-expanded="openMemories.has(row.item.id)"
-                  @click="toggle('memories', row.item.id)"
+                  :aria-expanded="openMemories.has(uid(row.item))"
+                  @click="toggle('memories', uid(row.item))"
                 >
                   想起了 {{ row.item.memories.length }} 件事
                 </button>
               </div>
-              <ul v-if="memoriesUnlocked && row.item.memories?.length && openMemories.has(row.item.id)" class="recalled">
-                <li v-for="m in row.item.memories" :key="m.id">
-                  <span class="badge-pill">{{ m.source === 'stated' ? '你说过' : '推测' }}</span>
-                  <span>{{ m.content }}</span>
-                </li>
-              </ul>
+              <Collapse v-if="memoriesUnlocked && row.item.memories?.length" :open="openMemories.has(uid(row.item))">
+                <ul class="recalled">
+                  <li v-for="m in row.item.memories" :key="m.id">
+                    <span class="badge-pill">{{ m.source === 'stated' ? '你说过' : '推测' }}</span>
+                    <span>{{ m.content }}</span>
+                  </li>
+                </ul>
+              </Collapse>
             </article>
           </template>
         </div>
+      </div>
+
+      <div class="jump-wrap">
+        <Transition name="pop">
+          <button v-if="showJump && items.length" type="button" class="jump" aria-label="回到最新消息" @click="scrollToBottom(true, true)">
+            <Icon name="chevron" :size="16" class="jump__icon" />{{ sending ? '正在回复' : '回到最新' }}
+          </button>
+        </Transition>
       </div>
 
       <form
@@ -617,7 +684,14 @@ onMounted(loadInitial)
         @dragleave.self="dragging = false"
         @drop.prevent="onDrop"
       >
-        <div v-if="pending.length" class="pending">
+        <Transition name="fade">
+          <p v-if="uploadBlocked" class="quota-note">
+            <Icon name="folder" :size="15" />
+            <span>文件空间已经用满，暂时不能上传文件。</span>
+            <RouterLink to="/files" class="link">去清理</RouterLink>
+          </p>
+        </Transition>
+        <TransitionGroup v-if="pending.length" tag="div" name="list" class="pending">
           <div v-for="p in pending" :key="p.key" class="pending__item" :class="`is-${p.status}`" :title="p.error || p.name">
             <img v-if="p.preview" :src="p.preview" :alt="p.name" class="pending__thumb" />
             <span v-else class="pending__file"><Icon name="file" :size="16" /><span>{{ p.name }}</span></span>
@@ -625,7 +699,7 @@ onMounted(loadInitial)
             <span v-else-if="p.status === 'error'" class="pending__state">失败</span>
             <button type="button" class="pending__remove" :aria-label="`移除 ${p.name}`" @click="removePending(p)"><Icon name="x" :size="12" /></button>
           </div>
-        </div>
+        </TransitionGroup>
         <div class="composer__box">
           <textarea
             ref="textarea"
@@ -645,8 +719,8 @@ onMounted(loadInitial)
               type="button"
               class="icon-btn"
               aria-label="添加图片或文件"
-              title="添加图片或文件（也可以粘贴或拖进来）"
-              :disabled="sending"
+              :title="uploadBlocked ? '文件空间已满，暂时不能上传' : '添加图片或文件（也可以粘贴或拖进来）'"
+              :disabled="sending || uploadBlocked"
               @click="fileInput?.click()"
             >
               <Icon name="clip" />
@@ -666,6 +740,7 @@ onMounted(loadInitial)
                 <span v-if="thinkingLabel" class="picker__think">· {{ thinkingLabel }}</span>
                 <Icon name="chevron" :size="12" class="picker__chev" />
               </button>
+              <Transition name="pop">
               <div v-if="pickerOpen" class="picker__panel" role="dialog" aria-label="模型与思考等级">
                 <p class="picker__title">模型</p>
                 <div class="picker__list">
@@ -705,6 +780,7 @@ onMounted(loadInitial)
                   </div>
                 </template>
               </div>
+              </Transition>
             </div>
             <button v-if="sending" type="button" class="btn" @click="stop">停止</button>
             <button v-else class="btn btn-primary" :disabled="!canSend" title="Enter 发送，Shift+Enter 换行">发送</button>
@@ -713,7 +789,7 @@ onMounted(loadInitial)
       </form>
     </main>
 
-    <Modal v-if="renaming" title="重命名对话" @close="renaming = false">
+    <Modal :open="renaming" title="重命名对话" @close="renaming = false">
       <form @submit.prevent="saveRename">
         <div class="field">
           <label class="field__label" for="conv-title">标题</label>
@@ -728,7 +804,7 @@ onMounted(loadInitial)
     </Modal>
 
     <Modal
-      v-if="deleting"
+      :open="deleting"
       title="删除这段对话？"
       :subtitle="`聊天记录会被删除，无法恢复。${name}从中记住的事不受影响，可以在记忆本里单独删除。`"
       @close="deleting = false"
@@ -771,6 +847,32 @@ onMounted(loadInitial)
 .day { display: flex; align-items: center; gap: 12px; margin: 22px 0 14px; color: var(--color-muted); font-size: 12px; }
 .day::before, .day::after { content: ''; flex: 1; height: 1px; background: var(--color-divider); }
 .msg { display: flex; flex-direction: column; margin: 8px 0 18px; }
+.msg.is-fresh { animation: msg-in 360ms var(--ease-editorial) both; }
+.msg.user.is-fresh { animation-name: msg-in-user; }
+@keyframes msg-in { from { opacity: 0; transform: translateY(10px); } }
+@keyframes msg-in-user { from { opacity: 0; transform: translateY(10px) scale(.98); transform-origin: right bottom; } }
+.thinking__live { animation: breathe 1.6s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: .45; } }
+.persona-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; margin-top: 18px; padding: 0 6px 0 12px;
+  border: 1px solid var(--color-divider); border-radius: var(--radius-pill); background: var(--color-surface);
+  color: var(--color-text-secondary); font-size: 13px; transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
+}
+.persona-chip:hover { border-color: var(--color-hairline-strong); box-shadow: var(--shadow-float); color: var(--color-ink); }
+.persona-chip__go { padding: 2px 8px; border-radius: var(--radius-pill); background: var(--color-accent-tint); color: var(--color-accent-active); font-size: 12px; }
+.jump-wrap { position: relative; height: 0; }
+.jump {
+  position: absolute; left: 50%; bottom: 10px; z-index: 6; display: inline-flex; align-items: center; gap: 4px; height: 32px;
+  padding: 0 12px 0 8px; margin-left: -54px; border: 1px solid var(--color-divider); border-radius: var(--radius-pill);
+  background: var(--color-surface); box-shadow: var(--shadow-float); color: var(--color-text-secondary); font-size: 13px;
+}
+.jump:hover { color: var(--color-ink); border-color: var(--color-hairline-strong); }
+.jump__icon { transform: rotate(90deg); }
+.quota-note {
+  display: flex; align-items: center; gap: 6px; max-width: 960px; margin: 0 auto 8px; padding: 8px 12px;
+  border: 1px solid rgba(181, 51, 51, .25); border-radius: var(--radius-md); background: var(--color-danger-tint);
+  color: var(--color-danger); font-size: 13px;
+}
 .msg.user { align-items: flex-end; }
 .msg.user :deep(.att-list) { margin-bottom: 6px; }
 .bubble {
@@ -787,7 +889,7 @@ onMounted(loadInitial)
 .chev { transition: transform var(--motion-fast) var(--ease-editorial); }
 .chev.is-open { transform: rotate(90deg); }
 .thinking__body {
-  margin: 6px 0 4px; padding: 2px 0 2px 14px; border-left: 2px solid var(--color-divider);
+  margin: 6px 0 4px 2px; padding: 2px 0 2px 14px; border-left: 2px solid var(--color-divider);
   color: var(--color-text-secondary); font-size: 14px; line-height: 1.7; white-space: pre-wrap; word-break: break-word;
 }
 .meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 6px; color: var(--color-muted); font-size: 12px; }

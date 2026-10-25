@@ -117,7 +117,7 @@ onMounted(load)
     </section>
 
     <Modal
-      v-if="resetting"
+      :open="resetting"
       :title="`让${name}重新认识你？`"
       :subtitle="`${name}对你的情绪、心境、亲近与信任都会回到刚认识时的样子。记忆不受影响。`"
       @close="resetting = false"

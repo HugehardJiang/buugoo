@@ -72,10 +72,12 @@ type attachmentDTO struct {
 	Filename string `json:"filename"`
 	MIME     string `json:"mime"`
 	Size     int64  `json:"size"`
+	// Deleted 表示文件已经在文件管理中删除。
+	Deleted bool `json:"deleted,omitempty"`
 }
 
 func toAttachment(a *store.Attachment) attachmentDTO {
-	return attachmentDTO{ID: a.ID, Kind: a.Kind, Filename: a.Filename, MIME: a.MIME, Size: a.Size}
+	return attachmentDTO{ID: a.ID, Kind: a.Kind, Filename: a.Filename, MIME: a.MIME, Size: a.Size, Deleted: a.DeletedAt != nil}
 }
 
 func toAttachments(list []store.Attachment) []attachmentDTO {
@@ -374,8 +376,24 @@ func (s *server) messages(c echo.Context, convID uint64) error {
 	out := make([]messageDTO, len(msgs))
 	for i := range msgs {
 		out[i] = toMessage(&msgs[i])
-		if list := atts[msgs[i].ID]; len(list) > 0 {
+		list := atts[msgs[i].ID]
+		if len(list) == 0 {
+			continue
+		}
+		if msgs[i].Role == store.RoleUser {
 			out[i].Attachments = toAttachments(list)
+			continue
+		}
+		// 助手回复的附件是代码生成的图片，随工具记录展示；标出已经删除的。
+		deleted := map[uint64]bool{}
+		for _, a := range list {
+			deleted[a.ID] = a.DeletedAt != nil
+		}
+		for j := range out[i].Tools {
+			for k := range out[i].Tools[j].Images {
+				img := &out[i].Tools[j].Images[k]
+				img.Deleted = deleted[img.ID]
+			}
 		}
 	}
 	return c.JSON(http.StatusOK, map[string]any{

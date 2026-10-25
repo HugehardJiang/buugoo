@@ -128,7 +128,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	chatSvc := chat.New(chat.Deps{
 		Store: db, Models: modelSvc, Tools: toolsProv, Emotion: emo, Uploads: uploadSvc, Retriever: retriever, Writer: writer,
 		Builder: builder, Quota: limiter,
-		Config: cfg.Chat, Location: loc, Logger: log,
+		Config: cfg.Chat, Location: loc, Logger: log, DisabledPresets: cfg.Persona.DisabledPresets,
 	})
 	handler := httpapi.New(httpapi.Deps{
 		Config: cfg, Store: db, Auth: authSvc, Chat: chatSvc, Memories: memory.NewManager(db.Memories(), vs),

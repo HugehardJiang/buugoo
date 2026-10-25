@@ -830,3 +830,88 @@ func TestConsolePersona(t *testing.T) {
 		t.Fatalf("恢复后应为布谷: %s", b)
 	}
 }
+
+func TestFilesAndPresetsAPI(t *testing.T) {
+	ta := newTestApp(t, func(c *config.Config) {
+		c.Uploads.MaxFileMB = 1
+		c.Uploads.UserQuotaMB = 1
+		c.Tools.Python.Runner = config.PythonOff
+		c.Persona.DisabledPresets = []string{"bubbly"}
+	})
+
+	// 预设性格：默认 + 没有被关掉的预设。
+	_, b := ta.do(t, "GET", "/api/v1/persona/presets", "", nil)
+	if !strings.Contains(string(b), `"current":""`) || !strings.Contains(string(b), `"id":"gentle"`) || strings.Contains(string(b), "bubbly") {
+		t.Fatalf("presets: %s", b)
+	}
+	if resp, _ := ta.do(t, "PUT", "/api/v1/persona/preset", "", map[string]string{"id": "bubbly"}); resp.StatusCode != 400 {
+		t.Fatalf("关掉的预设不能选: %d", resp.StatusCode)
+	}
+	if resp, _ := ta.do(t, "PUT", "/api/v1/persona/preset", "", map[string]string{"id": "strategist"}); resp.StatusCode != 200 {
+		t.Fatalf("set preset: %d", resp.StatusCode)
+	}
+	_, b = ta.do(t, "GET", "/api/v1/persona/presets", "", nil)
+	if !strings.Contains(string(b), `"current":"strategist"`) {
+		t.Fatalf("presets: %s", b)
+	}
+
+	// 发送带文件的消息后出现在文件管理中。
+	_, b = ta.upload(t, "", "备忘.md", []byte("# 清单"))
+	var att struct{ ID uint64 }
+	_ = json.Unmarshal(b, &att)
+	resp, b := ta.do(t, "POST", "/api/v1/chat", "", map[string]any{"content": "看看", "attachment_ids": []uint64{att.ID}})
+	if resp.StatusCode != 200 {
+		t.Fatalf("chat: %d %s", resp.StatusCode, b)
+	}
+	_, b = ta.do(t, "GET", "/api/v1/files", "", nil)
+	var list struct {
+		Files []struct {
+			ID                uint64
+			Source            string
+			ConversationTitle string `json:"conversation_title"`
+		}
+		Total int
+		Usage struct {
+			UsedBytes  int64 `json:"used_bytes"`
+			QuotaBytes int64 `json:"quota_bytes"`
+		}
+	}
+	_ = json.Unmarshal(b, &list)
+	if list.Total != 1 || list.Files[0].ID != att.ID || list.Files[0].Source != "upload" || list.Files[0].ConversationTitle == "" ||
+		list.Usage.UsedBytes == 0 || list.Usage.QuotaBytes != 1<<20 {
+		t.Fatalf("files: %s", b)
+	}
+
+	// 删除后：下载返回 file_deleted，聊天记录中标记为已删除。
+	if resp, b := ta.do(t, "POST", "/api/v1/files/delete", "", map[string]any{}); resp.StatusCode != 400 {
+		t.Fatalf("空请求应报错: %d %s", resp.StatusCode, b)
+	}
+	resp, b = ta.do(t, "POST", "/api/v1/files/delete", "", map[string]any{"ids": []uint64{att.ID}})
+	if resp.StatusCode != 200 || !strings.Contains(string(b), `"deleted":1`) || !strings.Contains(string(b), `"used_bytes":0`) {
+		t.Fatalf("delete: %d %s", resp.StatusCode, b)
+	}
+	if resp, b := ta.do(t, "GET", fmt.Sprintf("/api/v1/uploads/%d", att.ID), "", nil); resp.StatusCode != 404 || !strings.Contains(string(b), "file_deleted") {
+		t.Fatalf("get deleted: %d %s", resp.StatusCode, b)
+	}
+	_, b = ta.do(t, "GET", "/api/v1/messages?limit=10", "", nil)
+	if !strings.Contains(string(b), `"deleted":true`) {
+		t.Fatalf("messages: %s", b)
+	}
+	if _, b = ta.do(t, "GET", "/api/v1/files", "", nil); !strings.Contains(string(b), `"total":0`) {
+		t.Fatalf("files after delete: %s", b)
+	}
+	resp, b = ta.do(t, "POST", "/api/v1/files/delete", "", map[string]any{"older_than_days": 7})
+	if resp.StatusCode != 200 || !strings.Contains(string(b), `"deleted":0`) {
+		t.Fatalf("delete old: %d %s", resp.StatusCode, b)
+	}
+
+	// 空间不够时上传返回 quota_exceeded。
+	resp, b = ta.upload(t, "", "a.txt", bytes.Repeat([]byte("a"), 700<<10))
+	if resp.StatusCode != 201 {
+		t.Fatalf("upload: %d %s", resp.StatusCode, b)
+	}
+	resp, b = ta.upload(t, "", "b.txt", bytes.Repeat([]byte("b"), 700<<10))
+	if resp.StatusCode != http.StatusRequestEntityTooLarge || !strings.Contains(string(b), "quota_exceeded") {
+		t.Fatalf("quota: %d %s", resp.StatusCode, b)
+	}
+}

@@ -386,7 +386,7 @@ onMounted(() => {
 
           </template>
 
-          <Modal v-if="confirmReset" title="恢复默认人格？" subtitle="管理后台保存的人格会被删除，恢复为配置文件指定的或内置的人格，立即生效。" @close="confirmReset = false">
+          <Modal :open="confirmReset" title="恢复默认人格？" subtitle="管理后台保存的人格会被删除，恢复为配置文件指定的或内置的人格，立即生效。" @close="confirmReset = false">
             <div class="modal-actions">
               <button class="btn" @click="confirmReset = false">取消</button>
               <button class="btn btn-danger" @click="resetPersona">恢复默认</button>

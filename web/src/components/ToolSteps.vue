@@ -3,6 +3,7 @@
 import { ref } from 'vue'
 import type { ToolEvent } from '../api'
 import Icon from '../Icon.vue'
+import Collapse from './Collapse.vue'
 
 defineProps<{ steps: ToolEvent[] }>()
 const open = ref<Set<string>>(new Set())
@@ -17,6 +18,7 @@ function toggle(id: string) {
 function icon(name: string) {
   if (name === 'web_search') return 'search' as const
   if (name === 'web_fetch') return 'globe' as const
+  if (name === 'install_package') return 'download' as const
   return 'code' as const
 }
 
@@ -40,11 +42,13 @@ function inlineInput(ev: ToolEvent) {
         </span>
         <Icon name="chevron" :size="13" class="chev" :class="{ 'is-open': open.has(ev.id) }" />
       </button>
-      <div v-if="open.has(ev.id)" class="step__body">
-        <pre v-if="ev.name === 'run_python' && ev.input" class="step__code">{{ ev.input }}</pre>
-        <pre v-if="ev.detail" class="step__detail">{{ ev.detail }}</pre>
-        <p v-if="!ev.detail && ev.name !== 'run_python'" class="caption">{{ ev.input }}</p>
-      </div>
+      <Collapse :open="open.has(ev.id)">
+        <div class="step__body">
+          <pre v-if="ev.name === 'run_python' && ev.input" class="step__code">{{ ev.input }}</pre>
+          <pre v-if="ev.detail" class="step__detail">{{ ev.detail }}</pre>
+          <p v-if="!ev.detail && ev.name !== 'run_python'" class="caption">{{ ev.input }}</p>
+        </div>
+      </Collapse>
     </li>
   </ol>
 </template>
@@ -67,6 +71,9 @@ function inlineInput(ev: ToolEvent) {
 .step__label { flex-shrink: 0; color: var(--color-ink); font-weight: 500; }
 .step__input { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .step__status { flex-shrink: 0; margin-left: auto; color: var(--color-muted); font-size: 12px; }
+.step { animation: step-in 280ms var(--ease-editorial) both; }
+@keyframes step-in { from { opacity: 0; transform: translateX(-4px); } }
+.step__icon { transition: background-color 240ms ease, color 240ms ease; }
 .is-error .step__status { color: var(--color-danger); }
 .chev { flex-shrink: 0; color: var(--color-muted); transition: transform var(--motion-fast) var(--ease-editorial); }
 .chev.is-open { transform: rotate(90deg); }

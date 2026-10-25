@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 设计系统 Icons 组的线性图标：24px 网格、1.8 描边、圆角端点、无填充，颜色继承 currentColor。
-defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' | 'trash' | 'chevron' | 'clip' | 'file' | 'search' | 'code' | 'globe' | 'x' | 'brain'; size?: number }>()
+defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' | 'trash' | 'chevron' | 'clip' | 'file' | 'search' | 'code' | 'globe' | 'x' | 'brain' | 'folder' | 'image' | 'check' | 'sparkle' | 'download'; size?: number }>()
 </script>
 
 <template>
@@ -59,6 +59,24 @@ defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' |
       <path d="M9 4.5a3 3 0 0 0-5 2.2 3 3 0 0 0-1 5.3 3.2 3.2 0 0 0 2.6 5A3 3 0 0 0 9 19.5V4.5z" />
       <path d="M15 4.5a3 3 0 0 1 5 2.2 3 3 0 0 1 1 5.3 3.2 3.2 0 0 1-2.6 5A3 3 0 0 1 15 19.5V4.5z" />
       <path d="M9 4.5a3 3 0 0 1 6 0M9 19.5a3 3 0 0 0 6 0M9 10h-2M15 14h2" />
+    </template>
+    <template v-else-if="name === 'folder'">
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    </template>
+    <template v-else-if="name === 'image'">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <circle cx="9" cy="10" r="1.6" />
+      <path d="M21 16l-5-5-9 9" />
+    </template>
+    <template v-else-if="name === 'check'">
+      <path d="M5 12.5l4.5 4.5L19 7.5" />
+    </template>
+    <template v-else-if="name === 'sparkle'">
+      <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" />
+      <path d="M19 16l.7 1.8 1.8.7-1.8.7L19 21l-.7-1.8-1.8-.7 1.8-.7z" />
+    </template>
+    <template v-else-if="name === 'download'">
+      <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />
     </template>
     <template v-else-if="name === 'x'">
       <path d="M6 6l12 12M18 6L6 18" />

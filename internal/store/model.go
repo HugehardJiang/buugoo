@@ -18,8 +18,10 @@ type User struct {
 	// TokenVersion 每次修改密码或"退出所有设备"时加一，使旧的 JWT 全部失效。
 	TokenVersion int     `gorm:"not null;default:0"`
 	InviteID     *uint64 `gorm:"index"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// PersonaPreset 是用户为布谷选的预设性格，空为默认（管理后台设置的人格）。
+	PersonaPreset string `gorm:"size:32;not null;default:''"`
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // OwnerID 是 single 模式下唯一用户的 ID。
@@ -182,7 +184,17 @@ type Attachment struct {
 	// Description 是看图模型对图片的文字描述，供不能看图的模型和记忆提取使用；生成后缓存。
 	Description string `gorm:"size:8192"`
 	CreatedAt   time.Time
+	// Source 是附件的来源：用户上传（upload）或代码生成（generated）。
+	Source string `gorm:"size:16;not null;default:''"`
+	// DeletedAt 是在文件管理中删除的时间：文件已经删掉、不再计入用量，记录保留用于在聊天记录中显示「文件已删除」。
+	DeletedAt *time.Time `gorm:"index"`
 }
+
+// 附件来源。
+const (
+	AttachmentUploaded  = "upload"
+	AttachmentGenerated = "generated"
+)
 
 // EmotionState 是布谷对某个用户的情绪状态，每个用户各自一份。各情绪强度为 0-1，Mood 为 -1-1。
 type EmotionState struct {

@@ -129,6 +129,15 @@ func (s *Service) renderAttachments(content string, atts []store.Attachment, vis
 		if b.Len() > 0 {
 			b.WriteString("\n\n")
 		}
+		if a.DeletedAt != nil {
+			// 用户在文件管理中删除了文件：文件内容不再提供，图片保留之前的文字描述。
+			if a.Kind == store.AttachmentImage && a.Description != "" {
+				fmt.Fprintf(&b, "【图片：%s（用户已经删除了这张图片，以下是之前的描述）】\n%s", a.Filename, a.Description)
+			} else {
+				fmt.Fprintf(&b, "【文件：%s（用户已经删除了这个文件）】", a.Filename)
+			}
+			continue
+		}
 		switch a.Kind {
 		case store.AttachmentDocument:
 			text, cut := uploads.Truncate(a.Text, docChars)
@@ -190,9 +199,14 @@ func (s *Service) renderHistory(ctx context.Context, u *store.User, history []st
 }
 
 func (s *Service) messageAttachments(ctx context.Context, u *store.User, msgs []store.Message) map[uint64][]store.Attachment {
+	return s.attachmentsOf(ctx, u, msgs, false)
+}
+
+// attachmentsOf 读取消息的附件。withReplies 为 false 时只读用户消息的（助手回复的附件是代码生成的图片，不放进提示词）。
+func (s *Service) attachmentsOf(ctx context.Context, u *store.User, msgs []store.Message, withReplies bool) map[uint64][]store.Attachment {
 	var ids []uint64
 	for _, m := range msgs {
-		if m.Role == store.RoleUser {
+		if m.Role == store.RoleUser || withReplies {
 			ids = append(ids, m.ID)
 		}
 	}
@@ -213,9 +227,9 @@ func (s *Service) messageAttachments(ctx context.Context, u *store.User, msgs []
 	return out
 }
 
-// MessageAttachments 返回消息的附件，按消息 ID 索引（用于展示历史消息）。
+// MessageAttachments 返回消息的附件（包括助手回复中代码生成的图片），按消息 ID 索引（用于展示历史消息）。
 func (s *Service) MessageAttachments(ctx context.Context, u *store.User, msgs []store.Message) map[uint64][]store.Attachment {
-	return s.messageAttachments(ctx, u, msgs)
+	return s.attachmentsOf(ctx, u, msgs, true)
 }
 
 // titleSource 返回用于自动生成对话标题的文字：没有文字时用第一个附件的文件名。

@@ -217,7 +217,7 @@ defineExpose({ load })
     <p v-if="models.some((m) => m.scope === 'builtin')" class="caption foot">「配置文件」模型来自 config.yaml 的 llm.chat，需在配置文件中修改。</p>
 
     <Modal
-      v-if="formOpen"
+      :open="formOpen"
       :title="editing ? '编辑模型' : '添加模型'"
       subtitle="填写 OpenAI 兼容接口的地址、API Key 与模型名。保存前可以先测试一下能不能连通。"
       @close="formOpen = false"

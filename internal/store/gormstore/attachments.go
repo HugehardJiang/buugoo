@@ -28,7 +28,7 @@ func (r attachmentRepo) ListPending(ctx context.Context, userID uint64, ids []ui
 		return nil, nil
 	}
 	var list []store.Attachment
-	if err := r.db.WithContext(ctx).Where("user_id = ? AND id IN ? AND message_id IS NULL", userID, ids).Find(&list).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("user_id = ? AND id IN ? AND message_id IS NULL AND deleted_at IS NULL", userID, ids).Find(&list).Error; err != nil {
 		return nil, mapErr(err)
 	}
 	byID := make(map[uint64]store.Attachment, len(list))
@@ -87,9 +87,49 @@ func (r attachmentRepo) ListStale(ctx context.Context, before time.Time, limit i
 
 func (r attachmentRepo) TotalSize(ctx context.Context, userID uint64) (int64, error) {
 	var total int64
-	err := r.db.WithContext(ctx).Model(&store.Attachment{}).Where("user_id = ?", userID).
+	err := r.db.WithContext(ctx).Model(&store.Attachment{}).Where("user_id = ? AND deleted_at IS NULL", userID).
 		Select("COALESCE(SUM(size), 0)").Scan(&total).Error
 	return total, mapErr(err)
+}
+
+func (r attachmentRepo) ListFiles(ctx context.Context, userID uint64, kind string, limit, offset int) ([]store.Attachment, int64, error) {
+	q := r.db.WithContext(ctx).Model(&store.Attachment{}).Where("user_id = ? AND message_id IS NOT NULL AND deleted_at IS NULL", userID)
+	if kind != "" {
+		q = q.Where("kind = ?", kind)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, mapErr(err)
+	}
+	var list []store.Attachment
+	// 列表不需要提取的文字，避免读出大段文档内容。
+	err := q.Omit("text").Order("id DESC").Limit(limit).Offset(offset).Find(&list).Error
+	return list, total, mapErr(err)
+}
+
+func (r attachmentRepo) ListBefore(ctx context.Context, userID uint64, before time.Time) ([]store.Attachment, error) {
+	var list []store.Attachment
+	err := r.db.WithContext(ctx).Omit("text").Where("user_id = ? AND created_at < ? AND deleted_at IS NULL", userID, before).
+		Order("id").Find(&list).Error
+	return list, mapErr(err)
+}
+
+func (r attachmentRepo) ListByIDs(ctx context.Context, userID uint64, ids []uint64) ([]store.Attachment, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var list []store.Attachment
+	err := r.db.WithContext(ctx).Omit("text").Where("user_id = ? AND id IN ? AND deleted_at IS NULL", userID, ids).
+		Order("id").Find(&list).Error
+	return list, mapErr(err)
+}
+
+func (r attachmentRepo) MarkDeleted(ctx context.Context, userID uint64, ids []uint64, at time.Time) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return mapErr(r.db.WithContext(ctx).Model(&store.Attachment{}).Where("user_id = ? AND id IN ?", userID, ids).
+		Updates(map[string]any{"deleted_at": at, "text": ""}).Error)
 }
 
 func (r attachmentRepo) SetDescription(ctx context.Context, id uint64, desc string) error {

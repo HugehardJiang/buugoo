@@ -195,3 +195,87 @@ func TestCleanName(t *testing.T) {
 		}
 	}
 }
+
+func TestFileManagement(t *testing.T) {
+	ctx := context.Background()
+	s, db, _ := newService(t, 1)
+	big := bytes.Repeat([]byte("字"), (600<<10)/3)
+	old, err := s.Save(ctx, 1, "old.txt", bytes.NewReader(big))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Attachments().Attach(ctx, 1, []uint64{old.ID}, 3, 9)
+	img, err := s.SaveGenerated(ctx, 1, 3, 10, "chart.png", pngBytes(t))
+	if err != nil || img.Source != store.AttachmentGenerated || old.Source != store.AttachmentUploaded {
+		t.Fatalf("img=%+v err=%v", img, err)
+	}
+	pending, _ := s.Save(ctx, 1, "p.txt", strings.NewReader("还没发送"))
+
+	list, total, err := db.Attachments().ListFiles(ctx, 1, "", 10, 0)
+	if err != nil || total != 2 || len(list) != 2 || list[0].ID != img.ID || list[1].Text != "" {
+		t.Fatalf("文件列表只含已发送的，按时间倒序，不读文字: %+v total=%d err=%v", list, total, err)
+	}
+	if _, n, _ := db.Attachments().ListFiles(ctx, 1, store.AttachmentImage, 10, 0); n != 1 {
+		t.Fatalf("按类型筛选: %d", n)
+	}
+
+	// 删除已发送的文件：文件删掉、记录保留并标记删除、不再计入用量。
+	u0, _ := s.Usage(ctx, 1)
+	n, err := s.Delete(ctx, 1, []uint64{old.ID, 9999})
+	if err != nil || n != 1 {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+	got, err := db.Attachments().Get(ctx, 1, old.ID)
+	if err != nil || got.DeletedAt == nil || got.Text != "" {
+		t.Fatalf("应保留记录并标记删除: %+v %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(s.cfg.Dir, got.Path)); !os.IsNotExist(err) {
+		t.Fatal("文件应删除")
+	}
+	u1, _ := s.Usage(ctx, 1)
+	if u1.UsedBytes != u0.UsedBytes-old.Size {
+		t.Fatalf("用量 %d → %d", u0.UsedBytes, u1.UsedBytes)
+	}
+	if n, _ := s.Delete(ctx, 2, []uint64{img.ID}); n != 0 {
+		t.Fatal("不能删除别人的文件")
+	}
+
+	// 删除 7 天前的全部文件：未发送的直接删除记录。
+	s.now = func() time.Time { return time.Now().Add(8 * 24 * time.Hour) }
+	n, err = s.DeleteBefore(ctx, 1, s.now().AddDate(0, 0, -7))
+	if err != nil || n != 2 {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+	if _, err := db.Attachments().Get(ctx, 1, pending.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal("未发送的文件应直接删除")
+	}
+	if u, _ := s.Usage(ctx, 1); u.UsedBytes != 0 {
+		t.Fatalf("用量应清零: %+v", u)
+	}
+}
+
+func TestQuotaFullBlocksAllUploads(t *testing.T) {
+	ctx := context.Background()
+	s, db, _ := newService(t, 1)
+	// 管理员调低了限额等情况下，用量可能已经超过上限：此时连很小的文件也不能上传。
+	big := bytes.Repeat([]byte("a"), 900<<10)
+	if _, err := s.Save(ctx, 1, "a.txt", bytes.NewReader(big)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Save(ctx, 1, "b.txt", bytes.NewReader(big)); !errors.Is(err, ErrQuota) || !strings.Contains(err.Error(), "还剩") {
+		t.Fatalf("空间不够: %v", err)
+	}
+	if err := db.Attachments().Create(ctx, &store.Attachment{UserID: 1, Kind: store.AttachmentDocument, Filename: "x", MIME: "text/plain", Size: 200 << 10, Path: "x", SHA256: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	u, _ := s.Usage(ctx, 1)
+	if !u.Full() {
+		t.Fatalf("应已满: %+v", u)
+	}
+	if _, err := s.Save(ctx, 1, "tiny.txt", strings.NewReader("hi")); !errors.Is(err, ErrQuota) || !strings.Contains(err.Error(), "用满") {
+		t.Fatalf("用满后不能上传任何文件: %v", err)
+	}
+	if _, err := s.SaveGenerated(ctx, 1, 1, 1, "a.png", pngBytes(t)); !errors.Is(err, ErrQuota) {
+		t.Fatalf("用满后代码生成的图片也不保存: %v", err)
+	}
+}

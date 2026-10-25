@@ -30,6 +30,29 @@ export interface Attachment {
   filename: string
   mime: string
   size: number
+  // 已经在文件管理中删除（聊天记录里显示占位）
+  deleted?: boolean
+}
+
+// FileItem 是文件管理中的一个文件：用户上传的，或对话中代码生成的图片。
+export interface FileItem extends Attachment {
+  source: 'upload' | 'generated'
+  created_at: string
+  conversation_id: number | null
+  conversation_title: string
+}
+
+export interface Usage {
+  used_bytes: number
+  quota_bytes: number // 0 表示不限
+  full: boolean
+}
+
+export interface PersonaPreset {
+  id: string // 空字符串为默认
+  label: string
+  summary: string
+  catchphrases: string[]
 }
 
 export interface ToolEvent {
@@ -358,6 +381,16 @@ export const api = {
   createInvite: (input: { max_uses: number; ttl_hours: number; note: string }) =>
     request<Invite>('POST', '/admin/invites', input),
   deleteInvite: (id: number) => request<void>('DELETE', `/admin/invites/${id}`),
+  presets: () => request<{ current: string; presets: PersonaPreset[] }>('GET', '/persona/presets'),
+  setPreset: (id: string) => request<{ current: string }>('PUT', '/persona/preset', { id }),
+  files: (params: { kind?: string; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams()
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, String(v))
+    return request<{ files: FileItem[]; total: number; usage: Usage }>('GET', `/files?${qs}`)
+  },
+  usage: () => request<Usage>('GET', '/files/usage'),
+  deleteFiles: (input: { ids: number[] } | { older_than_days: number }) =>
+    request<{ deleted: number; usage: Usage }>('POST', '/files/delete', input),
 }
 
 export interface ChatHandlers {

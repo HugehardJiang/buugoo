@@ -94,7 +94,7 @@ func (s *Service) Save(ctx context.Context, userID uint64, filename string, r io
 		return nil, userErr(ErrEmpty, "文件是空的")
 	}
 
-	a := &store.Attachment{UserID: userID, Filename: filename, Size: int64(len(data))}
+	a := &store.Attachment{UserID: userID, Filename: filename, Size: int64(len(data)), Source: store.AttachmentUploaded}
 	sniffed := http.DetectContentType(data)
 	if ext, ok := imageTypes[sniffed]; ok {
 		a.Kind, a.MIME = store.AttachmentImage, sniffed
@@ -108,14 +108,8 @@ func (s *Service) Save(ctx context.Context, userID uint64, filename string, r io
 		a.Path = strings.ToLower(filepath.Ext(filename))
 	}
 
-	if s.cfg.UserQuotaMB > 0 {
-		used, err := s.repo.TotalSize(ctx, userID)
-		if err != nil {
-			return nil, err
-		}
-		if used+a.Size > int64(s.cfg.UserQuotaMB)<<20 {
-			return nil, userErr(ErrQuota, "上传空间已用完（每人 %d MB）。删除一些带文件的旧对话可以腾出空间", s.cfg.UserQuotaMB)
-		}
+	if err := s.checkQuota(ctx, userID, a.Size); err != nil {
+		return nil, err
 	}
 
 	sum := sha256.Sum256(data)
@@ -145,18 +139,12 @@ func (s *Service) SaveGenerated(ctx context.Context, userID, conversationID, mes
 	if !ok {
 		return nil, userErr(ErrUnsupported, "%s 不是 PNG、JPEG、GIF 或 WebP 图片", cleanName(filename))
 	}
-	if s.cfg.UserQuotaMB > 0 {
-		used, err := s.repo.TotalSize(ctx, userID)
-		if err != nil {
-			return nil, err
-		}
-		if used+int64(len(data)) > int64(s.cfg.UserQuotaMB)<<20 {
-			return nil, userErr(ErrQuota, "上传空间已用完（每人 %d MB），图片没有保存", s.cfg.UserQuotaMB)
-		}
+	if err := s.checkQuota(ctx, userID, int64(len(data))); err != nil {
+		return nil, err
 	}
 	sum := sha256.Sum256(data)
 	a := &store.Attachment{UserID: userID, ConversationID: &conversationID, MessageID: &messageID,
-		Kind: store.AttachmentImage, Filename: cleanName(filename), MIME: sniffed, Size: int64(len(data)),
+		Kind: store.AttachmentImage, Source: store.AttachmentGenerated, Filename: cleanName(filename), MIME: sniffed, Size: int64(len(data)),
 		SHA256: hex.EncodeToString(sum[:])}
 	rel, err := s.write(userID, ext, data)
 	if err != nil {
@@ -168,6 +156,88 @@ func (s *Service) SaveGenerated(ctx context.Context, userID, conversationID, mes
 		return nil, err
 	}
 	return a, nil
+}
+
+// checkQuota 检查用户的文件空间：已经用满时任何文件都不能再上传，否则检查加上这个文件后是否超出。
+func (s *Service) checkQuota(ctx context.Context, userID uint64, size int64) error {
+	u, err := s.Usage(ctx, userID)
+	if err != nil || u.QuotaBytes == 0 {
+		return err
+	}
+	if u.Full() {
+		return userErr(ErrQuota, "文件空间已经用满（%s / %d MB），暂时不能上传文件。去「文件」里删除一些不需要的文件后就能继续使用", mb(u.UsedBytes), s.cfg.UserQuotaMB)
+	}
+	if u.UsedBytes+size > u.QuotaBytes {
+		return userErr(ErrQuota, "文件空间不够了：还剩 %s，这个文件有 %s。去「文件」里删除一些不需要的文件后再试", mb(u.QuotaBytes-u.UsedBytes), mb(size))
+	}
+	return nil
+}
+
+func mb(n int64) string {
+	if n < 1<<20 {
+		return fmt.Sprintf("%d KB", (n+1023)>>10)
+	}
+	return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+}
+
+// Usage 是用户文件空间的用量。
+type Usage struct {
+	UsedBytes int64
+	// QuotaBytes 为 0 表示不限。
+	QuotaBytes int64
+}
+
+// Full 报告空间是否已经用满。
+func (u Usage) Full() bool { return u.QuotaBytes > 0 && u.UsedBytes >= u.QuotaBytes }
+
+// Usage 返回用户文件空间的用量。
+func (s *Service) Usage(ctx context.Context, userID uint64) (Usage, error) {
+	used, err := s.repo.TotalSize(ctx, userID)
+	if err != nil {
+		return Usage{}, err
+	}
+	return Usage{UsedBytes: used, QuotaBytes: int64(s.cfg.UserQuotaMB) << 20}, nil
+}
+
+// Delete 删除用户的文件（文件管理）：删掉磁盘上的文件、不再计入用量；已经发送过的保留记录，
+// 聊天记录中显示「文件已删除」。返回实际删除的数量。
+func (s *Service) Delete(ctx context.Context, userID uint64, ids []uint64) (int, error) {
+	list, err := s.repo.ListByIDs(ctx, userID, ids)
+	if err != nil {
+		return 0, err
+	}
+	return s.deleteFiles(ctx, userID, list)
+}
+
+// DeleteBefore 删除用户在 before 之前上传的全部文件，返回删除的数量。
+func (s *Service) DeleteBefore(ctx context.Context, userID uint64, before time.Time) (int, error) {
+	list, err := s.repo.ListBefore(ctx, userID, before)
+	if err != nil {
+		return 0, err
+	}
+	return s.deleteFiles(ctx, userID, list)
+}
+
+func (s *Service) deleteFiles(ctx context.Context, userID uint64, list []store.Attachment) (int, error) {
+	var sent []uint64
+	var pending []store.Attachment
+	for _, a := range list {
+		if a.MessageID == nil {
+			pending = append(pending, a)
+			continue
+		}
+		if err := os.Remove(s.abs(a.Path)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			s.log.Warn("删除文件失败", "path", a.Path, "err", err)
+		}
+		sent = append(sent, a.ID)
+	}
+	if err := s.repo.MarkDeleted(ctx, userID, sent, s.now()); err != nil {
+		return 0, err
+	}
+	if err := s.Remove(ctx, pending); err != nil {
+		return len(sent), err
+	}
+	return len(list), nil
 }
 
 // write 把文件写到 <dir>/<userID>/<年月>/<随机名><ext>，返回相对路径。

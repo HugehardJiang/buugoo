@@ -36,6 +36,8 @@ type Input struct {
 	ToolHints string
 	// Emotion 是布谷当前的心情说明，为空表示不使用情绪系统。
 	Emotion string
+	// Preset 是用户选的预设性格，为空时使用人格档案本身。
+	Preset *persona.Preset
 }
 
 // ImageTokens 是一张图片的近似 token 数（用于预算估算）。
@@ -95,6 +97,9 @@ const memoryBudgetShare = 0.35
 func (b *Builder) Build(in Input) Prompt {
 	p := Prompt{ContextTokenSize: b.maxTokens}
 	per := b.Persona()
+	if in.Preset != nil {
+		per = in.Preset.Apply(per)
+	}
 
 	fixed := []Section{
 		b.section("人格", personaText(per)),

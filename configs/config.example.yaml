@@ -173,6 +173,8 @@ chat:
 persona:
   # 人格档案文件，留空使用内置的"布谷"
   file: ""
+  # 关掉的预设性格（用户在「设置 → 性格」中选），可选 gentle、snarky、strategist、bubbly
+  disabled_presets: []
 
 # 每个用户的每日用量限额，0 表示不限制（官网部署建议设置，防止 API 费用失控）
 quota:

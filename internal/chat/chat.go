@@ -18,6 +18,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/llm"
 	"github.com/HugehardJiang/buugoo/internal/memory"
 	"github.com/HugehardJiang/buugoo/internal/models"
+	"github.com/HugehardJiang/buugoo/internal/persona"
 	"github.com/HugehardJiang/buugoo/internal/prompt"
 	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/store"
@@ -64,6 +65,8 @@ type ToolImage struct {
 	Filename string `json:"filename"`
 	MIME     string `json:"mime"`
 	Size     int64  `json:"size"`
+	// Deleted 表示用户已经在文件管理中删除了这张图片（展示历史消息时填写）。
+	Deleted bool `json:"deleted,omitempty"`
 }
 
 // Sink 接收一轮对话过程中的事件。任一方法返回错误（例如客户端断开）都会中止生成，
@@ -135,6 +138,7 @@ type Service struct {
 	builder   *prompt.Builder
 	quota     *quota.Limiter
 	cfg       config.ChatConfig
+	disabled  []string
 	loc       *time.Location
 	log       *slog.Logger
 	now       func() time.Time
@@ -154,6 +158,8 @@ type Deps struct {
 	Config    config.ChatConfig
 	Location  *time.Location
 	Logger    *slog.Logger
+	// DisabledPresets 是管理员关掉的预设性格。
+	DisabledPresets []string
 }
 
 // New 创建对话服务。
@@ -163,7 +169,7 @@ func New(d Deps) *Service {
 		log = slog.Default()
 	}
 	return &Service{
-		store: d.Store, models: d.Models, tools: d.Tools, emotion: d.Emotion, uploads: d.Uploads, retriever: d.Retriever, writer: d.Writer,
+		store: d.Store, disabled: d.DisabledPresets, models: d.Models, tools: d.Tools, emotion: d.Emotion, uploads: d.Uploads, retriever: d.Retriever, writer: d.Writer,
 		builder: d.Builder, quota: d.Quota, cfg: d.Config, loc: d.Location, log: log.With("component", "chat"), now: time.Now,
 	}
 }
@@ -231,6 +237,7 @@ func (s *Service) prepare(ctx context.Context, u *store.User, conv *store.Conver
 		KeepReasoning: in.toolHints != "" && in.model != nil && in.model.ThinkingStyle == store.ThinkingStyleDeepSeek,
 		ToolHints:     in.toolHints,
 		Emotion:       in.emotion,
+		Preset:        persona.Find(u.PersonaPreset, s.disabled),
 	})
 	return &prepared{conv: conv, history: history, prompt: p, userText: userText, images: images}, nil
 }

@@ -101,3 +101,51 @@ func TestAttachmentRepo(t *testing.T) {
 		}
 	})
 }
+
+// 从 v4 升级到 v5：助手回复中已有的附件（代码生成的图片）标为 generated，其余为 upload。
+func TestUpgradeFromV4(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(config.DatabaseConfig{Driver: config.DriverSQLite, DSN: filepath.Join(t.TempDir(), "up.db")}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	opts := *gormigrate.DefaultOptions
+	opts.TableName = migrationsTable
+	opts.UseTransaction = false
+	if err := gormigrate.New(s.db, &opts, migrations()[:4]).Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	for _, q := range []string{
+		"INSERT INTO messages (id, conversation_id, user_id, role, content, status, created_at) VALUES (1, 1, 1, 'user', 'hi', 'complete', ?)",
+		"INSERT INTO messages (id, conversation_id, user_id, role, content, status, created_at) VALUES (2, 1, 1, 'assistant', 'ok', 'complete', ?)",
+		"INSERT INTO attachments (user_id, conversation_id, message_id, kind, filename, mime, size, path, sha256, created_at) VALUES (1, 1, 1, 'image', 'a.png', 'image/png', 1, 'a', 'x', ?)",
+		"INSERT INTO attachments (user_id, conversation_id, message_id, kind, filename, mime, size, path, sha256, created_at) VALUES (1, 1, 2, 'image', 'b.png', 'image/png', 1, 'b', 'x', ?)",
+		"INSERT INTO attachments (user_id, kind, filename, mime, size, path, sha256, created_at) VALUES (1, 'document', 'c.txt', 'text/plain', 1, 'c', 'x', ?)",
+	} {
+		if err := s.db.Exec(q, now).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	want := map[uint64]string{1: store.AttachmentUploaded, 2: store.AttachmentGenerated, 3: store.AttachmentUploaded}
+	for id, src := range want {
+		a, err := s.Attachments().Get(ctx, 1, id)
+		if err != nil || a.Source != src || a.DeletedAt != nil {
+			t.Fatalf("%d: %+v %v", id, a, err)
+		}
+	}
+	u, err := s.Users().EnsureOwner(ctx)
+	if err != nil || u.PersonaPreset != "" {
+		t.Fatalf("%+v %v", u, err)
+	}
+	if err := s.Users().SetPersonaPreset(ctx, u.ID, "gentle"); err != nil {
+		t.Fatal(err)
+	}
+	if u, _ = s.Users().GetByID(ctx, u.ID); u.PersonaPreset != "gentle" {
+		t.Fatal("预设性格未保存")
+	}
+}

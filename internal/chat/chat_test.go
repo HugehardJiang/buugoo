@@ -661,3 +661,25 @@ func TestAttachments(t *testing.T) {
 		t.Fatalf("文件应被删除，剩余 %d 个", files)
 	}
 }
+
+func TestPersonaPreset(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, config.QuotaConfig{})
+	e.user.PersonaPreset = "snarky"
+	if _, err := e.svc.Send(ctx, e.user, SendInput{Content: "在吗"}, &recordSink{}); err != nil {
+		t.Fatal(err)
+	}
+	sys := e.chat.reqs[len(e.chat.reqs)-1].Messages[0].Content
+	if !strings.Contains(sys, "损友") || strings.Contains(sys, "风趣幽默的大肥鸟") || !strings.Contains(sys, "开玩笑有分寸") {
+		t.Fatalf("应套用预设、保留原则: %s", sys)
+	}
+	// 管理员关掉预设后改用默认人格。
+	e.svc.disabled = []string{"snarky"}
+	if _, err := e.svc.Send(ctx, e.user, SendInput{Content: "在吗"}, &recordSink{}); err != nil {
+		t.Fatal(err)
+	}
+	sys = e.chat.reqs[len(e.chat.reqs)-1].Messages[0].Content
+	if strings.Contains(sys, "损友") || !strings.Contains(sys, "风趣幽默的大肥鸟") {
+		t.Fatal("关掉的预设不应生效")
+	}
+}
