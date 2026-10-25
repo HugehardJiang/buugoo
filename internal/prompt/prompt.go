@@ -38,6 +38,8 @@ type Input struct {
 	Emotion string
 	// Preset 是用户选的预设性格，为空时使用人格档案本身。
 	Preset *persona.Preset
+	// Summary 是这段对话较早内容的摘要（之后的消息在 History 中原样给出）。
+	Summary string
 }
 
 // ImageTokens 是一张图片的近似 token 数（用于预算估算）。
@@ -114,6 +116,12 @@ func (b *Builder) Build(in Input) Prompt {
 	for _, s := range fixed {
 		used += s.Tokens
 	}
+	var summary *Section
+	if in.Summary != "" {
+		sec := b.section("前情提要", "## 这段对话之前聊过的（摘要，更早的聊天记录不再逐条给出）\n"+in.Summary)
+		summary = &sec
+		used += sec.Tokens
+	}
 	var mood *Section
 	if in.Emotion != "" {
 		m := b.section("心情", in.Emotion)
@@ -128,6 +136,9 @@ func (b *Builder) Build(in Input) Prompt {
 	used += memTokens
 
 	sections := []Section{fixed[0], fixed[1]}
+	if summary != nil {
+		sections = append(sections, *summary)
+	}
 	if mood != nil {
 		sections = append(sections, *mood)
 	}

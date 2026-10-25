@@ -150,6 +150,8 @@ type MessageRepo interface {
 	Recent(ctx context.Context, userID, conversationID uint64, limit int) ([]Message, error)
 	// Before 按时间正序返回 ID 小于 beforeID 的最近 limit 条消息（beforeID 为 0 表示从最新开始）。
 	Before(ctx context.Context, userID, conversationID, beforeID uint64, limit int) ([]Message, error)
+	// After 按时间正序返回 ID 大于 afterID 的最早 limit 条消息。
+	After(ctx context.Context, userID, conversationID, afterID uint64, limit int) ([]Message, error)
 }
 
 // MemoryFilter 是记忆列表的筛选条件。

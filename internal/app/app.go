@@ -129,10 +129,15 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	builder := prompt.NewBuilder(p, cfg.Chat.MaxContextTokens)
 	// 管理员在网页上修改人格后立即生效。
 	personas.OnChange(builder.SetPersona)
+	var summarizer chat.Summarizer
+	if cfg.Chat.Summarize {
+		summarizer = chat.LLMSummarizer{LLM: utilLLM}
+	}
 	chatSvc := chat.New(chat.Deps{
 		Store: db, Models: modelSvc, Tools: toolsProv, Emotion: emo, Uploads: uploadSvc, Retriever: retriever, Writer: writer,
 		Builder: builder, Quota: limiter,
 		Config: cfg.Chat, Location: loc, Logger: log, DisabledPresets: cfg.Persona.DisabledPresets,
+		Summarizer: summarizer,
 	})
 	handler := httpapi.New(httpapi.Deps{
 		Config: cfg, Store: db, Auth: authSvc, Chat: chatSvc, Memories: memory.NewManager(db.Memories(), vs),
@@ -212,6 +217,7 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}
 	cancelBg()
+	a.Chat.Wait()
 	if err := a.Writer.Close(shutdownCtx); err != nil {
 		errs = append(errs, err)
 	}

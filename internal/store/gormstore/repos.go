@@ -324,6 +324,13 @@ func (r messageRepo) Recent(ctx context.Context, userID, conversationID uint64, 
 	return r.Before(ctx, userID, conversationID, 0, limit)
 }
 
+func (r messageRepo) After(ctx context.Context, userID, conversationID, afterID uint64, limit int) ([]store.Message, error) {
+	var out []store.Message
+	err := r.db.WithContext(ctx).Where("user_id = ? AND conversation_id = ? AND id > ?", userID, conversationID, afterID).
+		Order("id").Limit(limit).Find(&out).Error
+	return out, mapErr(err)
+}
+
 func (r messageRepo) Before(ctx context.Context, userID, conversationID, beforeID uint64, limit int) ([]store.Message, error) {
 	q := r.db.WithContext(ctx).Where("user_id = ? AND conversation_id = ?", userID, conversationID)
 	if beforeID > 0 {

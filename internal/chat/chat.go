@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -140,9 +141,14 @@ type Service struct {
 	quota     *quota.Limiter
 	cfg       config.ChatConfig
 	disabled  []string
-	loc       *time.Location
-	log       *slog.Logger
-	now       func() time.Time
+
+	summarizer  Summarizer
+	sumMu       sync.Mutex
+	summarizing map[uint64]bool
+	bg          sync.WaitGroup
+	loc         *time.Location
+	log         *slog.Logger
+	now         func() time.Time
 }
 
 // Deps 是对话服务的依赖。Tools 与 Uploads 可以为空（不提供工具 / 不支持附件）。
@@ -161,6 +167,8 @@ type Deps struct {
 	Logger    *slog.Logger
 	// DisabledPresets 是管理员关掉的预设性格。
 	DisabledPresets []string
+	// Summarizer 整理长对话的摘要，为空时不整理（只保留最近的消息）。
+	Summarizer Summarizer
 }
 
 // New 创建对话服务。
@@ -170,7 +178,7 @@ func New(d Deps) *Service {
 		log = slog.Default()
 	}
 	return &Service{
-		store: d.Store, disabled: d.DisabledPresets, models: d.Models, tools: d.Tools, emotion: d.Emotion, uploads: d.Uploads, retriever: d.Retriever, writer: d.Writer,
+		store: d.Store, disabled: d.DisabledPresets, summarizer: d.Summarizer, summarizing: map[uint64]bool{}, models: d.Models, tools: d.Tools, emotion: d.Emotion, uploads: d.Uploads, retriever: d.Retriever, writer: d.Writer,
 		builder: d.Builder, quota: d.Quota, cfg: d.Config, loc: d.Location, log: log.With("component", "chat"), now: time.Now,
 	}
 }
@@ -216,9 +224,21 @@ type turnInput struct {
 }
 
 func (s *Service) prepare(ctx context.Context, u *store.User, conv *store.Conversation, in turnInput) (*prepared, error) {
-	history, err := s.store.Messages().Recent(ctx, u.ID, conv.ID, s.cfg.HistoryMessages)
+	// 已经整理进摘要的消息不再原样放进提示词；未整理的最多比历史条数多 summarySlack 条。
+	limit := s.cfg.HistoryMessages
+	if s.summarizer != nil {
+		limit += summarySlack
+	}
+	history, err := s.store.Messages().Recent(ctx, u.ID, conv.ID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("读取对话历史: %w", err)
+	}
+	if conv.SummaryUntil > 0 {
+		i := 0
+		for i < len(history) && history[i].ID <= conv.SummaryUntil {
+			i++
+		}
+		history = history[i:]
 	}
 	vision := in.model != nil && in.model.Vision
 	history, histImages := s.renderHistory(ctx, u, history, vision)
@@ -239,6 +259,7 @@ func (s *Service) prepare(ctx context.Context, u *store.User, conv *store.Conver
 		ToolHints:     in.toolHints,
 		Emotion:       in.emotion,
 		Preset:        persona.Find(u.PersonaPreset, s.disabled),
+		Summary:       conv.Summary,
 	})
 	return &prepared{conv: conv, history: history, prompt: p, userText: userText, images: images}, nil
 }
@@ -648,6 +669,13 @@ func (s *Service) afterReply(ctx context.Context, u *store.User, p *prepared, mo
 	}
 	if reply.Status != store.MessageComplete {
 		return
+	}
+	if s.summarizer != nil {
+		s.bg.Add(1)
+		go func() {
+			defer s.bg.Done()
+			s.maybeSummarize(context.WithoutCancel(ctx), u, p.conv.ID)
+		}()
 	}
 	known := make([]string, 0, len(p.prompt.UsedMemories))
 	for _, m := range p.prompt.UsedMemories {

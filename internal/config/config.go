@@ -211,6 +211,8 @@ type VectorCacheConfig struct {
 type ChatConfig struct {
 	HistoryMessages  int `koanf:"history_messages"`   // 放进提示词的最近消息条数
 	MaxContextTokens int `koanf:"max_context_tokens"` // 提示词的近似 token 预算
+	// Summarize 为 true 时，长对话中较早的消息由辅助模型整理成摘要放进提示词，而不是直接丢掉。
+	Summarize bool `koanf:"summarize"`
 }
 
 // UploadsConfig 是文件上传配置。
@@ -437,6 +439,7 @@ func Default() *Config {
 		Chat: ChatConfig{
 			HistoryMessages:  20,
 			MaxContextTokens: 6000,
+			Summarize:        true,
 		},
 		Uploads: UploadsConfig{MaxFileMB: 20, MaxFiles: 8, UserQuotaMB: 500, DocChars: 20000},
 		Admin:   AdminConfig{Password: DefaultAdminPassword},

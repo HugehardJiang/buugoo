@@ -3,6 +3,7 @@ package chat
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"encoding/base64"
 	"errors"
 	"io"
@@ -682,4 +683,66 @@ func TestPersonaPreset(t *testing.T) {
 	if strings.Contains(sys, "损友") || !strings.Contains(sys, "风趣幽默的大肥鸟") {
 		t.Fatal("关掉的预设不应生效")
 	}
+}
+
+type fakeSummarizer struct {
+	calls [][]store.Message
+	prev  []string
+}
+
+func (f *fakeSummarizer) Summarize(_ context.Context, _, prev string, msgs []store.Message) (string, llm.Usage, error) {
+	f.calls = append(f.calls, msgs)
+	f.prev = append(f.prev, prev)
+	return fmt.Sprintf("摘要%d：聊到第 %s 句", len(f.calls), msgs[len(msgs)-1].Content), llm.Usage{PromptTokens: 10}, nil
+}
+
+func TestConversationSummary(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, config.QuotaConfig{})
+	fs := &fakeSummarizer{}
+	e.svc.summarizer = fs
+	e.svc.cfg.HistoryMessages = 4
+	var convID uint64
+	// 每轮 2 条消息：第 6 轮后未整理的消息有 12 条（≥ 4 + 8），把较早的 8 条整理进摘要。
+	for i := 1; i <= 6; i++ {
+		res, err := e.svc.Send(ctx, e.user, SendInput{ConversationID: convID, Content: fmt.Sprintf("第%d句", i)}, &recordSink{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		convID = res.Conversation.ID
+		e.svc.Wait()
+	}
+	if len(fs.calls) != 1 || len(fs.calls[0]) != 8 || fs.prev[0] != "" {
+		t.Fatalf("calls=%d", len(fs.calls))
+	}
+	conv, _ := e.db.Conversations().Get(ctx, e.user.ID, convID)
+	if conv.Summary == "" || conv.SummaryUntil != fs.calls[0][7].ID {
+		t.Fatalf("conv=%+v", conv)
+	}
+	// 下一轮：提示词带上摘要，已经整理的消息不再出现。
+	if _, err := e.svc.Send(ctx, e.user, SendInput{ConversationID: convID, Content: "第7句"}, &recordSink{}); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	req := e.chat.reqs[len(e.chat.reqs)-1]
+	if !strings.Contains(req.Messages[0].Content, "这段对话之前聊过的") || !strings.Contains(req.Messages[0].Content, conv.Summary) {
+		t.Fatal("系统提示词应带上摘要")
+	}
+	for _, m := range req.Messages[1:] {
+		if m.Content == "第1句" || m.Content == "第4句" {
+			t.Fatalf("已整理的消息不应出现: %q", m.Content)
+		}
+	}
+	if req.Messages[len(req.Messages)-1].Content != "第7句" || !hasContent(req.Messages, "第5句") {
+		t.Fatalf("未整理的消息应原样保留: %+v", req.Messages)
+	}
+}
+
+func hasContent(msgs []llm.Message, s string) bool {
+	for _, m := range msgs {
+		if m.Content == s {
+			return true
+		}
+	}
+	return false
 }
