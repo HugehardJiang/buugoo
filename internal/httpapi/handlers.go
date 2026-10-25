@@ -1,6 +1,9 @@
 package httpapi
 
 import (
+	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -9,10 +12,14 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/HugehardJiang/buugoo/internal/auth"
+	"github.com/HugehardJiang/buugoo/internal/chat"
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/memory"
+	"github.com/HugehardJiang/buugoo/internal/models"
 	"github.com/HugehardJiang/buugoo/internal/store"
 )
+
+func modelUser(u *store.User) models.User { return models.User{ID: u.ID, IsAdmin: u.IsAdmin} }
 
 // ---------- DTO ----------
 
@@ -42,12 +49,29 @@ type messageDTO struct {
 	ID        uint64    `json:"id"`
 	Role      string    `json:"role"`
 	Content   string    `json:"content"`
+	Reasoning string    `json:"reasoning,omitempty"`
+	Model     string    `json:"model,omitempty"`
 	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
 func toMessage(m *store.Message) messageDTO {
-	return messageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Status: m.Status, CreatedAt: m.CreatedAt}
+	return messageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Reasoning: m.Reasoning, Model: m.Model,
+		Status: m.Status, CreatedAt: m.CreatedAt}
+}
+
+type conversationDTO struct {
+	ID            uint64     `json:"id"`
+	Title         string     `json:"title"`
+	ModelID       *uint64    `json:"model_id"`
+	Thinking      string     `json:"thinking"`
+	CreatedAt     time.Time  `json:"created_at"`
+	LastMessageAt *time.Time `json:"last_message_at"`
+}
+
+func toConversation(c *store.Conversation) conversationDTO {
+	return conversationDTO{ID: c.ID, Title: c.Title, ModelID: c.ModelID, Thinking: c.Thinking,
+		CreatedAt: c.CreatedAt, LastMessageAt: c.LastMessageAt}
 }
 
 type memoryDTO struct {
@@ -177,7 +201,16 @@ func (s *server) me(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	return c.JSON(http.StatusOK, map[string]any{"user": toUser(u), "quota": st})
+	ctx := c.Request().Context()
+	ms, err := s.Models.List(ctx, modelUser(u))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"user": toUser(u), "quota": st,
+		"has_model":       len(ms) > 0,
+		"embedding_ready": s.Models.EmbeddingReady(ctx),
+	})
 }
 
 // ---------- 对话 ----------
@@ -185,28 +218,117 @@ func (s *server) me(c echo.Context) error {
 func (s *server) listConversations(c echo.Context) error {
 	ctx := c.Request().Context()
 	u := currentUser(c)
-	// 确保主对话存在，前端总能拿到一条对话。
+	// 确保至少有一段对话，前端总能拿到一条对话。
 	if _, err := s.Store.Conversations().Primary(ctx, u.ID); err != nil {
 		return err
 	}
-	convs, err := s.Store.Conversations().List(ctx, u.ID)
+	convs, err := s.Chat.ListConversations(ctx, u)
 	if err != nil {
 		return err
 	}
-	type convDTO struct {
-		ID            uint64     `json:"id"`
-		Title         string     `json:"title"`
-		CreatedAt     time.Time  `json:"created_at"`
-		LastMessageAt *time.Time `json:"last_message_at"`
-	}
-	out := make([]convDTO, len(convs))
-	for i, cv := range convs {
-		out[i] = convDTO{ID: cv.ID, Title: cv.Title, CreatedAt: cv.CreatedAt, LastMessageAt: cv.LastMessageAt}
+	out := make([]conversationDTO, len(convs))
+	for i := range convs {
+		out[i] = toConversation(&convs[i])
 	}
 	return c.JSON(http.StatusOK, map[string]any{"conversations": out})
 }
 
+// conversationPatch 解析 {"title", "model_id", "thinking"}；model_id 为 null 表示改回默认模型，
+// 不出现表示不修改。
+func conversationPatch(c echo.Context) (chat.ConversationPatch, error) {
+	var raw map[string]json.RawMessage
+	if err := json.NewDecoder(c.Request().Body).Decode(&raw); err != nil && !errors.Is(err, io.EOF) {
+		return chat.ConversationPatch{}, badRequest("请求格式错误")
+	}
+	var p chat.ConversationPatch
+	if v, ok := raw["title"]; ok {
+		var t string
+		if err := json.Unmarshal(v, &t); err != nil {
+			return p, badRequest("title 无效")
+		}
+		p.Title = &t
+	}
+	if v, ok := raw["thinking"]; ok {
+		var t string
+		if err := json.Unmarshal(v, &t); err != nil {
+			return p, badRequest("thinking 无效")
+		}
+		p.Thinking = &t
+	}
+	if v, ok := raw["model_id"]; ok {
+		p.SetModel = true
+		if string(v) != "null" {
+			var id uint64
+			if err := json.Unmarshal(v, &id); err != nil {
+				return p, badRequest("model_id 无效")
+			}
+			p.ModelID = &id
+		}
+	}
+	return p, nil
+}
+
+func (s *server) createConversation(c echo.Context) error {
+	p, err := conversationPatch(c)
+	if err != nil {
+		return err
+	}
+	conv, err := s.Chat.CreateConversation(c.Request().Context(), currentUser(c), p)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusCreated, toConversation(conv))
+}
+
+func (s *server) updateConversation(c echo.Context) error {
+	id, err := pathID(c)
+	if err != nil {
+		return err
+	}
+	p, err := conversationPatch(c)
+	if err != nil {
+		return err
+	}
+	conv, err := s.Chat.UpdateConversation(c.Request().Context(), currentUser(c), id, p)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, toConversation(conv))
+}
+
+func (s *server) deleteConversation(c echo.Context) error {
+	id, err := pathID(c)
+	if err != nil {
+		return err
+	}
+	if err := s.Chat.DeleteConversation(c.Request().Context(), currentUser(c), id); err != nil {
+		return err
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (s *server) listConversationMessages(c echo.Context) error {
+	id, err := pathID(c)
+	if err != nil {
+		return err
+	}
+	return s.messages(c, id)
+}
+
+// listMessages 读取最近一段对话的消息（兼容只有一条对话的客户端，例如终端聊天）。
 func (s *server) listMessages(c echo.Context) error {
+	var convID uint64
+	if raw := c.QueryParam("conversation_id"); raw != "" {
+		id, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil {
+			return badRequest("conversation_id 无效")
+		}
+		convID = id
+	}
+	return s.messages(c, convID)
+}
+
+func (s *server) messages(c echo.Context, convID uint64) error {
 	limit, err := queryInt(c, "limit", 50, 1, 200)
 	if err != nil {
 		return err
@@ -217,7 +339,7 @@ func (s *server) listMessages(c echo.Context) error {
 			return badRequest("before_id 无效")
 		}
 	}
-	conv, msgs, err := s.Chat.History(c.Request().Context(), currentUser(c), before, limit)
+	conv, msgs, err := s.Chat.History(c.Request().Context(), currentUser(c), convID, before, limit)
 	if err != nil {
 		return err
 	}
@@ -295,7 +417,15 @@ func (s *server) debugPrompt(c echo.Context) error {
 		return echo.ErrNotFound
 	}
 	q := c.QueryParam("q")
-	p, err := s.Chat.Preview(c.Request().Context(), currentUser(c), q)
+	var convID uint64
+	if raw := c.QueryParam("conversation_id"); raw != "" {
+		id, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil {
+			return badRequest("conversation_id 无效")
+		}
+		convID = id
+	}
+	p, err := s.Chat.Preview(c.Request().Context(), currentUser(c), convID, q)
 	if err != nil {
 		return err
 	}

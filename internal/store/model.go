@@ -48,11 +48,32 @@ func (i *Invite) Usable(now time.Time) bool {
 	return i.MaxUses == 0 || i.UsedCount < i.MaxUses
 }
 
-// Conversation 是一段对话。第一阶段每个用户只有一条连续对话，表结构为多会话预留。
+// 思考等级。
+const (
+	ThinkingOff    = "off"
+	ThinkingLow    = "low"
+	ThinkingMedium = "medium"
+	ThinkingHigh   = "high"
+)
+
+// ValidThinking 报告思考等级是否合法。
+func ValidThinking(t string) bool {
+	switch t {
+	case ThinkingOff, ThinkingLow, ThinkingMedium, ThinkingHigh:
+		return true
+	}
+	return false
+}
+
+// Conversation 是一段对话。每个用户可以有多段对话，记忆在所有对话之间共享。
 type Conversation struct {
-	ID            uint64 `gorm:"primaryKey"`
-	UserID        uint64 `gorm:"index:idx_conv_user_last,priority:1;not null"`
-	Title         string `gorm:"size:255;not null;default:''"`
+	ID     uint64 `gorm:"primaryKey"`
+	UserID uint64 `gorm:"index:idx_conv_user_last,priority:1;not null"`
+	Title  string `gorm:"size:255;not null;default:''"`
+	// ModelID 是这段对话使用的模型（model_configs.id），为空表示使用默认模型。
+	ModelID *uint64 ``
+	// Thinking 是思考等级：off | low | medium | high。
+	Thinking      string `gorm:"size:16;not null;default:'off'"`
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	LastMessageAt *time.Time `gorm:"index:idx_conv_user_last,priority:2"`
@@ -83,8 +104,51 @@ type Message struct {
 	PromptTokens     int    `gorm:"not null;default:0"`
 	CompletionTokens int    `gorm:"not null;default:0"`
 	Status           string `gorm:"size:16;not null;default:'complete'"`
-	CreatedAt        time.Time
+	// Reasoning 是模型的思考过程，只用于展示，不会放进之后的提示词，也不参与记忆提取。
+	Reasoning string  `gorm:"size:65536"`
+	ModelID   *uint64 ``
+	CreatedAt time.Time
 }
+
+// 思考参数格式：不同服务开启思考的方式不同。
+const (
+	ThinkingStyleNone      = "none"             // 不支持
+	ThinkingStyleEffort    = "reasoning_effort" // OpenAI 风格：reasoning_effort = low | medium | high
+	ThinkingStyleEnable    = "enable_thinking"  // 通义千问 / 硅基流动风格：enable_thinking + thinking_budget
+	ThinkingStyleSwitchMod = "model_switch"     // 换用单独的推理模型（如 DeepSeek 的 deepseek-reasoner）
+)
+
+// ValidThinkingStyle 报告思考参数格式是否合法。
+func ValidThinkingStyle(s string) bool {
+	switch s {
+	case ThinkingStyleNone, ThinkingStyleEffort, ThinkingStyleEnable, ThinkingStyleSwitchMod:
+		return true
+	}
+	return false
+}
+
+// PublicOwner 是公共模型的 OwnerID（由管理员添加，所有用户可用）。
+const PublicOwner uint64 = 0
+
+// ModelConfig 是在网页中添加的聊天模型（OpenAI 兼容协议）。APIKey 保存的是加密后的值。
+type ModelConfig struct {
+	ID            uint64  `gorm:"primaryKey"`
+	OwnerID       uint64  `gorm:"index;not null;default:0"`
+	Name          string  `gorm:"size:64;not null"`
+	BaseURL       string  `gorm:"size:512;not null"`
+	APIKey        string  `gorm:"column:api_key_enc;size:2048;not null;default:''"`
+	Model         string  `gorm:"size:128;not null"`
+	ThinkingStyle string  `gorm:"size:32;not null;default:'none'"`
+	ThinkingModel string  `gorm:"size:128;not null;default:''"`
+	Temperature   float64 `gorm:"not null;default:0.8"`
+	MaxTokens     int     `gorm:"not null;default:1024"`
+	IsDefault     bool    `gorm:"not null;default:false"`
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// Public 报告是否为公共模型。
+func (m *ModelConfig) Public() bool { return m.OwnerID == PublicOwner }
 
 // 记忆类型。
 const (

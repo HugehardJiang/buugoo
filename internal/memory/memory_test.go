@@ -156,7 +156,7 @@ type fakeExtractor struct {
 	err   error
 }
 
-func (f fakeExtractor) Extract(context.Context, ExtractInput) ([]Candidate, llm.Usage, error) {
+func (f fakeExtractor) Extract(context.Context, llm.ChatProvider, ExtractInput) ([]Candidate, llm.Usage, error) {
 	return f.cands, f.usage, f.err
 }
 
@@ -175,7 +175,7 @@ func TestWriterProcess(t *testing.T) {
 		usage: llm.Usage{PromptTokens: 100, CompletionTokens: 20},
 	}
 	cfg := config.MemoryWriteConfig{Enabled: true, ImportanceThreshold: 4, DedupSimilarity: 0.95, Workers: 1, QueueSize: 4}
-	w := NewWriter(db.Memories(), vs, emb, ext, cfg, nil, func(_ context.Context, _ uint64, u llm.Usage) { usedTokens += u.Total() })
+	w := NewWriter(db.Memories(), vs, emb, ext, cfg, nil, func(_ context.Context, _ WriteJob, u llm.Usage) { usedTokens += u.Total() })
 
 	written, err := w.Process(ctx, WriteJob{UserID: 1, ConversationID: 3, MessageID: 7})
 	if err != nil {
@@ -285,7 +285,7 @@ func (f *fakeChat) ChatStream(context.Context, llm.ChatRequest) (llm.ChatStream,
 
 func TestLLMExtractorPrompt(t *testing.T) {
 	fc := &fakeChat{reply: `{"memories":[{"type":"semantic","content":"用户对花生过敏","importance":9,"emotion":0.2,"source":"stated"}]}`}
-	cands, usage, err := NewLLMExtractor(fc).Extract(context.Background(), ExtractInput{
+	cands, usage, err := NewLLMExtractor(fc).Extract(context.Background(), nil, ExtractInput{
 		UserMessage: "我对花生过敏", AssistantReply: "记住啦", Known: []string{"用户住在沈阳"},
 		Now: time.Date(2026, 10, 25, 9, 0, 0, 0, time.UTC),
 	})

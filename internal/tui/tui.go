@@ -35,6 +35,8 @@ type entry struct {
 	status   string
 	err      string
 	memories []client.UsedMemory
+	// thinking 表示模型正在输出思考过程（命令行中不展示思考内容）。
+	thinking bool
 	// rendered 缓存渲染结果，宽度变化时失效。
 	rendered      string
 	renderedWidth int
@@ -203,6 +205,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.ev.Type {
 		case "memories":
 			last.memories = msg.ev.Memories
+		case "reasoning":
+			last.thinking = true
 		case "delta":
 			last.content += msg.ev.Text
 		case "done":
@@ -455,6 +459,8 @@ func (m *Model) renderEntry(e *entry, width int) string {
 			b.WriteString(lipgloss.NewStyle().PaddingLeft(2).Width(width).Inherit(styleRecall).Render(mem.String()) + "\n")
 		}
 		switch {
+		case streaming && e.content == "" && e.thinking:
+			b.WriteString("  " + m.sp.View() + styleMuted.Render(" 思考中…"))
 		case streaming && e.content == "":
 			b.WriteString("  " + m.sp.View())
 		case streaming:

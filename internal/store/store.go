@@ -24,6 +24,7 @@ type Store interface {
 	Users() UserRepo
 	Invites() InviteRepo
 	Conversations() ConversationRepo
+	Models() ModelRepo
 	Messages() MessageRepo
 	Memories() MemoryRepo
 	Usage() UsageRepo
@@ -66,11 +67,31 @@ type InviteRepo interface {
 
 // ConversationRepo 是对话数据访问接口。
 type ConversationRepo interface {
-	// Primary 返回用户的主对话（第一阶段每个用户一条连续对话），不存在时创建。
+	// Primary 返回用户最近使用的对话，不存在时创建（终端聊天等未指定对话的客户端使用）。
 	Primary(ctx context.Context, userID uint64) (*Conversation, error)
+	Create(ctx context.Context, c *Conversation) error
 	Get(ctx context.Context, userID, id uint64) (*Conversation, error)
+	// List 按最近活动时间倒序列出用户的对话。
 	List(ctx context.Context, userID uint64) ([]Conversation, error)
+	// Update 更新标题、模型、思考等级等字段（键为列名）。
+	Update(ctx context.Context, userID, id uint64, fields map[string]any) error
+	// Delete 删除对话及其消息（记忆不受影响）。
+	Delete(ctx context.Context, userID, id uint64) error
 	Touch(ctx context.Context, userID, id uint64, at time.Time) error
+	// ClearModel 把使用某个模型的对话改回默认模型（删除模型时调用）。
+	ClearModel(ctx context.Context, modelID uint64) error
+}
+
+// ModelRepo 是模型配置数据访问接口。
+type ModelRepo interface {
+	Create(ctx context.Context, m *ModelConfig) error
+	Get(ctx context.Context, id uint64) (*ModelConfig, error)
+	// ListVisible 列出公共模型与该用户自己的模型。
+	ListVisible(ctx context.Context, userID uint64) ([]ModelConfig, error)
+	Update(ctx context.Context, m *ModelConfig) error
+	Delete(ctx context.Context, id uint64) error
+	// SetDefault 把 id 设为该所有者的默认模型（同一所有者只有一个默认模型）。
+	SetDefault(ctx context.Context, ownerID, id uint64) error
 }
 
 // MessageRepo 是消息数据访问接口。

@@ -262,6 +262,15 @@ func (s *Store) Invalidate(userID uint64) {
 	}
 }
 
+// InvalidateAll 实现 vector.Store。
+func (s *Store) InvalidateAll() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, e := range s.entries {
+		s.removeLocked(e)
+	}
+}
+
 // Stats 返回缓存统计（用户条目数、总字节数）。
 func (s *Store) Stats() (entries int, bytes int64) {
 	s.mu.Lock()

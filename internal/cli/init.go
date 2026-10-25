@@ -76,7 +76,11 @@ func runInit(cmd *cobra.Command, g *globalOpts, o *initOpts) error {
 	if err != nil {
 		return err
 	}
-	content := renderConfig(o.mode, dataDir, o.listen, secret)
+	encKey, err := randomSecret()
+	if err != nil {
+		return err
+	}
+	content := renderConfig(o.mode, dataDir, o.listen, secret, encKey)
 
 	out := cmd.OutOrStdout()
 	if o.stdout {
@@ -109,13 +113,14 @@ func runInit(cmd *cobra.Command, g *globalOpts, o *initOpts) error {
 	return nil
 }
 
-func renderConfig(mode, dataDir, listen, secret string) string {
+func renderConfig(mode, dataDir, listen, secret, encKey string) string {
 	r := strings.NewReplacer(
 		"{{MODE}}", mode,
 		// YAML 双引号字符串中反斜杠需要转义（Windows 路径）。
 		"{{DATA_DIR}}", strings.ReplaceAll(dataDir, `\`, `\\`),
 		"{{LISTEN}}", listen,
 		"{{JWT_SECRET}}", secret,
+		"{{ENC_KEY}}", encKey,
 	)
 	return r.Replace(configs.ConfigTemplate)
 }

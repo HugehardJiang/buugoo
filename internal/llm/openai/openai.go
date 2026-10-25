@@ -10,8 +10,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/HugehardJiang/buugoo/internal/config"
@@ -28,18 +31,57 @@ type client struct {
 	sleep func(context.Context, time.Duration) error
 }
 
-func newClient(baseURL, apiKey string, timeout time.Duration) client {
+// sharedTransport 被所有客户端共用：模型可以在网页中随时增删，每次请求都会构造客户端，
+// 共用连接池避免连接泄漏。总超时由 context 控制（流式输出可能持续较久）。
+var sharedTransport = &http.Transport{
+	Proxy:                 http.ProxyFromEnvironment,
+	ResponseHeaderTimeout: 180 * time.Second,
+	IdleConnTimeout:       90 * time.Second,
+	MaxIdleConnsPerHost:   10,
+}
+
+// ErrPrivateAddress 表示受限客户端试图连接内网地址。
+var ErrPrivateAddress = errors.New("出于安全考虑，自行添加的模型不能连接内网或本机地址")
+
+// publicTransport 只允许连接公网地址，用于多用户模式下普通用户自行添加的模型，
+// 防止借模型地址访问服务器内网（SSRF）。它不走代理：经代理时无法校验最终地址。
+var publicTransport = &http.Transport{
+	DialContext:           (&net.Dialer{Timeout: 30 * time.Second, Control: denyPrivate}).DialContext,
+	ResponseHeaderTimeout: 180 * time.Second,
+	IdleConnTimeout:       90 * time.Second,
+	MaxIdleConnsPerHost:   10,
+}
+
+// cgnat 是运营商级 NAT 地址段（100.64.0.0/10），也视为内网。
+var cgnat = netip.MustParsePrefix("100.64.0.0/10")
+
+// denyPrivate 在建立连接前检查解析后的 IP，拒绝回环、内网、链路本地等地址。
+func denyPrivate(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return err
+	}
+	ip = ip.Unmap()
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || cgnat.Contains(ip) {
+		return ErrPrivateAddress
+	}
+	return nil
+}
+
+func newClient(baseURL, apiKey string, publicOnly bool) client {
+	t := sharedTransport
+	if publicOnly {
+		t = publicTransport
+	}
 	return client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		apiKey:  apiKey,
-		// 超时由 context 控制（流式输出可能持续较久），这里只限制建立连接与响应头。
-		http: &http.Client{Transport: &http.Transport{
-			Proxy:                 http.ProxyFromEnvironment,
-			ResponseHeaderTimeout: timeout,
-			IdleConnTimeout:       90 * time.Second,
-			MaxIdleConnsPerHost:   10,
-		}},
-		sleep: sleepCtx,
+		http:    &http.Client{Transport: t},
+		sleep:   sleepCtx,
 	}
 }
 
@@ -86,6 +128,9 @@ func (c client) do(ctx context.Context, path string, body any, retry bool) (*htt
 				return nil, ctx.Err()
 			}
 			lastErr = fmt.Errorf("请求模型服务: %w", err)
+			if errors.Is(err, ErrPrivateAddress) {
+				return nil, lastErr
+			}
 			continue
 		}
 		if resp.StatusCode/100 == 2 {
@@ -139,20 +184,28 @@ var _ llm.ChatProvider = (*Chat)(nil)
 
 // NewChat 创建聊天补全客户端。
 func NewChat(cfg config.ModelConfig) *Chat {
-	return &Chat{client: newClient(cfg.BaseURL, cfg.APIKey, cfg.Timeout), cfg: cfg}
+	return &Chat{client: newClient(cfg.BaseURL, cfg.APIKey, false), cfg: cfg}
+}
+
+// NewPublicOnlyChat 创建只能连接公网地址的聊天补全客户端（用于不受信任的用户配置）。
+func NewPublicOnlyChat(cfg config.ModelConfig) *Chat {
+	return &Chat{client: newClient(cfg.BaseURL, cfg.APIKey, true), cfg: cfg}
 }
 
 // Model 实现 llm.ChatProvider。
 func (c *Chat) Model() string { return c.cfg.Model }
 
 type chatRequest struct {
-	Model          string         `json:"model"`
-	Messages       []llm.Message  `json:"messages"`
-	Temperature    *float32       `json:"temperature,omitempty"`
-	MaxTokens      int            `json:"max_tokens,omitempty"`
-	Stream         bool           `json:"stream,omitempty"`
-	StreamOptions  *streamOptions `json:"stream_options,omitempty"`
-	ResponseFormat *respFormat    `json:"response_format,omitempty"`
+	Model           string         `json:"model"`
+	ReasoningEffort string         `json:"reasoning_effort,omitempty"`
+	EnableThinking  *bool          `json:"enable_thinking,omitempty"`
+	ThinkingBudget  int            `json:"thinking_budget,omitempty"`
+	Messages        []llm.Message  `json:"messages"`
+	Temperature     *float32       `json:"temperature,omitempty"`
+	MaxTokens       int            `json:"max_tokens,omitempty"`
+	Stream          bool           `json:"stream,omitempty"`
+	StreamOptions   *streamOptions `json:"stream_options,omitempty"`
+	ResponseFormat  *respFormat    `json:"response_format,omitempty"`
 }
 
 type streamOptions struct {
@@ -187,14 +240,61 @@ func (c *Chat) build(req llm.ChatRequest, stream bool) chatRequest {
 	if req.JSON {
 		r.ResponseFormat = &respFormat{Type: "json_object"}
 	}
+	c.applyThinking(&r, req.Thinking)
 	return r
+}
+
+// thinkingBudget 是 enable_thinking 方式下各等级的思考 token 预算。
+var thinkingBudget = map[string]int{"low": 1024, "medium": 4096, "high": 16384}
+
+// applyThinking 按模型配置的思考参数格式开启或关闭思考。
+func (c *Chat) applyThinking(r *chatRequest, level string) {
+	on := level != "" && level != "off"
+	switch c.cfg.ThinkingStyle {
+	case "reasoning_effort":
+		if on {
+			r.ReasoningEffort = level
+			// 推理模型通常不接受 temperature，max_tokens 也会被思考占用，交给服务端默认值。
+			r.Temperature = nil
+			r.MaxTokens = 0
+		}
+	case "enable_thinking":
+		r.EnableThinking = &on
+		if on {
+			r.ThinkingBudget = thinkingBudget[level]
+			if r.MaxTokens > 0 {
+				r.MaxTokens += r.ThinkingBudget
+			}
+		}
+	case "model_switch":
+		if on && c.cfg.ThinkingModel != "" {
+			r.Model = c.cfg.ThinkingModel
+			r.Temperature = nil
+			r.MaxTokens = 0
+		}
+	}
+}
+
+type respMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+	// DeepSeek、通义千问、硅基流动使用 reasoning_content；OpenRouter 等使用 reasoning。
+	ReasoningContent string `json:"reasoning_content"`
+	Reasoning        string `json:"reasoning"`
+}
+
+func (m respMessage) reasoning() string {
+	if m.ReasoningContent != "" {
+		return m.ReasoningContent
+	}
+	return m.Reasoning
 }
 
 type chatResponse struct {
 	Model   string `json:"model"`
 	Choices []struct {
-		Message      llm.Message `json:"message"`
-		Delta        llm.Message `json:"delta"`
+		Message      respMessage `json:"message"`
+		Delta        respMessage `json:"delta"`
 		FinishReason *string     `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *llm.Usage `json:"usage"`
@@ -219,7 +319,7 @@ func (c *Chat) Chat(ctx context.Context, req llm.ChatRequest) (*llm.ChatResponse
 	if len(out.Choices) == 0 {
 		return nil, errors.New("模型响应中没有 choices")
 	}
-	r := &llm.ChatResponse{Content: out.Choices[0].Message.Content, Model: out.Model}
+	r := &llm.ChatResponse{Content: out.Choices[0].Message.Content, Reasoning: out.Choices[0].Message.reasoning(), Model: out.Model}
 	if fr := out.Choices[0].FinishReason; fr != nil {
 		r.FinishReason = *fr
 	}
@@ -300,11 +400,11 @@ func (s *sseStream) Recv() (llm.Chunk, error) {
 			}
 		}
 		for _, ch := range ev.Choices {
-			c := llm.Chunk{Delta: ch.Delta.Content, Model: ev.Model}
+			c := llm.Chunk{Delta: ch.Delta.Content, Reasoning: ch.Delta.reasoning(), Model: ev.Model}
 			if ch.FinishReason != nil {
 				c.FinishReason = *ch.FinishReason
 			}
-			if c.Delta != "" || c.FinishReason != "" {
+			if c.Delta != "" || c.Reasoning != "" || c.FinishReason != "" {
 				s.pending = append(s.pending, c)
 			}
 		}
@@ -328,7 +428,7 @@ var _ llm.EmbeddingProvider = (*Embedding)(nil)
 
 // NewEmbedding 创建向量化客户端。
 func NewEmbedding(cfg config.EmbeddingConfig) *Embedding {
-	return &Embedding{client: newClient(cfg.BaseURL, cfg.APIKey, cfg.Timeout), cfg: cfg}
+	return &Embedding{client: newClient(cfg.BaseURL, cfg.APIKey, false), cfg: cfg}
 }
 
 // Model 实现 llm.EmbeddingProvider。

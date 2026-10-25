@@ -21,10 +21,14 @@ type WriteJob struct {
 	ConversationID uint64
 	MessageID      uint64 // 用户消息 ID，记为记忆来源
 	Input          ExtractInput
+	// Chat 是本轮对话使用的模型，记忆提取跟随它；为空时使用默认模型。
+	Chat llm.ChatProvider
+	// Personal 为 true 表示使用用户自己的 API Key，不计入每日限额。
+	Personal bool
 }
 
 // UsageFunc 用于把后台任务消耗的 token 计入用户用量。
-type UsageFunc func(ctx context.Context, userID uint64, u llm.Usage)
+type UsageFunc func(ctx context.Context, job WriteJob, u llm.Usage)
 
 // Writer 异步执行记忆写入：LLM 提取 → 按重要性过滤 → 向量化 → 去重 → 入库。
 // 写入失败只记录日志，不影响对话。
@@ -129,9 +133,9 @@ func (w *Writer) Process(ctx context.Context, job WriteJob) ([]store.Memory, err
 	unlock := w.lockUser(job.UserID)
 	defer unlock()
 
-	cands, usage, err := w.ext.Extract(ctx, job.Input)
+	cands, usage, err := w.ext.Extract(ctx, job.Chat, job.Input)
 	if w.onUsage != nil && usage.Total() > 0 {
-		w.onUsage(ctx, job.UserID, usage)
+		w.onUsage(ctx, job, usage)
 	}
 	if err != nil {
 		return nil, err

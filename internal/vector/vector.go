@@ -115,6 +115,8 @@ type Store interface {
 	Upsert(ctx context.Context, userID uint64, model string, id uint64, vec []float32) error
 	// Delete 删除一条向量（所有模型下）。
 	Delete(ctx context.Context, userID, id uint64) error
-	// Invalidate 丢弃该用户的缓存（例如批量重新计算向量之后）。
+	// Invalidate 丢弃该用户的缓存。
 	Invalidate(userID uint64)
+	// InvalidateAll 丢弃全部缓存（例如批量重新计算向量之后）。
+	InvalidateAll()
 }

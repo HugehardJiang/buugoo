@@ -31,6 +31,14 @@ auth:
   # multi 模式的注册方式：open（开放注册）| invite（邀请码注册）| closed（关闭注册）
   registration: invite
 
+security:
+  # 加密数据库中保存的模型 API Key（在网页里添加的模型），buugoo init 会自动生成。
+  # 丢失后已保存的 Key 无法解密，需要在网页里重新填写。
+  encryption_key: "{{ENC_KEY}}"
+  # multi 模式下，普通用户自己添加的模型默认只能连接公网地址（防止借此探测服务器内网）。
+  # 只有用户都可信、需要连接局域网模型（如 Ollama）时才改为 true。管理员不受此限制。
+  allow_private_model_urls: false
+
 database:
   # sqlite（默认，零配置）| mysql
   driver: sqlite
@@ -41,6 +49,8 @@ database:
   max_open_conns: 10
   max_idle_conns: 5
 
+# 模型也可以在网页的「设置 → 模型」中添加和切换（推荐）。这里配置的是默认模型，
+# 网页中没有添加任何模型时使用；网页中配置了向量模型后，以网页中的为准。
 llm:
   # 聊天模型（OpenAI 兼容协议，可接 DeepSeek、通义千问、OpenAI 等）
   chat:
@@ -51,6 +61,10 @@ llm:
     temperature: 0.8
     max_tokens: 1024
     timeout: 120s
+    # 思考参数格式：none（不支持）| reasoning_effort（OpenAI 风格）|
+    # enable_thinking（通义千问、硅基流动风格）| model_switch（换用 thinking_model 指定的推理模型）
+    thinking_style: model_switch
+    thinking_model: deepseek-reasoner
   # 后台任务模型（记忆提取与打分），留空的字段沿用 chat 的配置，可换成更便宜的模型
   utility:
     provider: ""

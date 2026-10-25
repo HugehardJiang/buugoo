@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/HugehardJiang/buugoo/internal/config"
@@ -13,7 +14,7 @@ func TestRenderedConfigLoads(t *testing.T) {
 	dir := t.TempDir()
 	for _, mode := range []string{config.ModeSingle, config.ModeMulti} {
 		p := filepath.Join(dir, mode+".yaml")
-		if err := os.WriteFile(p, []byte(renderConfig(mode, dir, "127.0.0.1:8080", "0123456789abcdef0123456789abcdef")), 0o600); err != nil {
+		if err := os.WriteFile(p, []byte(renderConfig(mode, dir, "127.0.0.1:8080", "0123456789abcdef0123456789abcdef", strings.Repeat("ab", 32))), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		cfg, err := config.Load(p, "")

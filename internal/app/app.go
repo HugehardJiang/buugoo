@@ -18,10 +18,12 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/llm"
 	"github.com/HugehardJiang/buugoo/internal/llm/provider"
 	"github.com/HugehardJiang/buugoo/internal/memory"
+	"github.com/HugehardJiang/buugoo/internal/models"
 	"github.com/HugehardJiang/buugoo/internal/persona"
 	"github.com/HugehardJiang/buugoo/internal/prompt"
 	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/scheduler"
+	"github.com/HugehardJiang/buugoo/internal/secret"
 	"github.com/HugehardJiang/buugoo/internal/store/gormstore"
 	"github.com/HugehardJiang/buugoo/internal/vector/memstore"
 )
@@ -33,6 +35,7 @@ type App struct {
 	DB     *gormstore.DB
 	Auth   *auth.Service
 	Chat   *chat.Service
+	Models *models.Service
 	Writer *memory.Writer
 	// Scheduler 为空表示配置中关闭了定时任务。
 	Scheduler *scheduler.Scheduler
@@ -66,18 +69,22 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	if err != nil {
 		return nil, err
 	}
-	chatLLM, err := provider.NewChat(cfg.LLM.Chat)
-	if err != nil {
-		return nil, err
-	}
 	utilLLM, err := provider.NewChat(cfg.LLM.Utility)
 	if err != nil {
 		return nil, err
 	}
-	emb, err := provider.NewEmbedding(cfg.LLM.Embedding)
+	box, keySource, err := secret.Load(cfg.Security.EncryptionKey, cfg.DataDir)
 	if err != nil {
 		return nil, err
 	}
+	if keySource != "config" {
+		log.Info("网页中添加的 API Key 使用本地密钥文件加密，请与数据库一起备份", "file", keySource)
+	}
+	modelSvc, err := models.NewService(ctx, db, box, cfg, log)
+	if err != nil {
+		return nil, err
+	}
+	emb := modelSvc.Embedding()
 	authSvc, err := auth.NewService(ctx, cfg, db)
 	if err != nil {
 		return nil, err
@@ -88,22 +95,25 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	vs := memstore.New(db.Memories().LoadEmbeddings, cfg.Memory.Cache, log)
 	retriever := memory.NewRetriever(db.Memories(), vs, emb, cfg.Memory.Retrieval, cfg.Memory.Write.AccessBoost)
 	writer := memory.NewWriter(db.Memories(), vs, emb, memory.NewLLMExtractor(utilLLM), cfg.Memory.Write, log,
-		func(ctx context.Context, userID uint64, u llm.Usage) {
-			if err := limiter.Record(ctx, userID, 0, u.PromptTokens, u.CompletionTokens); err != nil {
-				log.Error("记录后台用量失败", "user_id", userID, "err", err)
+		func(ctx context.Context, job memory.WriteJob, u llm.Usage) {
+			if job.Personal {
+				return // 用户自带的 Key，不计入限额
+			}
+			if err := limiter.Record(ctx, job.UserID, 0, u.PromptTokens, u.CompletionTokens); err != nil {
+				log.Error("记录后台用量失败", "user_id", job.UserID, "err", err)
 			}
 		})
 	chatSvc := chat.New(chat.Deps{
-		Store: db, Chat: chatLLM, Retriever: retriever, Writer: writer,
+		Store: db, Models: modelSvc, Retriever: retriever, Writer: writer,
 		Builder: prompt.NewBuilder(p, cfg.Chat.MaxContextTokens), Quota: limiter,
 		Config: cfg.Chat, Location: loc, Logger: log,
 	})
 	handler := httpapi.New(httpapi.Deps{
 		Config: cfg, Store: db, Auth: authSvc, Chat: chatSvc, Memories: memory.NewManager(db.Memories(), vs),
-		Quota: limiter, PersonaName: p.Name, Logger: log,
-		LLMReady: func() (bool, bool) { return cfg.LLM.Chat.APIKey != "", cfg.LLM.Embedding.APIKey != "" },
+		Quota: limiter, Models: modelSvc, Reembed: memory.NewReembedder(db.Memories(), emb, vs, log),
+		PersonaName: p.Name, Logger: log,
 	})
-	a := &App{Config: cfg, Log: log, DB: db, Auth: authSvc, Chat: chatSvc, Writer: writer, Handler: handler}
+	a := &App{Config: cfg, Log: log, DB: db, Auth: authSvc, Chat: chatSvc, Models: modelSvc, Writer: writer, Handler: handler}
 	if cfg.Scheduler.Enabled {
 		a.Scheduler = scheduler.New(db.Jobs(), loc, log)
 		// 第二阶段在此注入 Consolidator 实现。
@@ -185,11 +195,12 @@ func (a *App) Close() error { return a.DB.Close() }
 
 func (a *App) warnings() {
 	cfg := a.Config
-	if cfg.LLM.Chat.APIKey == "" {
-		a.Log.Warn("未配置聊天模型 API Key（llm.chat.api_key），聊天将无法使用")
+	ctx := context.Background()
+	if ms, err := a.Models.List(ctx, models.User{IsAdmin: true}); err == nil && len(ms) == 0 && cfg.Mode == config.ModeSingle {
+		a.Log.Warn("还没有可用的聊天模型：请在配置文件 llm.chat 中填写，或登录网页在「设置 → 模型」中添加")
 	}
-	if cfg.LLM.Embedding.APIKey == "" {
-		a.Log.Warn("未配置向量模型 API Key（llm.embedding.api_key），记忆检索与写入将无法使用")
+	if !a.Models.EmbeddingReady(ctx) {
+		a.Log.Warn("未配置向量模型 API Key，记忆检索与写入将无法使用：请在配置文件 llm.embedding 中填写，或由管理员在网页「设置 → 向量模型」中配置")
 	}
 	if cfg.Mode == config.ModeSingle && cfg.Auth.AccessPassword == "" && !isLoopback(cfg.Server.Listen) {
 		a.Log.Warn("服务对外监听但未设置访问密码，任何能访问该地址的人都可以和布谷聊天并查看记忆！请设置 auth.access_password",

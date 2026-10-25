@@ -18,8 +18,11 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/chat"
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/llm"
+	"github.com/HugehardJiang/buugoo/internal/llm/openai"
 	"github.com/HugehardJiang/buugoo/internal/memory"
+	"github.com/HugehardJiang/buugoo/internal/models"
 	"github.com/HugehardJiang/buugoo/internal/quota"
+	"github.com/HugehardJiang/buugoo/internal/secret"
 	"github.com/HugehardJiang/buugoo/internal/store"
 )
 
@@ -31,10 +34,10 @@ type Deps struct {
 	Chat        *chat.Service
 	Memories    *memory.Manager
 	Quota       *quota.Limiter
+	Models      *models.Service
+	Reembed     *memory.Reembedder
 	PersonaName string
 	Logger      *slog.Logger
-	// LLMReady 报告聊天与向量模型是否已配置 API Key（用于前端提示）。
-	LLMReady func() (chatReady, embeddingReady bool)
 }
 
 type server struct {
@@ -76,7 +79,7 @@ func New(d Deps) http.Handler {
 		e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 			AllowOrigins: origins,
 			AllowHeaders: []string{echo.HeaderAuthorization, echo.HeaderContentType},
-			AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodDelete, http.MethodOptions},
+			AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodPut, http.MethodDelete, http.MethodOptions},
 		}))
 	}
 
@@ -102,8 +105,19 @@ func New(d Deps) http.Handler {
 	priv.POST("/auth/password", s.changePassword)
 	priv.GET("/me", s.me)
 	priv.GET("/conversations", s.listConversations)
+	priv.POST("/conversations", s.createConversation)
+	priv.PATCH("/conversations/:id", s.updateConversation)
+	priv.DELETE("/conversations/:id", s.deleteConversation)
+	priv.GET("/conversations/:id/messages", s.listConversationMessages)
 	priv.GET("/messages", s.listMessages)
 	priv.POST("/chat", s.chat)
+	priv.GET("/models", s.listModels)
+	priv.POST("/models", s.createModel)
+	priv.POST("/models/test", s.testModelInput)
+	priv.PUT("/models/:id", s.updateModel)
+	priv.DELETE("/models/:id", s.deleteModel)
+	priv.POST("/models/:id/default", s.setDefaultModel)
+	priv.POST("/models/:id/test", s.testModel)
 	priv.GET("/memories", s.listMemories)
 	priv.GET("/memories/:id", s.getMemory)
 	priv.DELETE("/memories/:id", s.deleteMemory)
@@ -114,6 +128,11 @@ func New(d Deps) http.Handler {
 	admin.GET("/invites", s.adminListInvites)
 	admin.POST("/invites", s.adminCreateInvite)
 	admin.DELETE("/invites/:id", s.adminDeleteInvite)
+	admin.GET("/embedding", s.adminGetEmbedding)
+	admin.PUT("/embedding", s.adminSetEmbedding)
+	admin.POST("/embedding/test", s.adminTestEmbedding)
+	admin.GET("/embedding/reembed", s.adminReembedStatus)
+	admin.POST("/embedding/reembed", s.adminStartReembed)
 
 	// 未匹配的 /api 路径返回 JSON 404，其余交给前端。
 	api.Any("/*", func(echo.Context) error { return echo.ErrNotFound })
@@ -159,18 +178,13 @@ func (s *server) healthz(c echo.Context) error {
 }
 
 func (s *server) meta(c echo.Context) error {
-	chatReady, embReady := true, true
-	if s.LLMReady != nil {
-		chatReady, embReady = s.LLMReady()
-	}
 	return c.JSON(http.StatusOK, map[string]any{
 		"name":              s.PersonaName,
 		"version":           buildinfo.Version,
 		"mode":              s.Config.Mode,
 		"password_required": s.Auth.PasswordRequired(),
 		"registration":      s.Auth.Registration(),
-		"llm_ready":         chatReady,
-		"embedding_ready":   embReady,
+		"embedding_ready":   s.Models.EmbeddingReady(c.Request().Context()),
 	})
 }
 
@@ -229,6 +243,7 @@ func toAPIError(err error) *apiError {
 	var ve *auth.ValidationError
 	var qe *quota.ExceededError
 	var le *llm.APIError
+	var mi *models.InvalidError
 	switch {
 	case errors.As(err, &ae):
 		return ae
@@ -249,11 +264,25 @@ func toAPIError(err error) *apiError {
 		return &apiError{Status: http.StatusBadRequest, Code: "invalid_invite", Message: err.Error()}
 	case errors.Is(err, auth.ErrUsernameTaken):
 		return &apiError{Status: http.StatusConflict, Code: "username_taken", Message: err.Error()}
+	case errors.As(err, &mi):
+		return &apiError{Status: http.StatusBadRequest, Code: "invalid_input", Message: mi.Msg}
+	case errors.Is(err, models.ErrForbidden):
+		return &apiError{Status: http.StatusForbidden, Code: "forbidden", Message: err.Error()}
+	case errors.Is(err, models.ErrNoModel):
+		return &apiError{Status: http.StatusServiceUnavailable, Code: "no_model", Message: err.Error()}
+	case errors.Is(err, secret.ErrDecrypt):
+		return &apiError{Status: http.StatusConflict, Code: "key_unreadable", Message: err.Error()}
+	case errors.Is(err, memory.ErrReembedRunning):
+		return &apiError{Status: http.StatusConflict, Code: "busy", Message: err.Error()}
+	case errors.Is(err, chat.ErrInvalidThinking), errors.Is(err, chat.ErrModelNotFound), errors.Is(err, chat.ErrTitleTooLong):
+		return &apiError{Status: http.StatusBadRequest, Code: "invalid_input", Message: err.Error()}
 	case errors.Is(err, chat.ErrEmptyMessage), errors.Is(err, chat.ErrMessageTooLong):
 		return &apiError{Status: http.StatusBadRequest, Code: "invalid_message", Message: err.Error()}
+	case errors.Is(err, openai.ErrPrivateAddress):
+		return &apiError{Status: http.StatusBadRequest, Code: "private_address", Message: openai.ErrPrivateAddress.Error()}
 	case errors.Is(err, llm.ErrNotConfigured):
 		return &apiError{Status: http.StatusServiceUnavailable, Code: "llm_not_configured",
-			Message: "模型未配置：请在配置文件中填写 llm.chat.api_key 后重启服务"}
+			Message: "模型缺少 API Key：请在「设置 → 模型」中填写"}
 	case errors.As(err, &le):
 		return &apiError{Status: http.StatusBadGateway, Code: "llm_error", Message: "生成回复失败：" + le.Error()}
 	case errors.Is(err, store.ErrNotFound):

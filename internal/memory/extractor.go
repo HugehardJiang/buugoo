@@ -35,18 +35,20 @@ type ExtractInput struct {
 	Now   time.Time
 }
 
-// Extractor 从对话中提取值得记住的内容并打分。
+// Extractor 从对话中提取值得记住的内容并打分。chat 为本轮对话使用的模型，为空时使用默认模型。
 type Extractor interface {
-	Extract(ctx context.Context, in ExtractInput) ([]Candidate, llm.Usage, error)
+	Extract(ctx context.Context, chat llm.ChatProvider, in ExtractInput) ([]Candidate, llm.Usage, error)
 }
 
 // LLMExtractor 用 LLM 实现 Extractor。
 type LLMExtractor struct {
-	chat llm.ChatProvider
+	fallback llm.ChatProvider
 }
 
-// NewLLMExtractor 创建提取器，建议使用 utility 模型。
-func NewLLMExtractor(chat llm.ChatProvider) *LLMExtractor { return &LLMExtractor{chat: chat} }
+// NewLLMExtractor 创建提取器。fallback 在任务没有指定模型时使用（可为空）。
+func NewLLMExtractor(fallback llm.ChatProvider) *LLMExtractor {
+	return &LLMExtractor{fallback: fallback}
+}
 
 const maxMemoryRunes = 300
 
@@ -70,7 +72,13 @@ const extractSystemPrompt = `你是一个记忆整理助手，负责从"用户"�
 没有值得记住的内容时输出 {"memories":[]}。`
 
 // Extract 实现 Extractor。
-func (e *LLMExtractor) Extract(ctx context.Context, in ExtractInput) ([]Candidate, llm.Usage, error) {
+func (e *LLMExtractor) Extract(ctx context.Context, chat llm.ChatProvider, in ExtractInput) ([]Candidate, llm.Usage, error) {
+	if chat == nil {
+		chat = e.fallback
+	}
+	if chat == nil {
+		return nil, llm.Usage{}, errors.New("没有可用于记忆提取的模型")
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "当前时间：%s\n", timefmt.Full(in.Now))
 	if in.UserName != "" {
@@ -92,8 +100,10 @@ func (e *LLMExtractor) Extract(ctx context.Context, in ExtractInput) ([]Candidat
 	fmt.Fprintf(&b, "用户：%s\n", in.UserMessage)
 	fmt.Fprintf(&b, "布谷：%s\n", in.AssistantReply)
 
-	resp, err := e.chat.Chat(ctx, llm.ChatRequest{
-		JSON: true,
+	// 记忆提取不开启思考，降低成本。
+	resp, err := chat.Chat(ctx, llm.ChatRequest{
+		JSON:     true,
+		Thinking: "off",
 		Messages: []llm.Message{
 			{Role: llm.RoleSystem, Content: extractSystemPrompt},
 			{Role: llm.RoleUser, Content: b.String()},

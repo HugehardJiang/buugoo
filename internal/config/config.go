@@ -61,6 +61,7 @@ type Config struct {
 	Update    UpdateConfig    `koanf:"update"`
 	Log       LogConfig       `koanf:"log"`
 	Debug     DebugConfig     `koanf:"debug"`
+	Security  SecurityConfig  `koanf:"security"`
 
 	// path 记录实际加载的配置文件路径（未加载文件时为空），不参与反序列化。
 	path string
@@ -110,6 +111,10 @@ type ModelConfig struct {
 	Temperature float32       `koanf:"temperature"`
 	MaxTokens   int           `koanf:"max_tokens"`
 	Timeout     time.Duration `koanf:"timeout"`
+	// ThinkingStyle 是开启思考的参数格式：none | reasoning_effort | enable_thinking | model_switch。
+	ThinkingStyle string `koanf:"thinking_style"`
+	// ThinkingModel 是 model_switch 方式下开启思考时改用的模型，例如 deepseek-reasoner。
+	ThinkingModel string `koanf:"thinking_model"`
 }
 
 // EmbeddingConfig 是向量模型配置。
@@ -195,6 +200,17 @@ type LogConfig struct {
 	Format string `koanf:"format"`
 }
 
+// SecurityConfig 是加密相关配置。
+type SecurityConfig struct {
+	// EncryptionKey 用于加密数据库中保存的模型 API Key（64 位十六进制，即 32 字节）。
+	// 留空时自动生成并保存到 <data_dir>/secret.key；建议写在配置文件或环境变量中，
+	// 不与数据库放在同一处。
+	EncryptionKey string `koanf:"encryption_key"`
+	// AllowPrivateModelURLs 为 true 时，multi 模式下普通用户添加的模型也可以连接内网/本机地址
+	// （例如局域网里的 Ollama）。默认关闭，防止借模型地址探测服务器内网（SSRF）。
+	AllowPrivateModelURLs bool `koanf:"allow_private_model_urls"`
+}
+
 // DebugConfig 是调试开关。
 type DebugConfig struct {
 	// PromptEndpoint 为 true 时开放 /api/v1/debug/prompt（single 模式下默认可用）。
@@ -230,6 +246,9 @@ func Default() *Config {
 				Temperature: 0.8,
 				MaxTokens:   1024,
 				Timeout:     120 * time.Second,
+				// DeepSeek 通过换用 deepseek-reasoner 开启思考。
+				ThinkingStyle: "model_switch",
+				ThinkingModel: "deepseek-reasoner",
 			},
 			Utility: ModelConfig{
 				Temperature: 0.2,
@@ -435,6 +454,11 @@ func (c *Config) Validate() error {
 		if p != "openai" && p != "anthropic" {
 			errs = append(errs, fmt.Errorf("不支持的 LLM provider %q", p))
 		}
+	}
+	switch c.LLM.Chat.ThinkingStyle {
+	case "", "none", "reasoning_effort", "enable_thinking", "model_switch":
+	default:
+		errs = append(errs, fmt.Errorf("llm.chat.thinking_style %q 无效（可选 none、reasoning_effort、enable_thinking、model_switch）", c.LLM.Chat.ThinkingStyle))
 	}
 	if c.LLM.Embedding.Provider != "openai" {
 		errs = append(errs, fmt.Errorf("不支持的 embedding provider %q", c.LLM.Embedding.Provider))

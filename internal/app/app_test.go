@@ -58,6 +58,9 @@ func fakeLLM(t *testing.T) *httptest.Server {
 				return
 			}
 			w.Header().Set("Content-Type", "text/event-stream")
+			if req["reasoning_effort"] != nil {
+				fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"reasoning_content\":%q}}]}\n\n", "想一想："+req["reasoning_effort"].(string))
+			}
 			for _, piece := range []string{"好的", "，我知道了"} {
 				fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":%q}}]}\n\n", piece)
 				w.(http.Flusher).Flush()
@@ -310,16 +313,24 @@ func multiConfig(c *config.Config) {
 	}
 }
 
+// resetMySQL 清空共享 MySQL 测试库中的数据（其他包的测试也会写入）。
+func resetMySQL(t *testing.T, ta *testApp) {
+	t.Helper()
+	for _, q := range []string{"DELETE FROM memory_usages", "DELETE FROM memories", "DELETE FROM messages", "DELETE FROM conversations",
+		"DELETE FROM model_configs", "DELETE FROM usage_daily", "DELETE FROM invites", "DELETE FROM users",
+		"DELETE FROM app_meta WHERE meta_key = 'models.embedding'"} {
+		if err := ta.DB.Gorm().Exec(q).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestMultiModeIsolationAndQuota(t *testing.T) {
 	ta := newTestApp(t, multiConfig)
 	ctx := context.Background()
 	if os.Getenv("BUUGOO_TEST_MYSQL_DSN") != "" {
 		// MySQL 测试库在用例之间共享，先清空数据。
-		for _, tbl := range []string{"memory_usages", "memories", "messages", "conversations", "usage_daily", "invites", "users"} {
-			if err := ta.DB.Gorm().Exec("DELETE FROM " + tbl).Error; err != nil {
-				t.Fatal(err)
-			}
-		}
+		resetMySQL(t, ta)
 	}
 
 	admin, err := ta.Auth.CreateUser(ctx, "admin", "adminpass", true)
@@ -421,5 +432,173 @@ func TestWebFallback(t *testing.T) {
 	resp, b := ta.do(t, "GET", "/memories", "", nil)
 	if resp.StatusCode != 200 || !strings.Contains(string(b), "<html") {
 		t.Fatalf("前端路由应返回页面: %d", resp.StatusCode)
+	}
+}
+
+func TestConversationsAndModelsAPI(t *testing.T) {
+	ta := newTestApp(t, multiConfig)
+	ctx := context.Background()
+	if os.Getenv("BUUGOO_TEST_MYSQL_DSN") != "" {
+		resetMySQL(t, ta)
+	}
+	if _, err := ta.Auth.CreateUser(ctx, "admin", "adminpass", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ta.Auth.CreateUser(ctx, "alice", "password1", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ta.Auth.CreateUser(ctx, "bob", "password1", false); err != nil {
+		t.Fatal(err)
+	}
+	login := func(name, pass string) string {
+		_, b := ta.do(t, "POST", "/api/v1/auth/login", "", map[string]string{"username": name, "password": pass})
+		var s struct{ Token string }
+		_ = json.Unmarshal(b, &s)
+		return s.Token
+	}
+	admin, alice, bob := login("admin", "adminpass"), login("alice", "password1"), login("bob", "password1")
+	llmURL := ta.Config.LLM.Chat.BaseURL
+
+	// 模型列表：内置模型。
+	_, b := ta.do(t, "GET", "/api/v1/models", alice, nil)
+	if !strings.Contains(string(b), `"scope":"builtin"`) || strings.Contains(string(b), `"k"`) {
+		t.Fatalf("models: %s", b)
+	}
+
+	// alice 添加自己的模型（思考方式 reasoning_effort）。
+	model := map[string]any{"name": "我的 DS", "base_url": llmURL, "api_key": "sk-alice-0123456789", "model": "fake", "thinking_style": "reasoning_effort"}
+	resp, b := ta.do(t, "POST", "/api/v1/models", alice, model)
+	if resp.StatusCode != 201 || strings.Contains(string(b), "sk-alice-0123456789") {
+		t.Fatalf("create model: %d %s", resp.StatusCode, b)
+	}
+	var mv struct {
+		ID    uint64
+		Scope string
+	}
+	_ = json.Unmarshal(b, &mv)
+	if mv.Scope != "personal" {
+		t.Fatalf("scope=%s", mv.Scope)
+	}
+	model["public"] = true
+	if resp, _ := ta.do(t, "POST", "/api/v1/models", alice, model); resp.StatusCode != 403 {
+		t.Fatalf("普通用户不能添加公共模型: %d", resp.StatusCode)
+	}
+	if resp, _ := ta.do(t, "PUT", fmt.Sprintf("/api/v1/models/%d", mv.ID), bob, model); resp.StatusCode != 404 {
+		t.Fatalf("bob 不能修改 alice 的模型: %d", resp.StatusCode)
+	}
+
+	// 新建对话并选择该模型与思考等级。
+	resp, b = ta.do(t, "POST", "/api/v1/conversations", alice, map[string]any{"model_id": mv.ID, "thinking": "high"})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create conversation: %d %s", resp.StatusCode, b)
+	}
+	var conv struct {
+		ID       uint64
+		ModelID  *uint64 `json:"model_id"`
+		Thinking string
+	}
+	_ = json.Unmarshal(b, &conv)
+	if conv.ModelID == nil || *conv.ModelID != mv.ID || conv.Thinking != "high" {
+		t.Fatalf("conv: %s", b)
+	}
+	if resp, _ := ta.do(t, "POST", "/api/v1/conversations", bob, map[string]any{"model_id": mv.ID}); resp.StatusCode != 400 {
+		t.Fatalf("bob 不能使用 alice 的模型: %d", resp.StatusCode)
+	}
+
+	// 默认禁止普通用户的模型连接本机地址。
+	resp, b = ta.do(t, "POST", "/api/v1/chat", alice, map[string]any{"conversation_id": conv.ID, "content": "你好"})
+	if resp.StatusCode != 400 || !strings.Contains(string(b), "private_address") {
+		t.Fatalf("应拒绝内网地址: %d %s", resp.StatusCode, b)
+	}
+	ta.Config.Security.AllowPrivateModelURLs = true
+
+	// 自带 Key 不计入限额（每日 2 条）：连续发 3 条都应成功，并带有思考过程。
+	for i := 0; i < 3; i++ {
+		resp, b = ta.do(t, "POST", "/api/v1/chat", alice, map[string]any{"conversation_id": conv.ID, "content": "我养了一只猫"})
+		if resp.StatusCode != 200 {
+			t.Fatalf("chat %d: %d %s", i, resp.StatusCode, b)
+		}
+	}
+	events := parseSSE(t, b)
+	var reasoning string
+	for _, e := range events {
+		if e.Event == "reasoning" {
+			reasoning += e.Data["text"].(string)
+		}
+		if e.Event == "start" && e.Data["model"].(map[string]any)["name"] != "我的 DS" {
+			t.Fatalf("start: %v", e.Data)
+		}
+	}
+	if reasoning != "想一想：high" {
+		t.Fatalf("reasoning=%q events=%v", reasoning, events)
+	}
+	_, b = ta.do(t, "GET", "/api/v1/me", alice, nil)
+	if !strings.Contains(string(b), `"messages":0`) {
+		t.Fatalf("自带 Key 不应计入用量: %s", b)
+	}
+
+	// 消息历史按对话区分，并保存思考过程。
+	_, b = ta.do(t, "GET", fmt.Sprintf("/api/v1/conversations/%d/messages", conv.ID), alice, nil)
+	if !strings.Contains(string(b), `"reasoning":"想一想：high"`) || !strings.Contains(string(b), `"model":"fake"`) {
+		t.Fatalf("messages: %s", b)
+	}
+	if resp, _ := ta.do(t, "GET", fmt.Sprintf("/api/v1/conversations/%d/messages", conv.ID), bob, nil); resp.StatusCode != 404 {
+		t.Fatalf("bob 不能读 alice 的对话: %d", resp.StatusCode)
+	}
+
+	// 改名、改回默认模型、关闭思考。
+	resp, b = ta.do(t, "PATCH", fmt.Sprintf("/api/v1/conversations/%d", conv.ID), alice, map[string]any{"title": "养猫", "model_id": nil, "thinking": "off"})
+	if resp.StatusCode != 200 || !strings.Contains(string(b), `"title":"养猫"`) || !strings.Contains(string(b), `"model_id":null`) {
+		t.Fatalf("patch: %d %s", resp.StatusCode, b)
+	}
+	// 使用公共（内置）模型时计入限额。
+	ta.do(t, "POST", "/api/v1/chat", alice, map[string]any{"conversation_id": conv.ID, "content": "嗯", "stream": false})
+	_, b = ta.do(t, "GET", "/api/v1/me", alice, nil)
+	if !strings.Contains(string(b), `"messages":1`) {
+		t.Fatalf("公共模型应计入用量: %s", b)
+	}
+
+	_, b = ta.do(t, "GET", "/api/v1/conversations", alice, nil)
+	var list struct{ Conversations []struct{ ID uint64 } }
+	_ = json.Unmarshal(b, &list)
+	if len(list.Conversations) != 1 {
+		t.Fatalf("conversations: %s", b)
+	}
+	if resp, _ := ta.do(t, "DELETE", fmt.Sprintf("/api/v1/conversations/%d", conv.ID), alice, nil); resp.StatusCode != 204 {
+		t.Fatalf("delete conversation: %d", resp.StatusCode)
+	}
+	// 删除对话不影响记忆。
+	ta.waitMemories(t, alice, 1)
+
+	// 向量模型：仅管理员。
+	if resp, _ := ta.do(t, "GET", "/api/v1/admin/embedding", alice, nil); resp.StatusCode != 403 {
+		t.Fatalf("普通用户不能查看向量模型: %d", resp.StatusCode)
+	}
+	resp, b = ta.do(t, "GET", "/api/v1/admin/embedding", admin, nil)
+	if resp.StatusCode != 200 || !strings.Contains(string(b), `"source":"config"`) || !strings.Contains(string(b), `"pending":0`) {
+		t.Fatalf("embedding: %d %s", resp.StatusCode, b)
+	}
+	resp, b = ta.do(t, "PUT", "/api/v1/admin/embedding", admin, map[string]any{"base_url": llmURL, "model": "fake-emb-2"})
+	if resp.StatusCode != 200 || !strings.Contains(string(b), `"changed":true`) || !strings.Contains(string(b), `"pending":1`) {
+		t.Fatalf("set embedding: %d %s", resp.StatusCode, b)
+	}
+	resp, _ = ta.do(t, "POST", "/api/v1/admin/embedding/reembed", admin, nil)
+	if resp.StatusCode != 202 {
+		t.Fatalf("reembed: %d", resp.StatusCode)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		_, b = ta.do(t, "GET", "/api/v1/admin/embedding/reembed", admin, nil)
+		if strings.Contains(string(b), `"running":false`) || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !strings.Contains(string(b), `"done":1`) {
+		t.Fatalf("reembed status: %s", b)
+	}
+	_, b = ta.do(t, "GET", "/api/v1/admin/embedding", admin, nil)
+	if !strings.Contains(string(b), `"pending":0`) || !strings.Contains(string(b), `"source":"web"`) {
+		t.Fatalf("embedding after reembed: %s", b)
 	}
 }

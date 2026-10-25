@@ -237,7 +237,7 @@ func (c *Client) DebugPrompt(ctx context.Context, q string) (string, error) {
 
 // StreamEvent 是聊天流中的一个事件。
 type StreamEvent struct {
-	Type     string // start | memories | delta | done
+	Type     string // start | memories | reasoning | delta | done
 	Text     string
 	Memories []UsedMemory
 	Message  *Message
@@ -289,14 +289,14 @@ func parseStream(r io.Reader, onEvent func(StreamEvent)) (*Message, error) {
 				return fmt.Errorf("解析 memories 事件: %w", err)
 			}
 			onEvent(StreamEvent{Type: "memories", Memories: p.Memories})
-		case "delta":
+		case "delta", "reasoning":
 			var p struct {
 				Text string `json:"text"`
 			}
 			if err := json.Unmarshal(raw, &p); err != nil {
-				return fmt.Errorf("解析 delta 事件: %w", err)
+				return fmt.Errorf("解析 %s 事件: %w", event, err)
 			}
-			onEvent(StreamEvent{Type: "delta", Text: p.Text})
+			onEvent(StreamEvent{Type: event, Text: p.Text})
 		case "done":
 			var p struct {
 				Message Message `json:"message"`

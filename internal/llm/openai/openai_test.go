@@ -179,3 +179,82 @@ func TestEmbeddingBatches(t *testing.T) {
 		t.Fatalf("calls=%d vecs=%v", calls.Load(), vecs)
 	}
 }
+
+func TestThinkingStyles(t *testing.T) {
+	base := chatCfg("http://x")
+	cases := []struct {
+		style, level string
+		check        func(r chatRequest) bool
+	}{
+		{"reasoning_effort", "high", func(r chatRequest) bool {
+			return r.ReasoningEffort == "high" && r.Temperature == nil && r.MaxTokens == 0
+		}},
+		{"reasoning_effort", "off", func(r chatRequest) bool { return r.ReasoningEffort == "" && r.Temperature != nil && r.MaxTokens == 100 }},
+		{"enable_thinking", "medium", func(r chatRequest) bool {
+			return r.EnableThinking != nil && *r.EnableThinking && r.ThinkingBudget == 4096 && r.MaxTokens == 100+4096
+		}},
+		{"enable_thinking", "off", func(r chatRequest) bool {
+			return r.EnableThinking != nil && !*r.EnableThinking && r.ThinkingBudget == 0
+		}},
+		{"model_switch", "low", func(r chatRequest) bool { return r.Model == "reasoner" && r.Temperature == nil }},
+		{"model_switch", "off", func(r chatRequest) bool { return r.Model == "m" }},
+		{"none", "high", func(r chatRequest) bool { return r.Model == "m" && r.ReasoningEffort == "" && r.EnableThinking == nil }},
+	}
+	for _, tc := range cases {
+		cfg := base
+		cfg.ThinkingStyle, cfg.ThinkingModel = tc.style, "reasoner"
+		r := NewChat(cfg).build(llm.ChatRequest{Thinking: tc.level}, true)
+		if !tc.check(r) {
+			t.Errorf("%s/%s: %+v", tc.style, tc.level, r)
+		}
+	}
+}
+
+func TestStreamReasoning(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"先想\"}}]}\n\n")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"reasoning\":\"一想\"}}]}\n\n")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"答案\"}}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	st, err := NewChat(chatCfg(srv.URL)).ChatStream(context.Background(), llm.ChatRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	var reasoning, content string
+	for {
+		c, err := st.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		reasoning += c.Reasoning
+		content += c.Delta
+	}
+	if reasoning != "先想一想" || content != "答案" {
+		t.Fatalf("reasoning=%q content=%q", reasoning, content)
+	}
+}
+
+func TestPublicOnlyBlocksPrivateAddresses(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("受限客户端不应连到本机")
+	}))
+	defer srv.Close()
+	c := NewPublicOnlyChat(config.ModelConfig{BaseURL: srv.URL, APIKey: "k", Model: "m"})
+	_, err := c.Chat(context.Background(), llm.ChatRequest{Messages: []llm.Message{{Role: llm.RoleUser, Content: "hi"}}})
+	if !errors.Is(err, ErrPrivateAddress) {
+		t.Fatalf("应拒绝连接本机地址: %v", err)
+	}
+	for _, addr := range []string{"10.0.0.1:80", "192.168.1.1:443", "169.254.169.254:80", "[::1]:80", "100.64.0.1:80", "0.0.0.0:80", "[::ffff:127.0.0.1]:80"} {
+		if denyPrivate("tcp", addr, nil) == nil {
+			t.Errorf("%s 应被拒绝", addr)
+		}
+	}
+	if err := denyPrivate("tcp", "1.1.1.1:443", nil); err != nil {
+		t.Errorf("公网地址应允许: %v", err)
+	}
+}

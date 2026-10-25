@@ -138,18 +138,25 @@ type conversationRepo struct{ db *gorm.DB }
 
 func (r conversationRepo) Primary(ctx context.Context, userID uint64) (*store.Conversation, error) {
 	var c store.Conversation
-	err := r.db.WithContext(ctx).Where("user_id = ?", userID).Order("id").First(&c).Error
+	err := r.db.WithContext(ctx).Where("user_id = ?", userID).Order("updated_at DESC, id DESC").First(&c).Error
 	if err == nil {
 		return &c, nil
 	}
 	if mapErr(err) != store.ErrNotFound {
 		return nil, mapErr(err)
 	}
-	c = store.Conversation{UserID: userID}
+	c = store.Conversation{UserID: userID, Thinking: store.ThinkingOff}
 	if err := r.db.WithContext(ctx).Create(&c).Error; err != nil {
 		return nil, mapErr(err)
 	}
 	return &c, nil
+}
+
+func (r conversationRepo) Create(ctx context.Context, c *store.Conversation) error {
+	if c.Thinking == "" {
+		c.Thinking = store.ThinkingOff
+	}
+	return mapErr(r.db.WithContext(ctx).Create(c).Error)
 }
 
 func (r conversationRepo) Get(ctx context.Context, userID, id uint64) (*store.Conversation, error) {
@@ -162,8 +169,32 @@ func (r conversationRepo) Get(ctx context.Context, userID, id uint64) (*store.Co
 
 func (r conversationRepo) List(ctx context.Context, userID uint64) ([]store.Conversation, error) {
 	var out []store.Conversation
-	err := r.db.WithContext(ctx).Where("user_id = ?", userID).Order("id").Find(&out).Error
+	err := r.db.WithContext(ctx).Where("user_id = ?", userID).Order("updated_at DESC, id DESC").Find(&out).Error
 	return out, mapErr(err)
+}
+
+func (r conversationRepo) Update(ctx context.Context, userID, id uint64, fields map[string]any) error {
+	res := r.db.WithContext(ctx).Model(&store.Conversation{}).Where("id = ? AND user_id = ?", id, userID).Updates(fields)
+	if res.Error != nil {
+		return mapErr(res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
+func (r conversationRepo) Delete(ctx context.Context, userID, id uint64) error {
+	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		res := tx.Where("id = ? AND user_id = ?", id, userID).Delete(&store.Conversation{})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return store.ErrNotFound
+		}
+		return tx.Where("conversation_id = ? AND user_id = ?", id, userID).Delete(&store.Message{}).Error
+	}))
 }
 
 func (r conversationRepo) Touch(ctx context.Context, userID, id uint64, at time.Time) error {
@@ -177,6 +208,76 @@ func (r conversationRepo) Touch(ctx context.Context, userID, id uint64, at time.
 		return store.ErrNotFound
 	}
 	return nil
+}
+
+func (r conversationRepo) ClearModel(ctx context.Context, modelID uint64) error {
+	return mapErr(r.db.WithContext(ctx).Model(&store.Conversation{}).
+		Where("model_id = ?", modelID).UpdateColumn("model_id", nil).Error)
+}
+
+// ---------- models ----------
+
+type modelRepo struct{ db *gorm.DB }
+
+func (r modelRepo) Create(ctx context.Context, m *store.ModelConfig) error {
+	return mapErr(r.db.WithContext(ctx).Create(m).Error)
+}
+
+func (r modelRepo) Get(ctx context.Context, id uint64) (*store.ModelConfig, error) {
+	var m store.ModelConfig
+	if err := r.db.WithContext(ctx).First(&m, id).Error; err != nil {
+		return nil, mapErr(err)
+	}
+	return &m, nil
+}
+
+func (r modelRepo) ListVisible(ctx context.Context, userID uint64) ([]store.ModelConfig, error) {
+	var out []store.ModelConfig
+	err := r.db.WithContext(ctx).Where("owner_id IN ?", []uint64{store.PublicOwner, userID}).
+		Order("owner_id, id").Find(&out).Error
+	return out, mapErr(err)
+}
+
+func (r modelRepo) Update(ctx context.Context, m *store.ModelConfig) error {
+	res := r.db.WithContext(ctx).Model(&store.ModelConfig{}).Where("id = ?", m.ID).Updates(map[string]any{
+		"name": m.Name, "base_url": m.BaseURL, "api_key_enc": m.APIKey, "model": m.Model,
+		"thinking_style": m.ThinkingStyle, "thinking_model": m.ThinkingModel,
+		"temperature": m.Temperature, "max_tokens": m.MaxTokens,
+	})
+	if res.Error != nil {
+		return mapErr(res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
+func (r modelRepo) Delete(ctx context.Context, id uint64) error {
+	res := r.db.WithContext(ctx).Delete(&store.ModelConfig{}, id)
+	if res.Error != nil {
+		return mapErr(res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
+func (r modelRepo) SetDefault(ctx context.Context, ownerID, id uint64) error {
+	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&store.ModelConfig{}).Where("owner_id = ?", ownerID).Update("is_default", false).Error; err != nil {
+			return err
+		}
+		res := tx.Model(&store.ModelConfig{}).Where("id = ? AND owner_id = ?", id, ownerID).Update("is_default", true)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return store.ErrNotFound
+		}
+		return nil
+	}))
 }
 
 // ---------- messages ----------
@@ -199,6 +300,7 @@ func (r messageRepo) Finish(ctx context.Context, m *store.Message) error {
 			"model":             m.Model,
 			"prompt_tokens":     m.PromptTokens,
 			"completion_tokens": m.CompletionTokens,
+			"reasoning":         m.Reasoning,
 		})
 	if res.Error != nil {
 		return mapErr(res.Error)

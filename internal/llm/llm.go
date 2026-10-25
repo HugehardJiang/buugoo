@@ -28,6 +28,9 @@ type ChatRequest struct {
 	MaxTokens   int
 	// JSON 为 true 时要求模型输出 JSON 对象（用于记忆提取等结构化任务）。
 	JSON bool
+	// Thinking 是思考等级：off（或空）| low | medium | high。如何开启思考由模型配置的
+	// thinking_style 决定，不支持思考的模型忽略此项。
+	Thinking string
 }
 
 // Usage 是 token 用量。
@@ -42,6 +45,7 @@ func (u Usage) Total() int { return u.PromptTokens + u.CompletionTokens }
 // ChatResponse 是非流式聊天补全结果。
 type ChatResponse struct {
 	Content      string
+	Reasoning    string
 	Model        string
 	FinishReason string
 	Usage        Usage
@@ -49,7 +53,9 @@ type ChatResponse struct {
 
 // Chunk 是流式输出中的一个片段。最后一个片段可能只携带 Usage 或 FinishReason。
 type Chunk struct {
-	Delta        string
+	Delta string
+	// Reasoning 是思考过程的增量文本（DeepSeek、通义千问等返回的 reasoning_content）。
+	Reasoning    string
 	FinishReason string
 	Usage        *Usage
 	Model        string

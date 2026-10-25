@@ -21,6 +21,7 @@ const migrationsTable = "schema_migrations"
 func migrations() []*gormigrate.Migration {
 	return []*gormigrate.Migration{
 		migrationV1Init(),
+		migrationV2Models(),
 	}
 }
 
