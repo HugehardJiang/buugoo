@@ -603,6 +603,10 @@ func dialSSE(ctx context.Context, client *http.Client, rawURL string, headers ma
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
 		cancel()
+		switch resp.StatusCode {
+		case http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusGone:
+			return nil, fmt.Errorf("这个地址不支持 SSE 方式（HTTP %d），试试 Streamable HTTP", resp.StatusCode)
+		}
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	st := &sseTransport{client: client, headers: headers, w: newWaiter(), cancel: cancel}
