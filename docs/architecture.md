@@ -28,6 +28,9 @@ internal/uploads      聊天附件：类型识别、文档文字提取（PDF、d
 internal/emotion      情绪系统：每个用户的情绪、心境与关系，评价 → 情绪的映射与随时间的消退
 internal/settings     网页管理后台的设置项（反射生成）与 settings.yaml 读写
 internal/tools        模型可调用的工具：DeepSeek 搜索/抓取、运行 Python（Docker 沙箱或本机）
+internal/skills       skill：解析 SKILL.md、从 GitHub / zip / 粘贴安装、聊天中按需读取与在沙箱运行脚本
+internal/mcp          MCP 插件客户端（stdio、Streamable HTTP、SSE）与连接管理，工具接入聊天
+internal/agent        牛马助手：独立的聊天记录与工具循环，修改先生成确认卡片，确认后执行
 internal/memory       记忆：提取、打分、检索、写入、管理、第二阶段接口
 internal/prompt       提示词组装
 internal/persona      人格档案

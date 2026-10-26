@@ -269,6 +269,8 @@ func (s *Service) Send(ctx context.Context, u *store.User, text string, admin bo
 		resp, err := model.Chat.Chat(cctx, req)
 		if err != nil {
 			s.record(ctx, u, model, usage)
+			// 没有回复就当这条没发过（网页会把内容放回输入框），已经提出的修改卡片保留。
+			s.d.DB.WithContext(context.WithoutCancel(ctx)).Delete(&store.AgentMessage{}, userMsg.ID)
 			return nil, fmt.Errorf("牛马没有回应：%w", err)
 		}
 		usage.PromptTokens += resp.Usage.PromptTokens

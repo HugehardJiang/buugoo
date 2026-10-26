@@ -2,7 +2,9 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, ApiError, type Invite, type Quota } from '../api'
+import AgentPanel from '../components/AgentPanel.vue'
 import EmbeddingPanel from '../components/EmbeddingPanel.vue'
+import ExtensionsPanel from '../components/ExtensionsPanel.vue'
 import Modal from '../components/Modal.vue'
 import ModelsPanel from '../components/ModelsPanel.vue'
 import PersonaPanel from '../components/PersonaPanel.vue'
@@ -149,9 +151,13 @@ onMounted(async () => {
         <p v-if="error" class="form-flash form-flash--error">{{ error }}</p>
         <p v-if="message" class="form-flash">{{ message }}</p>
 
+        <AgentPanel />
+
         <PersonaPanel />
 
         <ModelsPanel />
+
+        <ExtensionsPanel />
 
         <EmbeddingPanel v-if="isAdmin" />
 

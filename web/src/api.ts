@@ -318,6 +318,39 @@ export interface Invite {
   created_at: string
 }
 
+export interface Extension {
+  kind: 'skill' | 'plugin'
+  name: string
+  description: string
+  enabled: boolean
+}
+
+export interface AgentAction {
+  id: number
+  kind: string
+  summary: string
+  admin: boolean
+  status: 'pending' | 'running' | 'done' | 'canceled' | 'failed'
+  result?: string
+  created_at: string
+}
+
+export interface AgentMessage {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  tools?: { name: string; label: string; summary: string }[]
+  actions?: AgentAction[]
+  created_at: string
+}
+
+export interface AgentState {
+  messages: AgentMessage[]
+  admin: boolean
+  model_id: number | null
+  model?: { id: number; name: string; tools: boolean }
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -360,6 +393,13 @@ function headers(json: boolean): HeadersInit {
   if (json) h['Content-Type'] = 'application/json'
   const t = tokenStore.get()
   if (t) h['Authorization'] = `Bearer ${t}`
+  // 在这个浏览器登录了管理后台时带上，牛马助手据此决定能不能改系统设置。
+  try {
+    const c = sessionStorage.getItem('buugoo.console')
+    if (c) h['X-Console-Token'] = c
+  } catch {
+    // 无痕模式
+  }
   return h
 }
 
@@ -486,6 +526,15 @@ export const api = {
   weixinLogout: () => request<void>('POST', '/channels/weixin/logout'),
   bindCode: () => request<{ code: string; expires_at: string }>('POST', '/channels/code'),
   unbind: (id: number) => request<void>('DELETE', `/channels/bindings/${id}`),
+  extensions: () => request<{ extensions: Extension[] }>('GET', '/me/extensions'),
+  toggleExtension: (kind: Extension['kind'], name: string, enabled: boolean) =>
+    request<void>('PUT', '/me/extensions', { kind, name, enabled }),
+  agent: () => request<AgentState>('GET', '/agent'),
+  agentSend: (content: string) => request<AgentMessage>('POST', '/agent/messages', { content }),
+  agentConfirm: (id: number) => request<AgentAction>('POST', `/agent/actions/${id}/confirm`),
+  agentCancel: (id: number) => request<AgentAction>('POST', `/agent/actions/${id}/cancel`),
+  agentModel: (id: number | null) => request<void>('PUT', '/agent/model', { id }),
+  agentClear: () => request<void>('DELETE', '/agent'),
   presets: () => request<{ current: string; presets: PersonaPreset[] }>('GET', '/persona/presets'),
   setPreset: (id: string) => request<{ current: string }>('PUT', '/persona/preset', { id }),
   files: (params: { kind?: string; limit?: number; offset?: number }) => {

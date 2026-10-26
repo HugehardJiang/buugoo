@@ -21,6 +21,8 @@ function icon(name: string) {
   if (name === 'install_package') return 'download' as const
   if (name === 'send_file') return 'file' as const
   if (['set_reminder', 'schedule_task', 'list_reminders', 'cancel_reminder'].includes(name)) return 'clock' as const
+  if (name === 'use_skill' || name === 'read_skill_file') return 'book' as const
+  if (name.startsWith('mcp_')) return 'link' as const
   return 'code' as const
 }
 

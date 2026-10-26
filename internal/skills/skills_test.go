@@ -121,6 +121,28 @@ func TestInstall(t *testing.T) {
 	if _, err := m.InstallGitHub(ctx, "https://github.com/a/missing", ""); err == nil {
 		t.Fatal("不存在的仓库应失败")
 	}
+	// API 被限流时改从网页的下载地址下载。
+	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/a/limited/archive/HEAD.tar.gz" {
+			w.WriteHeader(404)
+			return
+		}
+		_, _ = w.Write(repo)
+	}))
+	defer web.Close()
+	oldWeb := githubWeb
+	githubWeb = web.URL
+	defer func() { githubWeb = oldWeb }()
+	limited := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusForbidden) }))
+	defer limited.Close()
+	githubAPI = limited.URL
+	if r, err := m.InstallGitHub(ctx, "https://github.com/a/limited", "skills/notes"); err != nil || r.Skill == nil || r.Skill.Name != "notes" {
+		t.Fatalf("fallback: %+v %v", r, err)
+	}
+	if _, err := m.InstallGitHub(ctx, "https://github.com/a/other", ""); err == nil || !strings.Contains(err.Error(), "找不到") {
+		t.Fatalf("fallback 404: %v", err)
+	}
+	githubAPI = srv.URL
 	if b, err := m.ReadFile("weather", "scripts/weather.py"); err != nil || string(b) != "print('晴')" {
 		t.Fatal(string(b), err)
 	}

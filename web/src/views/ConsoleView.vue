@@ -4,6 +4,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ApiError } from '../api'
 import ConsoleChannels from '../components/ConsoleChannels.vue'
+import ConsoleExtensions from '../components/ConsoleExtensions.vue'
 import Modal from '../components/Modal.vue'
 import SettingField, { type Field } from '../components/SettingField.vue'
 import { session } from '../session'
@@ -29,7 +30,7 @@ const draft = reactive<Record<string, unknown>>({})
 const saving = ref(false)
 const justSaved = ref<string[]>([])
 const query = ref('')
-// tab 是左侧目录中选中的一项：设置分类的 key，或者 persona（人格档案）、channels（聊天软件连接）。
+// tab 是左侧目录中选中的一项：设置分类的 key，或者 persona（人格档案）、extensions（技能与插件）、channels（聊天软件连接）。
 const tab = ref(location.hash.slice(1) || 'models')
 const showAdvanced = reactive<Record<string, boolean>>({})
 
@@ -111,7 +112,7 @@ watch(
   (d) => {
     if (!d) return
     if (tab.value === 'persona' && !persona.value) loadPersona()
-    if (tab.value !== 'persona' && tab.value !== 'channels' && !d.groups.some((g) => g.key === tab.value)) tab.value = 'models'
+    if (!['persona', 'channels', 'extensions'].includes(tab.value) && !d.groups.some((g) => g.key === tab.value)) tab.value = 'models'
   },
 )
 
@@ -352,6 +353,7 @@ onMounted(() => {
               </button>
               <p class="toc__title">其他</p>
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'persona' }" @click="openTab('persona')">人格档案</button>
+              <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'extensions' }" @click="openTab('extensions')">技能与插件</button>
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'channels' }" @click="openTab('channels')">聊天软件连接</button>
             </nav>
 
@@ -379,6 +381,8 @@ onMounted(() => {
           </template>
 
           <ConsoleChannels v-else-if="!searching && tab === 'channels'" :call="call" />
+
+          <ConsoleExtensions v-else-if="!searching && tab === 'extensions'" :call="call" :token="token" />
 
           <template v-else>
             <p v-if="error" class="form-flash form-flash--error">{{ error }}</p>

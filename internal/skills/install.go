@@ -257,17 +257,50 @@ func ParseGitHub(raw string) (GitHubRef, error) {
 	return g, nil
 }
 
-// githubAPI 是下载仓库压缩包的地址（测试时替换）。
-var githubAPI = "https://api.github.com"
+// githubAPI、githubWeb 是下载仓库压缩包的地址（测试时替换）。
+var (
+	githubAPI = "https://api.github.com"
+	githubWeb = "https://github.com"
+)
 
 // downloadGitHub 下载仓库（指定分支，为空时用默认分支）的 tar.gz 并解压。
+// 先用 API；API 拒绝时（没有登录的请求每小时只能 60 次）改从网页的下载地址下载。
 func downloadGitHub(ctx context.Context, client *http.Client, g GitHubRef) (tree, error) {
-	u := fmt.Sprintf("%s/repos/%s/%s/tarball", githubAPI, url.PathEscape(g.Owner), url.PathEscape(g.Repo))
-	if g.Ref != "" {
-		u += "/" + url.PathEscape(g.Ref)
-	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
+	api := fmt.Sprintf("%s/repos/%s/%s/tarball", githubAPI, url.PathEscape(g.Owner), url.PathEscape(g.Repo))
+	if g.Ref != "" {
+		api += "/" + url.PathEscape(g.Ref)
+	}
+	t, err := fetchTarGz(ctx, client, api)
+	var se *statusError
+	if errors.As(err, &se) && (se.code == http.StatusForbidden || se.code == http.StatusTooManyRequests) {
+		ref := g.Ref
+		if ref == "" {
+			ref = "HEAD"
+		}
+		t, err = fetchTarGz(ctx, client, fmt.Sprintf("%s/%s/%s/archive/%s.tar.gz", githubWeb, url.PathEscape(g.Owner), url.PathEscape(g.Repo), url.PathEscape(ref)))
+	}
+	if errors.As(err, &se) {
+		switch se.code {
+		case http.StatusNotFound:
+			return nil, errors.New("GitHub 上找不到这个仓库或分支（私有仓库不支持）")
+		case http.StatusForbidden, http.StatusTooManyRequests:
+			return nil, errors.New("GitHub 暂时拒绝了下载（可能是请求太频繁），过一会儿再试，或者下载 zip 后上传")
+		}
+		return nil, fmt.Errorf("从 GitHub 下载失败：HTTP %d", se.code)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return stripTop(t), nil
+}
+
+type statusError struct{ code int }
+
+func (e *statusError) Error() string { return fmt.Sprintf("HTTP %d", e.code) }
+
+func fetchTarGz(ctx context.Context, client *http.Client, u string) (tree, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
@@ -279,17 +312,8 @@ func downloadGitHub(ctx context.Context, client *http.Client, g GitHubRef) (tree
 		return nil, fmt.Errorf("连不上 GitHub：%v", err)
 	}
 	defer resp.Body.Close()
-	switch {
-	case resp.StatusCode == http.StatusNotFound:
-		return nil, errors.New("GitHub 上找不到这个仓库或分支（私有仓库不支持）")
-	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests:
-		return nil, errors.New("GitHub 暂时拒绝了下载（可能是请求太频繁），过一会儿再试，或者下载 zip 后上传")
-	case resp.StatusCode != http.StatusOK:
-		return nil, fmt.Errorf("从 GitHub 下载失败：HTTP %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		return nil, &statusError{resp.StatusCode}
 	}
-	t, err := readTarGz(io.LimitReader(resp.Body, maxArchiveBytes))
-	if err != nil {
-		return nil, err
-	}
-	return stripTop(t), nil
+	return readTarGz(io.LimitReader(resp.Body, maxArchiveBytes))
 }
