@@ -284,6 +284,16 @@ func (e *ValidationError) Error() string {
 // 保存的内容与 settings.yaml 中已有的设置合并；值与配置文件相同时也照常保存，以网页设置为准。
 // 返回保存后需要重启才生效的键。
 func Save(cfg *config.Config, changes map[string]any) ([]string, error) {
+	return apply(cfg, changes, true)
+}
+
+// Check 校验修改但不保存（牛马助手提出修改前先检查）。
+func Check(cfg *config.Config, changes map[string]any) error {
+	_, err := apply(cfg, changes, false)
+	return err
+}
+
+func apply(cfg *config.Config, changes map[string]any, write bool) ([]string, error) {
 	saved, err := readSaved(cfg.SettingsPath())
 	if err != nil {
 		return nil, err
@@ -327,6 +337,9 @@ func Save(cfg *config.Config, changes map[string]any) ([]string, error) {
 	}
 	if err := candidate.Validate(); err != nil {
 		return nil, &ValidationError{Msg: err.Error()}
+	}
+	if !write {
+		return changed, nil
 	}
 	if err := writeSaved(cfg.SettingsPath(), saved); err != nil {
 		return nil, err

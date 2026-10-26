@@ -2,6 +2,7 @@ package gormstore
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -80,6 +81,18 @@ func (r userRepo) SetAdmin(ctx context.Context, id uint64, admin bool) error {
 
 func (r userRepo) SetPersonaPreset(ctx context.Context, id uint64, preset string) error {
 	return r.update(ctx, id, map[string]any{"persona_preset": preset})
+}
+
+// userFields 是 UpdateFields 允许修改的列。
+var userFields = map[string]bool{"display_name": true, "disabled_skills": true, "disabled_plugins": true, "agent_model_id": true}
+
+func (r userRepo) UpdateFields(ctx context.Context, id uint64, fields map[string]any) error {
+	for k := range fields {
+		if !userFields[k] {
+			return errors.New("不能修改用户的 " + k)
+		}
+	}
+	return r.update(ctx, id, fields)
 }
 
 func (r userRepo) SetProactive(ctx context.Context, id uint64, on bool) error {

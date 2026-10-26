@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/HugehardJiang/buugoo/internal/agent"
 	"github.com/HugehardJiang/buugoo/internal/auth"
 	"github.com/HugehardJiang/buugoo/internal/buildinfo"
 	"github.com/HugehardJiang/buugoo/internal/channels"
@@ -21,6 +22,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/httpapi"
 	"github.com/HugehardJiang/buugoo/internal/llm"
 	"github.com/HugehardJiang/buugoo/internal/llm/provider"
+	"github.com/HugehardJiang/buugoo/internal/mcp"
 	"github.com/HugehardJiang/buugoo/internal/memory"
 	"github.com/HugehardJiang/buugoo/internal/models"
 	"github.com/HugehardJiang/buugoo/internal/persona"
@@ -29,6 +31,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/scheduler"
 	"github.com/HugehardJiang/buugoo/internal/secret"
+	"github.com/HugehardJiang/buugoo/internal/skills"
 	"github.com/HugehardJiang/buugoo/internal/store/gormstore"
 	"github.com/HugehardJiang/buugoo/internal/uploads"
 	"github.com/HugehardJiang/buugoo/internal/vector/memstore"
@@ -51,6 +54,7 @@ type App struct {
 	tools     *toolProvider
 	proactive *proactive.Engine
 	channels  *channels.Hub
+	plugins   *mcp.Manager
 
 	// UpdateCheck 在服务启动后于后台执行（检查新版本），可为空。
 	UpdateCheck func(ctx context.Context)
@@ -126,6 +130,10 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	uploadSvc.SetAnyFile(cfg.Tools.Python.Runner != config.PythonOff && cfg.Tools.Python.Runner != "")
 	toolsProv := newToolProvider(cfg, log)
 	toolsProv.files, toolsProv.attachments = uploadSvc, db.Attachments()
+	skillSvc := skills.New(db.Gorm(), filepath.Join(cfg.DataDir, "skills"), log)
+	toolsProv.skills = skillSvc
+	pluginSvc := mcp.New(db.Gorm(), box, log)
+	toolsProv.plugins = pluginSvc
 	if cfg.Proactive.Reminders {
 		toolsProv.reminders, toolsProv.loc = db.Reminders(), loc
 	}
@@ -182,9 +190,12 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 		Config: cfg, Store: db, Auth: authSvc, Chat: chatSvc, Memories: memory.NewManager(db.Memories(), vs),
 		Quota: limiter, Models: modelSvc, Reembed: memory.NewReembedder(db.Memories(), emb, vs, log),
 		Uploads: uploadSvc, Emotion: emo, Persona: personas, Channels: hub, Logger: log,
+		Skills: skillSvc, Plugins: pluginSvc,
+		Agent: agent.New(agent.Deps{DB: db.Gorm(), Users: db.Users(), Reminders: toolsProv.reminders, Models: modelSvc,
+			Quota: limiter, Skills: skillSvc, Plugins: pluginSvc, Config: cfg, Box: box, Logger: log}),
 	})
 	a := &App{Config: cfg, Log: log, DB: db, Auth: authSvc, Chat: chatSvc, Models: modelSvc, Writer: writer, Handler: handler,
-		uploads: uploadSvc, tools: toolsProv, channels: hub}
+		uploads: uploadSvc, tools: toolsProv, channels: hub, plugins: pluginSvc}
 	if cfg.Proactive.Reminders || cfg.Proactive.Care {
 		deps := proactive.Deps{Store: db, Speaker: chatSvc, Utility: utilLLM, Mood: emo, Config: cfg.Proactive,
 			Name: func() string { return personas.Current().Name }, Location: loc, Logger: log}
@@ -213,6 +224,7 @@ func (a *App) Run(ctx context.Context) error {
 	a.Writer.Start(bgCtx)
 	go a.uploads.RunCleanup(bgCtx)
 	go a.tools.prepare(bgCtx)
+	a.plugins.Start(bgCtx)
 	if a.proactive != nil {
 		go a.proactive.Run(bgCtx)
 	}
@@ -271,6 +283,7 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	cancelBg()
 	a.Chat.Wait()
+	a.plugins.Close()
 	if err := a.Writer.Close(shutdownCtx); err != nil {
 		errs = append(errs, err)
 	}

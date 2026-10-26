@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/HugehardJiang/buugoo/internal/config"
+	"github.com/HugehardJiang/buugoo/internal/mcp"
 	"github.com/HugehardJiang/buugoo/internal/models"
 	"github.com/HugehardJiang/buugoo/internal/proactive"
+	"github.com/HugehardJiang/buugoo/internal/skills"
 	"github.com/HugehardJiang/buugoo/internal/store"
 	"github.com/HugehardJiang/buugoo/internal/tools"
 	"github.com/HugehardJiang/buugoo/internal/uploads"
@@ -31,6 +33,10 @@ type toolProvider struct {
 	// reminders 不为空时提供设提醒的工具。
 	reminders store.ReminderRepo
 	loc       *time.Location
+	// skills 不为空时提供已安装的 skill。
+	skills *skills.Manager
+	// plugins 不为空时提供管理员安装的 MCP 插件。
+	plugins *mcp.Manager
 }
 
 func newToolProvider(cfg *config.Config, log *slog.Logger) *toolProvider {
@@ -154,12 +160,16 @@ func (p *toolProvider) workspace(ctx context.Context, u *store.User, conv *store
 func (p *toolProvider) For(ctx context.Context, u *store.User, conv *store.Conversation, model *models.Resolved, pending []store.Attachment) *tools.Set {
 	opts := tools.Options{}
 	opts.Search, opts.Fetch = p.search(model)
+	var runner tools.Runner
+	var ws tools.Workspace
 	if r := p.python(ctx, u); r != nil {
+		runner = r
 		opts.Python = r
 		opts.Packages = p.cfg.Tools.Python.Packages
 		opts.CJKFont = tools.HasCJKFont()
-		if ws, inputs := p.workspace(ctx, u, conv, pending); ws != nil {
-			opts.Workspace, opts.Inputs, opts.Saved = ws, inputs, tools.ListWorkspace(ws.Dir, 30)
+		if dws, inputs := p.workspace(ctx, u, conv, pending); dws != nil {
+			ws = dws
+			opts.Workspace, opts.Inputs, opts.Saved = dws, inputs, tools.ListWorkspace(dws.Dir, 30)
 		}
 		// 安装库需要联网：single 模式或管理员的对话才可以。
 		if p.cfg.Tools.Python.AllowInstall && (p.cfg.Mode == config.ModeSingle || u.IsAdmin) {
@@ -170,6 +180,12 @@ func (p *toolProvider) For(ctx context.Context, u *store.User, conv *store.Conve
 	}
 	if p.reminders != nil {
 		opts.Extra = append(opts.Extra, proactive.ReminderTools(p.reminders, u.ID, p.loc, time.Now)...)
+	}
+	if p.skills != nil {
+		opts.Extra = append(opts.Extra, skills.Tools(p.skills, p.skills.For(ctx, u), runner, ws)...)
+	}
+	if p.plugins != nil {
+		opts.Extra = append(opts.Extra, p.plugins.Tools(ctx, p.plugins.For(ctx, skills.SplitNames(u.DisabledPlugins)))...)
 	}
 	if opts.Search == nil && opts.Fetch == nil && opts.Python == nil && len(opts.Extra) == 0 {
 		return nil

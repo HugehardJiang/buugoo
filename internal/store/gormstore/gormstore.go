@@ -145,7 +145,7 @@ func mysqlDSN(dsn string) (string, error) {
 // Driver 实现 store.Store。
 func (s *DB) Driver() string { return s.driver }
 
-// Gorm 返回底层 *gorm.DB（仅供迁移与测试使用）。
+// Gorm 返回底层 *gorm.DB（迁移、测试，以及 skill、插件、牛马助手这些自带表的模块使用）。
 func (s *DB) Gorm() *gorm.DB { return s.db }
 
 // Ping 实现 store.Store。

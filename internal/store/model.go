@@ -23,8 +23,13 @@ type User struct {
 	// Proactive 为 true 时布谷可以主动找用户聊天（提醒不受影响）；LastProactiveAt 是上次主动发消息的时间。
 	Proactive       bool `gorm:"not null;default:true"`
 	LastProactiveAt *time.Time
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	// DisabledSkills、DisabledPlugins 是用户自己关掉的 skill 和插件（名字，逗号分隔）。
+	DisabledSkills  string `gorm:"size:2000;not null;default:''"`
+	DisabledPlugins string `gorm:"size:2000;not null;default:''"`
+	// AgentModelID 是牛马助手使用的模型，为空时用默认模型。
+	AgentModelID *uint64
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // OwnerID 是 single 模式下唯一用户的 ID。
@@ -393,5 +398,81 @@ type JobRun struct {
 type AppMeta struct {
 	Key       string `gorm:"column:meta_key;primaryKey;size:64"`
 	Value     string `gorm:"size:4096;not null"`
+	UpdatedAt time.Time
+}
+
+// Skill 是管理员安装的 skill（标准的 SKILL.md 格式），文件放在 <data_dir>/skills/<Name>/。
+type Skill struct {
+	ID          uint64 `gorm:"primaryKey"`
+	Name        string `gorm:"size:64;uniqueIndex;not null"`
+	Description string `gorm:"size:1024;not null;default:''"`
+	// Source 是安装方式：github、zip、paste；SourceURL 是 GitHub 地址。
+	Source    string `gorm:"size:16;not null;default:''"`
+	SourceURL string `gorm:"size:512;not null;default:''"`
+	// AllowNetwork 为 true 时这个 skill 的脚本可以联网。
+	AllowNetwork bool  `gorm:"not null;default:false"`
+	Enabled      bool  `gorm:"not null;default:true"`
+	Files        int   `gorm:"not null;default:0"`
+	Size         int64 `gorm:"not null;default:0"`
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// MCP 插件的接入方式。
+const (
+	MCPStdio = "stdio" // 在服务器上启动一个命令
+	MCPHTTP  = "http"  // Streamable HTTP
+	MCPSSE   = "sse"   // 旧版 SSE
+)
+
+// MCPServer 是管理员添加的 MCP 插件。环境变量与请求头可能带密钥，加密保存。
+type MCPServer struct {
+	ID        uint64 `gorm:"primaryKey"`
+	Name      string `gorm:"size:64;uniqueIndex;not null"`
+	Transport string `gorm:"size:16;not null"`
+	Command   string `gorm:"size:512;not null;default:''"`
+	// Args 是命令参数（JSON 数组）。
+	Args string `gorm:"size:4000;not null;default:''"`
+	// EnvEnc、HeadersEnc 是加密后的 JSON 对象。
+	EnvEnc     string `gorm:"size:8000;not null;default:''"`
+	URL        string `gorm:"size:1024;not null;default:''"`
+	HeadersEnc string `gorm:"size:8000;not null;default:''"`
+	Enabled    bool   `gorm:"not null;default:true"`
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+// AgentMessage 是和牛马助手的一条聊天记录（和布谷的对话、记忆、情绪完全分开）。
+type AgentMessage struct {
+	ID     uint64 `gorm:"primaryKey"`
+	UserID uint64 `gorm:"index;not null"`
+	Role   string `gorm:"size:16;not null"`
+	// Content 是消息内容；助手调用工具的过程记在 ToolLog（JSON）。
+	Content   string `gorm:"type:text"`
+	ToolLog   string `gorm:"type:text"`
+	CreatedAt time.Time
+}
+
+// 牛马助手提出的修改的状态。
+const (
+	ActionPending  = "pending"
+	ActionDone     = "done"
+	ActionCanceled = "canceled"
+	ActionFailed   = "failed"
+)
+
+// AgentAction 是牛马助手提出的一项修改，用户确认后才执行。
+type AgentAction struct {
+	ID     uint64 `gorm:"primaryKey"`
+	UserID uint64 `gorm:"index;not null"`
+	Kind   string `gorm:"size:64;not null"`
+	// Params 是参数（JSON），Summary 是给用户看的说明，Result 是执行结果。
+	Params  string `gorm:"type:text"`
+	Summary string `gorm:"size:1000;not null;default:''"`
+	// Admin 表示这是系统级的修改（需要管理后台登录）。
+	Admin     bool   `gorm:"not null;default:false"`
+	Status    string `gorm:"size:16;not null;default:'pending'"`
+	Result    string `gorm:"size:2000;not null;default:''"`
+	CreatedAt time.Time
 	UpdatedAt time.Time
 }

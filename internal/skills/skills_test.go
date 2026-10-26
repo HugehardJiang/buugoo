@@ -1,0 +1,211 @@
+package skills
+
+import (
+	"archive/tar"
+	"archive/zip"
+	"bytes"
+	"compress/gzip"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/HugehardJiang/buugoo/internal/config"
+	"github.com/HugehardJiang/buugoo/internal/store"
+	"github.com/HugehardJiang/buugoo/internal/store/gormstore"
+)
+
+const weatherMD = "---\nname: weather\ndescription: 查询天气预报。用户问天气、气温、要不要带伞时使用。\n---\n# 查天气\n运行 `python scripts/weather.py 城市`。\n"
+
+func TestParse(t *testing.T) {
+	m, body, err := Parse([]byte(weatherMD), "")
+	if err != nil || m.Name != "weather" || !strings.Contains(m.Description, "天气") || !strings.HasPrefix(body, "# 查天气") {
+		t.Fatalf("%+v %q %v", m, body, err)
+	}
+	// 没有 name 时用文件夹名，并规范成小写连字符。
+	if m, _, err := Parse([]byte("---\ndescription: x\n---\nbody"), "My_Skill"); err != nil || m.Name != "my-skill" {
+		t.Fatalf("%+v %v", m, err)
+	}
+	for _, bad := range []string{"---\nname: a\n---\n没有说明", "---\nname: [\n---\n", "---\nname: 中文\ndescription: x\n---\n"} {
+		if _, _, err := Parse([]byte(bad), ""); err == nil {
+			t.Errorf("%q 应失败", bad)
+		}
+	}
+}
+
+func TestParseGitHub(t *testing.T) {
+	cases := map[string]GitHubRef{
+		"https://github.com/a/b":                                  {Owner: "a", Repo: "b"},
+		"github.com/a/b.git":                                      {Owner: "a", Repo: "b"},
+		"https://github.com/a/b/tree/main/skills/weather":         {Owner: "a", Repo: "b", Ref: "main", Path: "skills/weather"},
+		"https://github.com/a/b/blob/dev/skills/weather/SKILL.md": {Owner: "a", Repo: "b", Ref: "dev", Path: "skills/weather"},
+	}
+	for in, want := range cases {
+		if got, err := ParseGitHub(in); err != nil || got != want {
+			t.Errorf("%s: %+v %v", in, got, err)
+		}
+	}
+	for _, bad := range []string{"https://gitlab.com/a/b", "https://github.com/a", "not a url"} {
+		if _, err := ParseGitHub(bad); err == nil {
+			t.Errorf("%s 应失败", bad)
+		}
+	}
+}
+
+func tarGz(t *testing.T, files map[string]string) []byte {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for name, body := range files {
+		_ = tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg})
+		_, _ = tw.Write([]byte(body))
+	}
+	_ = tw.WriteHeader(&tar.Header{Name: "repo-abc/evil", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd"})
+	_ = tw.Close()
+	_ = gz.Close()
+	return buf.Bytes()
+}
+
+func newManager(t *testing.T) *Manager {
+	t.Helper()
+	db, err := gormstore.Open(config.DatabaseConfig{Driver: config.DriverSQLite, DSN: filepath.Join(t.TempDir(), "s.db")}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	return New(db.Gorm(), filepath.Join(t.TempDir(), "skills"), nil)
+}
+
+func TestInstall(t *testing.T) {
+	ctx := context.Background()
+	repo := tarGz(t, map[string]string{
+		"repo-abc/README.md":                         "readme",
+		"repo-abc/skills/weather/SKILL.md":           weatherMD,
+		"repo-abc/skills/weather/scripts/weather.py": "print('晴')",
+		"repo-abc/skills/notes/SKILL.md":             "---\nname: notes\ndescription: 记笔记\n---\n记笔记",
+		"repo-abc/../escape.txt":                     "x",
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/a/b/tarball" && r.URL.Path != "/repos/a/b/tarball/main" {
+			w.WriteHeader(404)
+			return
+		}
+		_, _ = w.Write(repo)
+	}))
+	defer srv.Close()
+	old := githubAPI
+	githubAPI = srv.URL
+	defer func() { githubAPI = old }()
+
+	m := newManager(t)
+	// 仓库里有两个 skill：让管理员选。
+	r, err := m.InstallGitHub(ctx, "https://github.com/a/b", "")
+	if err != nil || r.Skill != nil || len(r.Candidates) != 2 || r.Candidates[1].Path != "skills/weather" {
+		t.Fatalf("%+v %v", r, err)
+	}
+	r, err = m.InstallGitHub(ctx, "https://github.com/a/b", "skills/weather")
+	if err != nil || r.Skill == nil || r.Skill.Name != "weather" || r.Skill.Files != 2 || !r.Skill.Enabled {
+		t.Fatalf("%+v %v", r, err)
+	}
+	// 直接给出 skill 文件夹的地址。
+	if r, err := m.InstallGitHub(ctx, "https://github.com/a/b/tree/main/skills/notes", ""); err != nil || r.Skill == nil || r.Skill.Name != "notes" {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if _, err := m.InstallGitHub(ctx, "https://github.com/a/missing", ""); err == nil {
+		t.Fatal("不存在的仓库应失败")
+	}
+	if b, err := m.ReadFile("weather", "scripts/weather.py"); err != nil || string(b) != "print('晴')" {
+		t.Fatal(string(b), err)
+	}
+	if _, err := m.ReadFile("weather", "../notes/SKILL.md"); err == nil {
+		t.Fatal("不能读到别的 skill")
+	}
+	if _, err := os.Stat(filepath.Join(m.Dir(), "weather", "evil")); err == nil {
+		t.Fatal("链接不应解压出来")
+	}
+
+	// 重新安装时保留管理员的设置。
+	on := true
+	if _, err := m.Update(ctx, r.Skill.ID, nil, &on); err != nil {
+		t.Fatal(err)
+	}
+	r2, _ := m.InstallGitHub(ctx, "https://github.com/a/b", "skills/weather")
+	if !r2.Skill.AllowNetwork {
+		t.Fatal("重新安装应保留联网设置")
+	}
+
+	// zip 与粘贴。
+	var zbuf bytes.Buffer
+	zw := zip.NewWriter(&zbuf)
+	f, _ := zw.Create("my-tool/SKILL.md")
+	_, _ = f.Write([]byte("---\ndescription: 一个工具\n---\n用法"))
+	_ = zw.Close()
+	if r, err := m.InstallZip(ctx, zbuf.Bytes(), ""); err != nil || r.Skill == nil || r.Skill.Name != "my-tool" {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if s, err := m.InstallText(ctx, "---\nname: tips\ndescription: 小贴士\n---\n多喝水"); err != nil || s.Source != SourcePaste {
+		t.Fatal(s, err)
+	}
+	if _, err := m.InstallText(ctx, "没有元数据"); err == nil {
+		t.Fatal("没有 description 应失败")
+	}
+
+	// 用户关掉的不出现；管理员关掉的也不出现。
+	u := &store.User{DisabledSkills: "notes"}
+	names := func() string {
+		var out []string
+		for _, s := range m.For(ctx, u) {
+			out = append(out, s.Name)
+		}
+		return strings.Join(out, ",")
+	}
+	if got := names(); got != "my-tool,tips,weather" {
+		t.Fatal(got)
+	}
+	off := false
+	tips, _ := m.ByName(ctx, "tips")
+	_, _ = m.Update(ctx, tips.ID, &off, nil)
+	if got := names(); got != "my-tool,weather" {
+		t.Fatal(got)
+	}
+	if ToggleName("a,b", "a", true) != "b" || ToggleName("b", "a", false) != "b,a" {
+		t.Fatal("ToggleName")
+	}
+	if err := m.Remove(ctx, tips.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(m.Dir(), "tips")); err == nil {
+		t.Fatal("卸载应删除文件")
+	}
+}
+
+func TestTools(t *testing.T) {
+	ctx := context.Background()
+	m := newManager(t)
+	_, _ = m.InstallText(ctx, weatherMD)
+	list := m.For(ctx, &store.User{})
+	ex := Tools(m, list, nil, nil)
+	if len(ex) != 2 || !strings.Contains(ex[0].Hint, "weather：查询天气预报") {
+		t.Fatalf("没有运行代码时只能读说明：%d %q", len(ex), ex[0].Hint)
+	}
+	r := ex[0].Run(ctx, json.RawMessage(`{"name":"weather"}`))
+	if !r.OK || !strings.Contains(r.Output, "python scripts/weather.py") || !strings.Contains(r.Output, "不能运行代码") {
+		t.Fatal(r.Output)
+	}
+	if r := ex[0].Run(ctx, json.RawMessage(`{"name":"nope"}`)); r.OK {
+		t.Fatal("没有的 skill")
+	}
+	if Tools(m, nil, nil, nil) != nil {
+		t.Fatal("没有 skill 时不提供工具")
+	}
+	if !strings.Contains(scriptCode("weather", `python a.py "北京"`), `"python a.py \"北京\""`) {
+		t.Fatal(scriptCode("weather", "x"))
+	}
+}

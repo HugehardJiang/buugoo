@@ -5,6 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/HugehardJiang/buugoo/internal/agent"
+	"github.com/HugehardJiang/buugoo/internal/mcp"
+	"github.com/HugehardJiang/buugoo/internal/skills"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -47,7 +50,11 @@ type Deps struct {
 	Persona *persona.Manager
 	// Channels 为空表示没有开启任何聊天软件接入。
 	Channels *channels.Hub
-	Logger   *slog.Logger
+	// Skills、Plugins、Agent 为空时不提供对应接口。
+	Skills  *skills.Manager
+	Plugins *mcp.Manager
+	Agent   *agent.Service
+	Logger  *slog.Logger
 }
 
 type server struct {
@@ -196,6 +203,8 @@ func New(d Deps) http.Handler {
 	admin.GET("/embedding/reembed", s.adminReembedStatus)
 	admin.POST("/embedding/reembed", s.adminStartReembed)
 
+	s.routeExtensions(e, api, priv, console)
+
 	// QQ（NapCat）的反向 WebSocket 连接，用访问令牌鉴权。
 	if s.Channels != nil {
 		if ob, ok := s.Channels.Channel(channels.QQ).(*channels.OneBotChannel); ok {
@@ -319,6 +328,9 @@ func toAPIError(err error) *apiError {
 	var le *llm.APIError
 	var mi *models.InvalidError
 	var ue *uploads.UserError
+	if ee := extensionError(err); ee != nil {
+		return ee
+	}
 	switch {
 	case errors.As(err, &ue):
 		status, code := http.StatusBadRequest, "invalid_file"

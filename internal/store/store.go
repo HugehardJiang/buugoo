@@ -105,6 +105,8 @@ type UserRepo interface {
 	SetProactive(ctx context.Context, id uint64, on bool) error
 	// MarkProactive 记录布谷主动发消息的时间。
 	MarkProactive(ctx context.Context, id uint64, at time.Time) error
+	// UpdateFields 修改用户的个人设置（键为列名，只允许 display_name、disabled_skills、disabled_plugins、agent_model_id）。
+	UpdateFields(ctx context.Context, id uint64, fields map[string]any) error
 }
 
 // ReminderRepo 是提醒数据访问接口。

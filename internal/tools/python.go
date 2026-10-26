@@ -51,6 +51,10 @@ type RunEnv struct {
 	Input string
 	// WorkspaceMax 是工作目录（打包压缩后）的大小上限，字节。
 	WorkspaceMax int
+	// Skills 是已安装的 skill 所在目录，只读挂载（沙箱中在 /skills，路径写在环境变量 BUUGOO_SKILLS）。
+	Skills string
+	// Network 为 true 时沙箱可以联网（只给允许联网的 skill 脚本用）。
+	Network bool
 }
 
 // Runner 运行 Python 代码。
@@ -75,69 +79,78 @@ func pythonHandler(r Runner, ws Workspace) handler {
 			res.Output, res.Summary = "代码太长", "代码太长"
 			return res
 		}
-		var env RunEnv
-		if ws != nil {
-			e, cleanup, err := ws.Prepare(ctx)
-			if err != nil {
-				res.Output, res.Summary = "准备运行环境失败："+err.Error(), "无法运行"
-				return res
-			}
-			defer cleanup()
-			env = e
-		}
-		out, err := r.Run(ctx, in.Code, env)
+		return RunCode(ctx, r, ws, in.Code, nil)
+	}
+}
+
+// RunCode 运行一段 Python 代码并整理结果（输出、图片、工作目录）。setup 可以调整运行环境（例如挂载 skill、允许联网）。
+func RunCode(ctx context.Context, r Runner, ws Workspace, code string, setup func(*RunEnv)) Result {
+	res := Result{Input: code}
+	var env RunEnv
+	if ws != nil {
+		e, cleanup, err := ws.Prepare(ctx)
 		if err != nil {
-			res.Output, res.Summary = "无法运行代码："+err.Error(), "无法运行"
+			res.Output, res.Summary = "准备运行环境失败："+err.Error(), "无法运行"
 			return res
 		}
-		res.Images = out.Images
-		if out.Workspace != nil && ws != nil {
-			if err := ws.Save(ctx, out.Workspace); err != nil {
-				out.WorkspaceErr = "这次保存的文件没有保留下来：" + err.Error()
-			}
-		}
-		var b strings.Builder
-		switch {
-		case out.TimedOut:
-			b.WriteString("运行超时，已终止。\n")
-			res.Summary = "运行超时"
-		case out.ExitCode != 0:
-			fmt.Fprintf(&b, "退出码：%d\n", out.ExitCode)
-			res.Summary = "运行出错"
-		default:
-			res.OK, res.Summary = true, "运行完成"
-		}
-		if out.Stdout != "" {
-			b.WriteString("标准输出：\n" + out.Stdout + "\n")
-		}
-		if out.Stderr != "" {
-			b.WriteString("错误输出：\n" + out.Stderr + "\n")
-		}
-		if len(out.Images) > 0 {
-			names := make([]string, len(out.Images))
-			for i, img := range out.Images {
-				names[i] = img.Name
-			}
-			fmt.Fprintf(&b, "生成了 %d 张图片（%s），已经显示在你的回复里，不需要再贴链接或用 Markdown 插入图片。\n",
-				len(out.Images), strings.Join(names, "、"))
-			if res.OK {
-				res.Summary = fmt.Sprintf("运行完成，生成 %d 张图片", len(out.Images))
-			}
-		}
-		if out.ImagesSkipped > 0 {
-			fmt.Fprintf(&b, "另有 %d 张图片超出数量或大小上限，没有显示（最多 %d 张，每张不超过 %d MB）。\n",
-				out.ImagesSkipped, maxImages, maxImageBytes>>20)
-		}
-		if out.WorkspaceErr != "" {
-			b.WriteString(out.WorkspaceErr + "\n")
-		}
-		if out.Stdout == "" && out.Stderr == "" && len(out.Images) == 0 {
-			b.WriteString("（没有输出，记得用 print 打印结果）")
-		}
-		res.Output = truncate(strings.TrimSpace(b.String()), 8000)
-		res.Detail = truncate(strings.TrimSpace(out.Stdout+"\n"+out.Stderr), 4000)
+		defer cleanup()
+		env = e
+	}
+	if setup != nil {
+		setup(&env)
+	}
+	out, err := r.Run(ctx, code, env)
+	if err != nil {
+		res.Output, res.Summary = "无法运行代码："+err.Error(), "无法运行"
 		return res
 	}
+	res.Images = out.Images
+	if out.Workspace != nil && ws != nil {
+		if err := ws.Save(ctx, out.Workspace); err != nil {
+			out.WorkspaceErr = "这次保存的文件没有保留下来：" + err.Error()
+		}
+	}
+	var b strings.Builder
+	switch {
+	case out.TimedOut:
+		b.WriteString("运行超时，已终止。\n")
+		res.Summary = "运行超时"
+	case out.ExitCode != 0:
+		fmt.Fprintf(&b, "退出码：%d\n", out.ExitCode)
+		res.Summary = "运行出错"
+	default:
+		res.OK, res.Summary = true, "运行完成"
+	}
+	if out.Stdout != "" {
+		b.WriteString("标准输出：\n" + out.Stdout + "\n")
+	}
+	if out.Stderr != "" {
+		b.WriteString("错误输出：\n" + out.Stderr + "\n")
+	}
+	if len(out.Images) > 0 {
+		names := make([]string, len(out.Images))
+		for i, img := range out.Images {
+			names[i] = img.Name
+		}
+		fmt.Fprintf(&b, "生成了 %d 张图片（%s），已经显示在你的回复里，不需要再贴链接或用 Markdown 插入图片。\n",
+			len(out.Images), strings.Join(names, "、"))
+		if res.OK {
+			res.Summary = fmt.Sprintf("运行完成，生成 %d 张图片", len(out.Images))
+		}
+	}
+	if out.ImagesSkipped > 0 {
+		fmt.Fprintf(&b, "另有 %d 张图片超出数量或大小上限，没有显示（最多 %d 张，每张不超过 %d MB）。\n",
+			out.ImagesSkipped, maxImages, maxImageBytes>>20)
+	}
+	if out.WorkspaceErr != "" {
+		b.WriteString(out.WorkspaceErr + "\n")
+	}
+	if out.Stdout == "" && out.Stderr == "" && len(out.Images) == 0 {
+		b.WriteString("（没有输出，记得用 print 打印结果）")
+	}
+	res.Output = truncate(strings.TrimSpace(b.String()), 8000)
+	res.Detail = truncate(strings.TrimSpace(out.Stdout+"\n"+out.Stderr), 4000)
+	return res
 }
 
 // limitedBuffer 只保留前 n 字节。
@@ -295,6 +308,14 @@ func (d *Docker) Install(ctx context.Context, pkgs []string) (string, error) {
 // containerLib 是库目录在容器中的挂载位置。
 const containerLib = "/opt/pylib"
 
+// network 返回容器的网络：默认断网，允许联网的 skill 脚本用默认网桥。
+func network(env RunEnv) string {
+	if env.Network {
+		return "bridge"
+	}
+	return "none"
+}
+
 // Run 实现 Runner。
 func (d *Docker) Run(ctx context.Context, code string, env RunEnv) (ExecResult, error) {
 	var rnd [6]byte
@@ -302,7 +323,7 @@ func (d *Docker) Run(ctx context.Context, code string, env RunEnv) (ExecResult, 
 	name := "buugoo-py-" + hex.EncodeToString(rnd[:])
 	mem := strconv.Itoa(d.memoryMB) + "m"
 	args := []string{"run", "--rm", "-i", "--name", name,
-		"--network", "none", "--read-only", "--tmpfs", "/tmp:rw,size=64m,mode=1777",
+		"--network", network(env), "--read-only", "--tmpfs", "/tmp:rw,size=64m,mode=1777",
 		"--memory", mem, "--memory-swap", mem, "--cpus", "1", "--pids-limit", "64",
 		"--user", "65534:65534", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
 		"-e", "HOME=/tmp", "-e", "PYTHONIOENCODING=utf-8"}
@@ -321,6 +342,9 @@ func (d *Docker) Run(ctx context.Context, code string, env RunEnv) (ExecResult, 
 	}
 	if env.Input != "" {
 		args = append(args, "-v", env.Input+":"+wd+"/input:ro")
+	}
+	if env.Skills != "" {
+		args = append(args, "-v", env.Skills+":/skills:ro", "-e", "BUUGOO_SKILLS=/skills")
 	}
 	args = append(args, "--workdir", wd)
 	args = append(args, d.fontArgs()...)
@@ -459,6 +483,9 @@ func (l *Local) Run(ctx context.Context, code string, env RunEnv) (ExecResult, e
 	cmd.Dir = wd
 	// matplotlib 的字体缓存放在库目录，不用每次运行都重新扫描字体。
 	cmd.Env = append(l.env(dir), "MPLCONFIGDIR="+filepath.Join(l.lib.dir, mplCacheDir))
+	if env.Skills != "" {
+		cmd.Env = append(cmd.Env, "BUUGOO_SKILLS="+env.Skills)
+	}
 	script, boundary := wrapCode(code)
 	cmd.Stdin = strings.NewReader(script)
 	stdout, stderr := newStdout(0), &limitedBuffer{n: maxOutputBytes}
