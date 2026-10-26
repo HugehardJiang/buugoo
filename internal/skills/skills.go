@@ -174,7 +174,16 @@ func (m *Manager) InstallZip(ctx context.Context, data []byte, pick string) (*In
 	if err != nil {
 		return nil, &UserError{Msg: err.Error()}
 	}
+	// GitHub 的「Download ZIP」会套一层「仓库名-分支」：去掉，路径和从 GitHub 安装时一样。
+	// 最外层本身就是 skill 文件夹时保留，它的名字在 SKILL.md 没写 name 时要用。
+	if s := stripTop(t); !isSkillRoot(s) {
+		t = s
+	}
 	return m.installTree(ctx, t, pick, pick != "", SourceZip, "")
+}
+
+func isSkillRoot(t tree) bool {
+	return t["SKILL.md"] != nil || t["skill.md"] != nil
 }
 
 // InstallText 用粘贴的 SKILL.md 安装（只有说明、不带脚本的 skill）。

@@ -172,6 +172,20 @@ func TestInstall(t *testing.T) {
 	if r, err := m.InstallZip(ctx, zbuf.Bytes(), ""); err != nil || r.Skill == nil || r.Skill.Name != "my-tool" {
 		t.Fatalf("%+v %v", r, err)
 	}
+	// GitHub「Download ZIP」下载的仓库：最外层「仓库名-分支」去掉，路径和从 GitHub 安装时一样。
+	zbuf.Reset()
+	zw = zip.NewWriter(&zbuf)
+	for name, body := range map[string]string{"b-main/skills/one/SKILL.md": "---\nname: one\ndescription: 一\n---\n", "b-main/skills/two/SKILL.md": "---\nname: two\ndescription: 二\n---\n"} {
+		f, _ := zw.Create(name)
+		_, _ = f.Write([]byte(body))
+	}
+	_ = zw.Close()
+	if r, err := m.InstallZip(ctx, zbuf.Bytes(), ""); err != nil || len(r.Candidates) != 2 || r.Candidates[0].Path != "skills/one" {
+		t.Fatalf("repo zip: %+v %v", r, err)
+	}
+	if r, err := m.InstallZip(ctx, zbuf.Bytes(), "skills/two"); err != nil || r.Skill == nil || r.Skill.Name != "two" {
+		t.Fatalf("repo zip pick: %+v %v", r, err)
+	}
 	if s, err := m.InstallText(ctx, "---\nname: tips\ndescription: 小贴士\n---\n多喝水"); err != nil || s.Source != SourcePaste {
 		t.Fatal(s, err)
 	}
@@ -188,13 +202,13 @@ func TestInstall(t *testing.T) {
 		}
 		return strings.Join(out, ",")
 	}
-	if got := names(); got != "my-tool,tips,weather" {
+	if got := names(); got != "my-tool,tips,two,weather" {
 		t.Fatal(got)
 	}
 	off := false
 	tips, _ := m.ByName(ctx, "tips")
 	_, _ = m.Update(ctx, tips.ID, &off, nil)
-	if got := names(); got != "my-tool,weather" {
+	if got := names(); got != "my-tool,two,weather" {
 		t.Fatal(got)
 	}
 	if ToggleName("a,b", "a", true) != "b" || ToggleName("b", "a", false) != "b,a" {
