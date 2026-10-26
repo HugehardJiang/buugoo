@@ -135,16 +135,72 @@ func clip(s string, n int) string {
 	return s
 }
 
-// withToolNotes 把工具记录并入助手消息（放在正文前面，并标明对方看不到）。
+// 工具记录的开头与结尾标记。
+const (
+	toolNoteStart = "〔工具记录"
+	toolNoteEnd   = "〔工具记录结束〕"
+)
+
+// withToolNotes 把工具记录放回历史：附在引出这次回复的那条用户消息后面，并标明是系统附上的、对方看不到。
+// 不放进助手自己的消息里，否则模型会照着这个格式把记录写进新的回复。前面没有用户消息时才放在助手消息前面。
 func withToolNotes(history []store.Message) []store.Message {
 	out := make([]store.Message, len(history))
 	copy(out, history)
 	for i := range out {
-		if note := toolNote(&out[i]); note != "" {
-			out[i].Content = "〔工具记录：回复这条消息前你用过的工具和结果要点，对方看不到这段〕\n" + note + "\n〔工具记录结束〕\n\n" + out[i].Content
+		if out[i].Role == store.RoleAssistant {
+			out[i].Content = stripToolNotes(out[i].Content) // 以前照抄进回复里的记录不再放回历史
+		}
+		note := toolNote(&out[i])
+		if note == "" {
+			continue
+		}
+		j := i - 1
+		for j >= 0 && out[j].Role != store.RoleUser {
+			j--
+		}
+		if j >= 0 {
+			out[j].Content += "\n\n" + toolNoteStart + "：系统附上的，不是对方说的，对方也看不到。你回复这条消息时用过的工具和结果要点〕\n" + note + "\n" + toolNoteEnd
+		} else {
+			out[i].Content = toolNoteStart + "：系统附上的，对方看不到。你回复前用过的工具和结果要点〕\n" + note + "\n" + toolNoteEnd + "\n\n" + out[i].Content
 		}
 	}
 	return out
+}
+
+// StripToolNotes 去掉回复里照抄的工具记录（网页显示以前的消息时用）。
+func StripToolNotes(text string) string { return stripToolNotes(text) }
+
+// stripToolNotes 去掉模型照抄进回复里的工具记录。有结尾标记时去掉整段；没有结尾时去掉开头那行和紧跟着的列表。
+func stripToolNotes(text string) string {
+	if !strings.Contains(text, toolNoteStart) {
+		return text
+	}
+	for {
+		start := strings.Index(text, toolNoteStart)
+		if start < 0 {
+			break
+		}
+		if end := strings.Index(text[start:], toolNoteEnd); end >= 0 {
+			text = text[:start] + text[start+end+len(toolNoteEnd):]
+			continue
+		}
+		lines := strings.Split(text[start:], "\n")
+		k := 1
+		for k < len(lines) {
+			l := strings.TrimSpace(lines[k])
+			if l == "" || strings.HasPrefix(l, "-") || strings.HasPrefix(l, "•") || strings.HasPrefix(lines[k], " ") {
+				k++
+				continue
+			}
+			break
+		}
+		text = text[:start] + strings.Join(lines[k:], "\n")
+	}
+	// 去掉留下的多余空行。
+	for strings.Contains(text, "\n\n\n") {
+		text = strings.ReplaceAll(text, "\n\n\n", "\n\n")
+	}
+	return strings.TrimSpace(text)
 }
 
 // messageTokens 估算一条消息占用的上下文。

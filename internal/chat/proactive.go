@@ -130,7 +130,7 @@ func (s *Service) RunTask(ctx context.Context, u *store.User, task string) (*Pro
 	genErr := t.run(func() error { return nil })
 
 	bg := context.WithoutCancel(ctx)
-	reply.Content = strings.TrimSpace(t.text.String())
+	reply.Content = stripToolNotes(strings.TrimSpace(t.text.String()))
 	if len(t.records) > 0 {
 		b, _ := json.Marshal(t.records)
 		reply.ToolLog = string(b)

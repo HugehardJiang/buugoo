@@ -786,14 +786,37 @@ func TestToolNotesInHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := e.chat.reqs[len(e.chat.reqs)-1]
-	var asst string
+	var asst, user string
 	for _, m := range req.Messages {
 		if m.Role == llm.RoleAssistant && strings.Contains(m.Content, "算好了") {
 			asst = m.Content
 		}
+		if m.Role == llm.RoleUser && strings.HasPrefix(m.Content, "算一下") {
+			user = m.Content
+		}
 	}
-	if !strings.Contains(asst, "〔工具记录") || !strings.Contains(asst, "运行代码「print(1111*1111)」") || !strings.Contains(asst, "1234567") {
-		t.Fatalf("%q", asst)
+	// 记录附在用户消息后面，不放进助手的话里（免得模型照着格式写进回复）。
+	if strings.Contains(asst, "〔工具记录") {
+		t.Fatalf("assistant = %q", asst)
+	}
+	if !strings.Contains(user, "〔工具记录") || !strings.Contains(user, "运行代码「print(1111*1111)」") || !strings.Contains(user, "1234567") {
+		t.Fatalf("user = %q", user)
+	}
+}
+
+// 模型照抄进回复里的工具记录要去掉。
+func TestStripToolNotes(t *testing.T) {
+	cases := map[string]string{
+		"好的": "好的",
+		"〔工具记录：回复这条消息前你用过的工具和结果要点，对方看不到这段〕\n- 设提醒「考完了」：10-29 15:05 一次\n〔工具记录结束〕\n\n好，29号考完就喊你": "好，29号考完就喊你",
+		"先说一句\n\n〔工具记录：x〕\n- a\n〔工具记录结束〕\n\n再说一句":                                              "先说一句\n\n再说一句",
+		"〔工具记录：没写结尾〕\n- 设提醒「a」：10-28 20:00\n  详情\n\n好，到时候叫你":                                   "好，到时候叫你",
+		"〔工具记录结束〕": "",
+	}
+	for in, want := range cases {
+		if got := stripToolNotes(in); got != want {
+			t.Errorf("stripToolNotes(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

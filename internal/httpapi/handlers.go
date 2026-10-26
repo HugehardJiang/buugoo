@@ -61,6 +61,9 @@ type messageDTO struct {
 func toMessage(m *store.Message) messageDTO {
 	d := messageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Reasoning: m.Reasoning, Model: m.Model,
 		Status: m.Status, CreatedAt: m.CreatedAt}
+	if m.Role == store.RoleAssistant {
+		d.Content = chat.StripToolNotes(d.Content) // 以前的回复里可能照抄了工具记录
+	}
 	if m.ToolLog != "" {
 		_ = json.Unmarshal([]byte(m.ToolLog), &d.Tools)
 	}

@@ -388,7 +388,7 @@ func (s *Service) Send(ctx context.Context, u *store.User, in SendInput, sink Si
 
 	// 无论成功与否都要落库，使用不随请求取消的 context。
 	bg := context.WithoutCancel(ctx)
-	reply.Content, reply.Reasoning = t.text.String(), t.reasoning.String()
+	reply.Content, reply.Reasoning = stripToolNotes(t.text.String()), t.reasoning.String()
 	res.Tools = t.records
 	if len(t.records) > 0 {
 		b, _ := json.Marshal(t.records)
