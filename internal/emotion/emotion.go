@@ -114,6 +114,20 @@ type Engine struct {
 
 	mu    sync.Mutex
 	locks map[uint64]*sync.Mutex
+
+	// Tune 按用户调整情绪参数（例如用户选的预设性格情绪起伏更大），为空时所有人使用同样的参数。
+	Tune func(ctx context.Context, userID uint64, c config.EmotionConfig) config.EmotionConfig
+}
+
+// tuning 是某个用户这一次使用的情绪参数。
+type tuning struct{ cfg config.EmotionConfig }
+
+func (e *Engine) tuning(ctx context.Context, userID uint64) tuning {
+	c := e.cfg
+	if e.Tune != nil {
+		c = e.Tune(ctx, userID, c)
+	}
+	return tuning{cfg: c}
 }
 
 // New 创建情绪引擎。
@@ -188,7 +202,7 @@ func valence(s *store.EmotionState) float64 {
 }
 
 // decay 让情绪按经过的时间向基线消退，心境向当前感受漂移。
-func (e *Engine) decay(s *store.EmotionState, now time.Time) {
+func (t tuning) decay(s *store.EmotionState, now time.Time) {
 	dt := now.Sub(s.UpdatedAt)
 	if dt <= 0 {
 		return
@@ -197,7 +211,7 @@ func (e *Engine) decay(s *store.EmotionState, now time.Time) {
 		hl := halfLife[name]
 		if name == Anger {
 			// 越亲近、越宽容，消气越快。
-			hl = time.Duration(float64(hl) / (e.factor(e.cfg.Forgiveness) * (0.7 + 0.6*s.Affinity)))
+			hl = time.Duration(float64(hl) / (t.factor(t.cfg.Forgiveness) * (0.7 + 0.6*s.Affinity)))
 		}
 		b := baseline(name, s.Mood)
 		*p = b + (*p-b)*halfDecay(dt, hl)
@@ -215,7 +229,7 @@ func halfDecay(dt, hl time.Duration) float64 {
 }
 
 // factor 把配置的系数（0-3，0 视为未设置）转换为乘数。
-func (e *Engine) factor(v float64) float64 {
+func (t tuning) factor(v float64) float64 {
 	if v <= 0 {
 		return 1
 	}
@@ -223,8 +237,8 @@ func (e *Engine) factor(v float64) float64 {
 }
 
 // add 以饱和方式增加情绪：越接近 1 越难再增加。返回实际变化量。
-func (e *Engine) add(p *float64, gain float64) float64 {
-	gain *= e.factor(e.cfg.Expressiveness)
+func (t tuning) add(p *float64, gain float64) float64 {
+	gain *= t.factor(t.cfg.Expressiveness)
 	before := *p
 	if gain >= 0 {
 		*p += gain * (1 - *p)
@@ -274,7 +288,8 @@ func (e *Engine) Before(ctx context.Context, userID uint64, content string) (str
 		return "", err
 	}
 	now := e.now()
-	e.decay(s, now)
+	t := e.tuning(ctx, userID)
+	t.decay(s, now)
 	ch := Changes{}
 	var causes []string
 
@@ -283,10 +298,10 @@ func (e *Engine) Before(ctx context.Context, userID uint64, content string) (str
 		gap := now.Sub(*s.LastMessageAt)
 		if gap > 6*time.Hour {
 			longing := s.Affinity * (1 - halfDecay(gap, absenceHalfLife))
-			ch.record(Longing, e.add(&s.Longing, longing))
-			ch.record(Joy, e.add(&s.Joy, 0.5*longing))
+			ch.record(Longing, t.add(&s.Longing, longing))
+			ch.record(Joy, t.add(&s.Joy, 0.5*longing))
 			// 很久不见也会冲淡一部分不快。
-			ch.record(Anger, e.add(&s.Anger, -0.5*clamp(gap.Hours()/72, 0, 1)))
+			ch.record(Anger, t.add(&s.Anger, -0.5*clamp(gap.Hours()/72, 0, 1)))
 			if longing > 0.1 {
 				causes = append(causes, fmt.Sprintf("%s没见了，有点想念", humanGap(gap)))
 			}
@@ -306,13 +321,13 @@ func (e *Engine) Before(ctx context.Context, userID uint64, content string) (str
 			repeats++
 		}
 	}
-	patience := e.factor(e.cfg.Patience)
+	patience := t.factor(t.cfg.Patience)
 	if rapid >= 3 {
-		ch.record(Impatience, e.add(&s.Impatience, 0.08*float64(rapid-2)/patience))
+		ch.record(Impatience, t.add(&s.Impatience, 0.08*float64(rapid-2)/patience))
 		causes = append(causes, "对方一直连着发消息")
 	}
 	if repeats > 0 {
-		ch.record(Impatience, e.add(&s.Impatience, 0.2*float64(repeats)/patience))
+		ch.record(Impatience, t.add(&s.Impatience, 0.2*float64(repeats)/patience))
 		causes = append(causes, "同样的话对方已经问过了")
 	}
 	p.At = append(p.At, now)
@@ -322,8 +337,8 @@ func (e *Engine) Before(ctx context.Context, userID uint64, content string) (str
 	}
 	b, _ := json.Marshal(p)
 	s.Pace = string(b)
-	t := now
-	s.LastMessageAt = &t
+	at := now
+	s.LastMessageAt = &at
 	if len(causes) > 0 {
 		s.Cause = strings.Join(causes, "；")
 	}
@@ -346,7 +361,7 @@ func (e *Engine) Peek(ctx context.Context, userID uint64) (string, error) {
 		return "", err
 	}
 	now := e.now()
-	e.decay(s, now)
+	e.tuning(ctx, userID).decay(s, now)
 	return e.describe(s, now), nil
 }
 
@@ -361,8 +376,9 @@ func (e *Engine) Appraise(ctx context.Context, userID uint64, a Appraisal) error
 	if err != nil {
 		return err
 	}
-	e.decay(s, e.now())
-	ch := e.apply(s, a)
+	t := e.tuning(ctx, userID)
+	t.decay(s, e.now())
+	ch := t.apply(s, a)
 	if a.Cause != "" && dominantChange(ch) >= 0.08 {
 		s.Cause = a.Cause
 	}
@@ -376,9 +392,9 @@ func (e *Engine) Appraise(ctx context.Context, userID uint64, a Appraisal) error
 }
 
 // apply 是评价到情绪的映射。
-func (e *Engine) apply(s *store.EmotionState, a Appraisal) Changes {
+func (t tuning) apply(s *store.EmotionState, a Appraisal) Changes {
 	ch := Changes{}
-	temper, empathy := e.factor(e.cfg.Temper), e.factor(e.cfg.Empathy)
+	temper, empathy := t.factor(t.cfg.Temper), t.factor(t.cfg.Empathy)
 	// 心境影响感受：心情好时同一句话更愉快，心情差时更刺耳。
 	pleasant := clamp(a.Pleasantness+0.2*s.Mood, -1, 1)
 	insult := math.Max(-a.Respect, 0)
@@ -396,48 +412,48 @@ func (e *Engine) apply(s *store.EmotionState, a Appraisal) Changes {
 
 	// 道歉：真诚的道歉让怒气明显消退，信任越高越容易原谅。
 	if a.Apology > 0 {
-		cut := clamp(0.7*a.Apology*(0.5+0.5*s.Trust)*e.factor(e.cfg.Forgiveness), 0, 0.95)
-		ch.record(Anger, e.add(&s.Anger, -cut))
-		ch.record(Impatience, e.add(&s.Impatience, -cut/2))
+		cut := clamp(0.7*a.Apology*(0.5+0.5*s.Trust)*t.factor(t.cfg.Forgiveness), 0, 0.95)
+		ch.record(Anger, t.add(&s.Anger, -cut))
+		ch.record(Impatience, t.add(&s.Impatience, -cut/2))
 	}
 
 	// 生气：被冒犯；越亲近越不容易被激怒，已经不耐烦时更容易爆发。
 	if insult > 0 {
 		g := 0.85 * insult * temper * (1 - 0.4*s.Affinity) * (1 + 0.5*s.Impatience)
-		ch.record(Anger, e.add(&s.Anger, g))
-		ch.record(Sadness, e.add(&s.Sadness, 0.25*insult*(0.5+s.Affinity))) // 被亲近的人冒犯也会难过
-		ch.record(Joy, e.add(&s.Joy, -0.6*insult))
+		ch.record(Anger, t.add(&s.Anger, g))
+		ch.record(Sadness, t.add(&s.Sadness, 0.25*insult*(0.5+s.Affinity))) // 被亲近的人冒犯也会难过
+		ch.record(Joy, t.add(&s.Joy, -0.6*insult))
 	}
 
 	// 不耐烦：被命令、催促。
 	if a.Demanding > 0 {
-		ch.record(Impatience, e.add(&s.Impatience, 0.35*a.Demanding/e.factor(e.cfg.Patience)))
+		ch.record(Impatience, t.add(&s.Impatience, 0.35*a.Demanding/t.factor(t.cfg.Patience)))
 	}
 
 	// 开心：愉快的交流、被关心与夸奖、分享对方的喜悦。
 	joy := 0.45*math.Max(pleasant, 0) + 0.4*a.Care + 0.4*contagion*userEmo("joy")
 	if joy > 0 {
-		ch.record(Joy, e.add(&s.Joy, joy))
+		ch.record(Joy, t.add(&s.Joy, joy))
 		// 开心会冲淡一些不快（抑制）。
-		ch.record(Sadness, e.add(&s.Sadness, -0.3*joy))
-		ch.record(Impatience, e.add(&s.Impatience, -0.3*joy))
+		ch.record(Sadness, t.add(&s.Sadness, -0.3*joy))
+		ch.record(Impatience, t.add(&s.Impatience, -0.3*joy))
 	}
 
 	// 难过：不愉快的事、对方的悲伤。
 	sad := 0.35*math.Max(-pleasant, 0)*(1-insult) + 0.5*contagion*userEmo("sadness")
 	if sad > 0 {
-		ch.record(Sadness, e.add(&s.Sadness, sad))
-		ch.record(Joy, e.add(&s.Joy, -0.4*sad))
+		ch.record(Sadness, t.add(&s.Sadness, sad))
+		ch.record(Joy, t.add(&s.Joy, -0.4*sad))
 	}
 
 	// 担心：对方处境危险、害怕。
 	worry := 0.7*a.Threat*(0.6+0.4*s.Affinity) + 0.35*contagion*userEmo("fear")
 	if worry > 0 {
-		ch.record(Worry, e.add(&s.Worry, worry))
+		ch.record(Worry, t.add(&s.Worry, worry))
 	}
 
 	if a.Surprise > 0 {
-		ch.record(Surprise, e.add(&s.Surprise, 0.7*a.Surprise))
+		ch.record(Surprise, t.add(&s.Surprise, 0.7*a.Surprise))
 	}
 
 	// 关系：缓慢积累，负面事件的分量约是正面的两倍；每次相处都会让人更熟悉一点。
@@ -519,7 +535,7 @@ func (e *Engine) Get(ctx context.Context, userID uint64) (View, error) {
 		return View{}, err
 	}
 	now := e.now()
-	e.decay(s, now)
+	e.tuning(ctx, userID).decay(s, now)
 	v := View{Enabled: true, Mood: round(s.Mood), Affinity: round(s.Affinity), Trust: round(s.Trust),
 		Cause: s.Cause, Relation: relation(s.Affinity, s.Trust), UpdatedAt: now, Raw: snapshot(s)}
 	for _, n := range Names {

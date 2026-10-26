@@ -82,7 +82,7 @@ var meta = map[string]struct {
 	"chat.keep_recent": {"压缩后保留原文", "压缩时最近的消息原样保留，大约占上下文长度的这个比例，更早的整理进摘要（5 到自动压缩阈值之间）", nil},
 
 	"persona.file":             {"人格档案文件", "留空使用内置的布谷；管理后台「人格」中保存的人格优先于这里", nil},
-	"persona.disabled_presets": {"关掉的预设性格", "用户不能再选这些预设：gentle 温柔治愈、snarky 毒舌损友、strategist 理性军师、bubbly 元气话痨；已经选了的用户改用默认人格", nil},
+	"persona.disabled_presets": {"关掉的预设性格", "用户不能再选这些预设：gentle 温柔治愈、snarky 毒舌损友、strategist 理性军师、bubbly 元气话痨、alive 人工智鸟；已经选了的用户改用默认人格", nil},
 
 	"quota.daily_messages": {"每人每日消息数", "0 不限", nil},
 	"quota.daily_tokens":   {"每人每日 token", "0 不限", nil},

@@ -130,6 +130,32 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 		toolsProv.reminders, toolsProv.loc = db.Reminders(), loc
 	}
 	emo := emotion.New(db.Emotions(), cfg.Emotion, loc, log)
+	// 用户选的预设性格可以放大或减小情绪起伏（例如「人工智鸟」更容易生气、更难哄好）。
+	emo.Tune = func(ctx context.Context, userID uint64, c config.EmotionConfig) config.EmotionConfig {
+		u, err := db.Users().GetByID(ctx, userID)
+		if err != nil {
+			return c
+		}
+		p := persona.Find(u.PersonaPreset, cfg.Persona.DisabledPresets)
+		if p == nil || p.Emotion == nil {
+			return c
+		}
+		scale := func(v, k float64) float64 {
+			if v <= 0 {
+				v = 1
+			}
+			if k <= 0 {
+				return v
+			}
+			return min(v*k, 5)
+		}
+		c.Expressiveness = scale(c.Expressiveness, p.Emotion.Expressiveness)
+		c.Temper = scale(c.Temper, p.Emotion.Temper)
+		c.Patience = scale(c.Patience, p.Emotion.Patience)
+		c.Forgiveness = scale(c.Forgiveness, p.Emotion.Forgiveness)
+		c.Empathy = scale(c.Empathy, p.Emotion.Empathy)
+		return c
+	}
 	writer.OnAppraisal(func(ctx context.Context, job memory.WriteJob, a emotion.Appraisal) {
 		if err := emo.Appraise(ctx, job.UserID, a); err != nil {
 			log.Warn("更新情绪失败", "user_id", job.UserID, "err", err)

@@ -22,6 +22,21 @@ type Preset struct {
 	Personality   []string `yaml:"personality" json:"-"`
 	SpeakingStyle []string `yaml:"speaking_style" json:"-"`
 	Catchphrases  []string `yaml:"catchphrases" json:"catchphrases"`
+	// Attitude 是这个性格对待对方的态度，替换人格档案中的 attitude。
+	Attitude []string `yaml:"attitude" json:"-"`
+	// Emotion 是情绪参数的倍数（乘在管理员设置的值上），为空表示不变。
+	Emotion *EmotionScale `yaml:"emotion" json:"-"`
+	// MemoryExtra 是每轮多想起几条记忆，记忆对说话的影响更大。
+	MemoryExtra int `yaml:"memory_extra" json:"-"`
+}
+
+// EmotionScale 是情绪参数的倍数，0 表示不变。
+type EmotionScale struct {
+	Expressiveness float64 `yaml:"expressiveness"`
+	Temper         float64 `yaml:"temper"`
+	Patience       float64 `yaml:"patience"`
+	Forgiveness    float64 `yaml:"forgiveness"`
+	Empathy        float64 `yaml:"empathy"`
 }
 
 // Apply 返回套用预设后的人格档案。
@@ -31,6 +46,9 @@ func (p Preset) Apply(base Persona) Persona {
 	out.Personality = slices.Clone(p.Personality)
 	out.SpeakingStyle = slices.Clone(p.SpeakingStyle)
 	out.Catchphrases = slices.Clone(p.Catchphrases)
+	if len(p.Attitude) > 0 {
+		out.Attitude = slices.Clone(p.Attitude)
+	}
 	return out
 }
 

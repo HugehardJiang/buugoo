@@ -73,7 +73,7 @@ Word `.docx`、以及 UTF-8 / GBK 编码的纯文本文件。上传后 24 小时
 | 配置 | 默认 | 说明 |
 | --- | --- | --- |
 | `persona.file` | 空 | 人格档案文件，留空使用内置的布谷；管理后台「人格」中保存的优先 |
-| `persona.disabled_presets` | 空 | 关掉的预设性格：`gentle` 温柔治愈、`snarky` 毒舌损友、`strategist` 理性军师、`bubbly` 元气话痨 |
+| `persona.disabled_presets` | 空 | 关掉的预设性格：`gentle` 温柔治愈、`snarky` 毒舌损友、`strategist` 理性军师、`bubbly` 元气话痨、`alive` 人工智鸟 |
 
 每个用户可以在「设置 → 性格」中选一种预设（见 [configs/persona.presets.yaml](../configs/persona.presets.yaml)）。
 预设只替换人格档案中的自我认知、性格、说话风格和口头禅；名字、兴趣、价值观和必须遵守的原则仍然来自人格档案。

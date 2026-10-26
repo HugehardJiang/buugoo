@@ -93,7 +93,7 @@ func TestManager(t *testing.T) {
 
 func TestPresets(t *testing.T) {
 	list := Presets()
-	if len(list) != 4 {
+	if len(list) != 5 {
 		t.Fatalf("presets=%d", len(list))
 	}
 	base, err := Load("")
@@ -115,8 +115,16 @@ func TestPresets(t *testing.T) {
 	if Find("snarky", nil) == nil || Find("snarky", []string{"snarky"}) != nil || Find("nope", nil) != nil || Find("", nil) != nil {
 		t.Fatal("Find")
 	}
-	if len(Available([]string{"gentle", "bubbly"})) != 2 {
+	if len(Available([]string{"gentle", "bubbly"})) != 3 {
 		t.Fatal("Available")
+	}
+	// 人工智鸟：有自己的态度，情绪起伏更大，多想起几条记忆。
+	alive := Find("alive", nil)
+	if alive == nil || len(alive.Attitude) == 0 || alive.Emotion == nil || alive.Emotion.Temper <= 1 || alive.MemoryExtra <= 0 {
+		t.Fatalf("%+v", alive)
+	}
+	if got := alive.Apply(base); len(got.Attitude) == 0 || !slices.Equal(got.Principles, base.Principles) {
+		t.Fatal("应带上态度，原则不变")
 	}
 	if _, err := parsePresets([]byte("- id: a\n  label: x\n")); err == nil {
 		t.Fatal("缺少字段应报错")

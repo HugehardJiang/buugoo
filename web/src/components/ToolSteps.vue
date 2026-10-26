@@ -19,6 +19,8 @@ function icon(name: string) {
   if (name === 'web_search') return 'search' as const
   if (name === 'web_fetch') return 'globe' as const
   if (name === 'install_package') return 'download' as const
+  if (name === 'send_file') return 'file' as const
+  if (['set_reminder', 'schedule_task', 'list_reminders', 'cancel_reminder'].includes(name)) return 'clock' as const
   return 'code' as const
 }
 
@@ -54,7 +56,9 @@ function inlineInput(ev: ToolEvent) {
 </template>
 
 <style scoped>
-.steps { display: grid; gap: 4px; max-width: 640px; margin: 0 0 10px; padding: 0; list-style: none; }
+/* 列宽用 minmax(0, 1fr)：长的搜索词、提醒内容省略显示，不会把消息撑宽（手机上会左右滑动）。 */
+.steps { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; max-width: 640px; min-width: 0; margin: 0 0 10px; padding: 0; list-style: none; }
+.step { min-width: 0; }
 .step__head {
   display: flex; width: 100%; align-items: center; gap: 8px; min-height: 32px; padding: 4px 8px 4px 6px; margin-left: -6px;
   border-radius: var(--radius-sm); color: var(--color-text-secondary); font-size: 13px; text-align: left;

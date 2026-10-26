@@ -238,7 +238,12 @@ func (s *Service) prepare(ctx context.Context, u *store.User, conv *store.Conver
 	if err != nil {
 		return nil, err
 	}
-	mems := s.retrieve(ctx, u.ID, userText, history)
+	preset := persona.Find(u.PersonaPreset, s.disabled)
+	extra := 0
+	if preset != nil {
+		extra = preset.MemoryExtra
+	}
+	mems := s.retrieve(ctx, u.ID, userText, history, extra)
 	p := s.builder.Build(prompt.Input{
 		UserName:      u.DisplayName,
 		Now:           s.now().In(s.loc),
@@ -250,7 +255,7 @@ func (s *Service) prepare(ctx context.Context, u *store.User, conv *store.Conver
 		KeepReasoning: in.toolHints != "" && in.model != nil && in.model.ThinkingStyle == store.ThinkingStyleDeepSeek,
 		ToolHints:     in.toolHints,
 		Emotion:       in.emotion,
-		Preset:        persona.Find(u.PersonaPreset, s.disabled),
+		Preset:        preset,
 		Summary:       conv.Summary,
 		MaxTokens:     budget,
 	})
@@ -258,7 +263,7 @@ func (s *Service) prepare(ctx context.Context, u *store.User, conv *store.Conver
 }
 
 // retrieve 检索相关记忆。检索失败（例如向量服务不可用）不影响聊天，只记录告警。
-func (s *Service) retrieve(ctx context.Context, userID uint64, content string, history []store.Message) []memory.Scored {
+func (s *Service) retrieve(ctx context.Context, userID uint64, content string, history []store.Message, extra int) []memory.Scored {
 	query := content
 	// 很短的消息（"然后呢""是的"）单独检索意义不大，带上上一句作为语境。
 	if utf8.RuneCountInString(content) < 8 && len(history) > 0 {
@@ -267,7 +272,7 @@ func (s *Service) retrieve(ctx context.Context, userID uint64, content string, h
 	if r := []rune(query); len(r) > 2000 {
 		query = string(r[:2000])
 	}
-	mems, err := s.retriever.Retrieve(ctx, userID, query)
+	mems, err := s.retriever.RetrieveMore(ctx, userID, query, extra)
 	if err != nil {
 		s.log.Warn("检索记忆失败，本轮不使用记忆", "user_id", userID, "err", err)
 		return nil

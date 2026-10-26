@@ -46,11 +46,16 @@ func (r *Retriever) EmbedQuery(ctx context.Context, query string) ([]float32, er
 
 // Retrieve 检索与 query 相关的记忆，按得分降序返回至多 top_k 条。
 func (r *Retriever) Retrieve(ctx context.Context, userID uint64, query string) ([]Scored, error) {
+	return r.RetrieveMore(ctx, userID, query, 0)
+}
+
+// RetrieveMore 和 Retrieve 一样，但多取 extra 条（记忆影响更强的性格用）。
+func (r *Retriever) RetrieveMore(ctx context.Context, userID uint64, query string, extra int) ([]Scored, error) {
 	q, err := r.EmbedQuery(ctx, query)
 	if err != nil {
 		return nil, err
 	}
-	return r.RetrieveByVector(ctx, userID, q)
+	return r.retrieve(ctx, userID, q, r.cfg.TopK+max(0, extra))
 }
 
 // RetrieveByVector 用已计算好的查询向量检索。
@@ -58,7 +63,11 @@ func (r *Retriever) Retrieve(ctx context.Context, userID uint64, query string) (
 // 流程：按相似度取出 candidate_k 条候选 → 过滤相似度低于 min_relevance 的 →
 // 读取元数据并按 α·recency + β·importance + γ·relevance 打分 → 取前 top_k 条。
 func (r *Retriever) RetrieveByVector(ctx context.Context, userID uint64, q []float32) ([]Scored, error) {
-	hits, err := r.vs.Search(ctx, userID, r.emb.Model(), q, r.cfg.CandidateK)
+	return r.retrieve(ctx, userID, q, r.cfg.TopK)
+}
+
+func (r *Retriever) retrieve(ctx context.Context, userID uint64, q []float32, topK int) ([]Scored, error) {
+	hits, err := r.vs.Search(ctx, userID, r.emb.Model(), q, max(r.cfg.CandidateK, topK))
 	if err != nil {
 		return nil, fmt.Errorf("向量检索: %w", err)
 	}
@@ -78,10 +87,10 @@ func (r *Retriever) RetrieveByVector(ctx context.Context, userID uint64, q []flo
 	if err != nil {
 		return nil, fmt.Errorf("读取记忆: %w", err)
 	}
-	return r.rank(mems, sims), nil
+	return r.rank(mems, sims, topK), nil
 }
 
-func (r *Retriever) rank(mems []store.Memory, sims map[uint64]float64) []Scored {
+func (r *Retriever) rank(mems []store.Memory, sims map[uint64]float64, topK int) []Scored {
 	now := r.now()
 	out := make([]Scored, 0, len(mems))
 	for i := range mems {
@@ -99,8 +108,8 @@ func (r *Retriever) rank(mems []store.Memory, sims map[uint64]float64) []Scored 
 		}
 		return out[i].Memory.ID > out[j].Memory.ID
 	})
-	if len(out) > r.cfg.TopK {
-		out = out[:r.cfg.TopK]
+	if len(out) > topK {
+		out = out[:topK]
 	}
 	return out
 }

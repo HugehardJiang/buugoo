@@ -26,7 +26,9 @@ type Persona struct {
 	Catchphrases  []string `yaml:"catchphrases"`
 	Interests     []string `yaml:"interests"`
 	Values        []string `yaml:"values"`
-	Principles    []string `yaml:"principles"`
+	// Attitude 是对待对方的态度（例如有主见、会反驳），可以为空。
+	Attitude   []string `yaml:"attitude"`
+	Principles []string `yaml:"principles"`
 }
 
 // Load 从文件加载人格档案；path 为空时使用内置的默认人格"布谷"。

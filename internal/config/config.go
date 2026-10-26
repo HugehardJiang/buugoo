@@ -369,7 +369,7 @@ func ValidPackageSpec(s string) bool { return packageSpec.MatchString(s) }
 // PersonaConfig 是人格档案配置。
 type PersonaConfig struct {
 	File string `koanf:"file"` // 为空时使用内置默认人格
-	// DisabledPresets 是关掉的预设性格 ID（gentle、snarky、strategist、bubbly），用户不能再选；已经选了的改用默认人格。
+	// DisabledPresets 是关掉的预设性格 ID（gentle、snarky、strategist、bubbly、alive），用户不能再选；已经选了的改用默认人格。
 	DisabledPresets []string `koanf:"disabled_presets"`
 }
 

@@ -174,3 +174,17 @@ func TestHumanizeGap(t *testing.T) {
 		}
 	}
 }
+
+// 「人工智鸟」的态度写进系统提示词，原则照旧。
+func TestPresetAttitude(t *testing.T) {
+	b, in := fixture(t)
+	in.Preset = persona.Find("alive", nil)
+	sys := b.Build(in).Messages[0].Content
+	if !strings.Contains(sys, "## 态度") || !strings.Contains(sys, "反驳") || !strings.Contains(sys, "## 必须遵守的原则") {
+		t.Fatal(sys)
+	}
+	in.Preset = nil
+	if strings.Contains(b.Build(in).Messages[0].Content, "## 态度") {
+		t.Fatal("默认人格没有态度这一节")
+	}
+}
