@@ -37,10 +37,10 @@ type v10MCPServer struct {
 	Name       string `gorm:"size:64;uniqueIndex;not null"`
 	Transport  string `gorm:"size:16;not null"`
 	Command    string `gorm:"size:512;not null;default:''"`
-	Args       string `gorm:"size:4000;not null;default:''"`
-	EnvEnc     string `gorm:"size:8000;not null;default:''"`
+	Args       string `gorm:"type:text"`
+	EnvEnc     string `gorm:"type:text"`
 	URL        string `gorm:"size:1024;not null;default:''"`
-	HeadersEnc string `gorm:"size:8000;not null;default:''"`
+	HeadersEnc string `gorm:"type:text"`
 	Enabled    bool   `gorm:"not null;default:true"`
 	CreatedAt  ts
 	UpdatedAt  ts

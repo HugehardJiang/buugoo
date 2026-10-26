@@ -432,11 +432,11 @@ type MCPServer struct {
 	Transport string `gorm:"size:16;not null"`
 	Command   string `gorm:"size:512;not null;default:''"`
 	// Args 是命令参数（JSON 数组）。
-	Args string `gorm:"size:4000;not null;default:''"`
+	Args string `gorm:"type:text"`
 	// EnvEnc、HeadersEnc 是加密后的 JSON 对象。
-	EnvEnc     string `gorm:"size:8000;not null;default:''"`
+	EnvEnc     string `gorm:"type:text"`
 	URL        string `gorm:"size:1024;not null;default:''"`
-	HeadersEnc string `gorm:"size:8000;not null;default:''"`
+	HeadersEnc string `gorm:"type:text"`
 	Enabled    bool   `gorm:"not null;default:true"`
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
