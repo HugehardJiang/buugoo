@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -56,6 +57,9 @@ type Service struct {
 	// workspaces 是运行代码的对话工作目录所在位置（为空表示不保留工作目录），其中的文件计入用户的文件空间。
 	workspaces string
 	anyFile    bool
+	// 将同一用户的额度检查、文件写入和入库串行化。固定数量的锁
+	// 避免为每个用户永久保留一个锁；所有保存入口共享这些锁。
+	quotaLocks [64]sync.Mutex
 }
 
 // SetWorkspaceRoot 设置对话工作目录的位置。
@@ -153,6 +157,9 @@ func (s *Service) Save(ctx context.Context, userID uint64, filename string, r io
 		a.Path = safeExt(filename)
 	}
 
+	mu := &s.quotaLocks[userID%uint64(len(s.quotaLocks))]
+	mu.Lock()
+	defer mu.Unlock()
 	if err := s.checkQuota(ctx, userID, a.Size); err != nil {
 		return nil, err
 	}
@@ -194,6 +201,9 @@ func (s *Service) SaveSent(ctx context.Context, userID, conversationID, messageI
 	if int64(len(data)) > s.MaxFileBytes() {
 		return nil, userErr(ErrTooLarge, "文件太大，不能超过 %d MB", s.cfg.MaxFileMB)
 	}
+	mu := &s.quotaLocks[userID%uint64(len(s.quotaLocks))]
+	mu.Lock()
+	defer mu.Unlock()
 	if err := s.checkQuota(ctx, userID, int64(len(data))); err != nil {
 		return nil, err
 	}
@@ -230,6 +240,9 @@ func (s *Service) SaveGenerated(ctx context.Context, userID, conversationID, mes
 	if !ok {
 		return nil, userErr(ErrUnsupported, "%s 不是 PNG、JPEG、GIF 或 WebP 图片", cleanName(filename))
 	}
+	mu := &s.quotaLocks[userID%uint64(len(s.quotaLocks))]
+	mu.Lock()
+	defer mu.Unlock()
 	if err := s.checkQuota(ctx, userID, int64(len(data))); err != nil {
 		return nil, err
 	}

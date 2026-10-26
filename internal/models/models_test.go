@@ -61,6 +61,37 @@ func input(name, key string) Input {
 	return Input{Name: name, BaseURL: "https://api.example.com/v1/", APIKey: key, Model: "m-" + name}
 }
 
+func TestPublicModelTestsRequireAdmin(t *testing.T) {
+	ctx := context.Background()
+	svc, _ := newService(t, config.ModeMulti, "builtin-key")
+	admin, user := User{ID: 1, IsAdmin: true}, User{ID: 2}
+	in := input("public", "public-key")
+	in.Public = true
+	pub, err := svc.Create(ctx, admin, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	personal, err := svc.Create(ctx, user, input("personal", "personal-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []uint64{BuiltinID, pub.ID} {
+		if _, err := svc.Test(ctx, user, id, nil); !errors.Is(err, ErrForbidden) {
+			t.Fatalf("ordinary user testing shared model %d: %v", id, err)
+		}
+		if res, err := svc.Test(ctx, admin, id, nil); err != nil || !res.OK {
+			t.Fatalf("admin testing shared model %d: %+v %v", id, res, err)
+		}
+	}
+	if res, err := svc.Test(ctx, user, personal.ID, nil); err != nil || !res.OK {
+		t.Fatalf("personal model test: %+v %v", res, err)
+	}
+	custom := input("custom", "own-key")
+	if res, err := svc.Test(ctx, user, 0, &custom); err != nil || !res.OK {
+		t.Fatalf("own supplied key test: %+v %v", res, err)
+	}
+}
+
 func TestPersonalAndPublicModels(t *testing.T) {
 	ctx := context.Background()
 	svc, db := newService(t, config.ModeMulti, "builtin-key")

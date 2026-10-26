@@ -465,6 +465,10 @@ func TestConversationsAndModelsAPI(t *testing.T) {
 	}
 	admin, alice, bob := login("admin", "adminpass"), login("alice", "password1"), login("bob", "password1")
 	llmURL := ta.Config.LLM.Chat.BaseURL
+	// 普通用户不能借连通性测试绕过聊天限额使用站点 Key。
+	if resp, _ := ta.do(t, "POST", "/api/v1/models/0/test", alice, nil); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("ordinary user testing builtin model: %d", resp.StatusCode)
+	}
 
 	// 模型列表：内置模型。
 	_, b := ta.do(t, "GET", "/api/v1/models", alice, nil)

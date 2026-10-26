@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,58 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/store"
 	"github.com/HugehardJiang/buugoo/internal/store/gormstore"
 )
+
+func TestConcurrentSavesRespectQuota(t *testing.T) {
+	for _, kind := range []string{"upload", "generated", "sent", "mixed"} {
+		t.Run(kind, func(t *testing.T) {
+			s, _, _ := newService(t, 1)
+			data := bytes.Repeat([]byte("a"), 600<<10)
+			start := make(chan struct{})
+			errs := make(chan error, 12)
+			var wg sync.WaitGroup
+			for i := 0; i < 12; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					<-start
+					var err error
+					operation := kind
+					if operation == "mixed" {
+						operation = []string{"upload", "generated", "sent"}[i%3]
+					}
+					switch operation {
+					case "upload":
+						_, err = s.Save(context.Background(), 7, "large.txt", bytes.NewReader(data))
+					case "generated":
+						image := append([]byte("\x89PNG\r\n\x1a\n"), data...)
+						_, err = s.SaveGenerated(context.Background(), 7, 1, 1, "large.png", image)
+					case "sent":
+						_, err = s.SaveSent(context.Background(), 7, 1, 1, "large.txt", data)
+					}
+					errs <- err
+				}()
+			}
+			close(start)
+			wg.Wait()
+			close(errs)
+			accepted := 0
+			for err := range errs {
+				if err == nil {
+					accepted++
+				} else if !errors.Is(err, ErrQuota) {
+					t.Fatal(err)
+				}
+			}
+			u, err := s.Usage(context.Background(), 7)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if accepted != 1 || u.UsedBytes > u.QuotaBytes {
+				t.Fatalf("accepted=%d usage=%+v", accepted, u)
+			}
+		})
+	}
+}
 
 func newService(t *testing.T, quotaMB int) (*Service, *gormstore.DB, string) {
 	t.Helper()

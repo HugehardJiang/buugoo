@@ -25,7 +25,7 @@ run: build ## 构建并启动服务
 	./bin/$(BINARY) serve
 
 test: ## 运行单元测试（SQLite）
-	go test -race ./...
+	CGO_ENABLED=1 go test -race ./...
 
 test-mysql: ## 启动临时 MySQL 容器并运行数据库测试
 	./scripts/test-mysql.sh

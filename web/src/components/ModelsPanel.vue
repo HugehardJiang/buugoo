@@ -216,7 +216,7 @@ defineExpose({ load })
       </div>
       <div class="model-row__actions">
         <button v-if="canSetDefault(m)" class="btn btn-ghost" @click="setDefault(m)">设为默认</button>
-        <button class="btn" @click="testRow(m)">测试</button>
+        <button v-if="!isMulti || isAdmin || m.scope === 'personal'" class="btn" @click="testRow(m)">测试</button>
         <template v-if="m.editable && m.scope !== 'builtin'">
           <button class="btn" @click="openForm(m)">编辑</button>
           <button class="btn btn-danger-lite" @click="removing = m">删除</button>

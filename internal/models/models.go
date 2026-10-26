@@ -509,6 +509,16 @@ func (s *Service) Test(ctx context.Context, u User, id uint64, in *Input) (TestR
 		if !ok {
 			return TestResult{}, store.ErrNotFound
 		}
+		// 公共/内置模型使用站点的 Key，连通性测试不走聊天额度，
+		// 因此只允许管理员测试；普通用户只能测试自己的模型。
+		if !s.singleMode() && !u.IsAdmin {
+			if id == BuiltinID {
+				return TestResult{}, ErrForbidden
+			}
+			if _, err := s.editable(ctx, u, id); err != nil {
+				return TestResult{}, err
+			}
+		}
 		r, err := s.resolveID(ctx, u, id)
 		if err != nil {
 			return TestResult{}, err
