@@ -274,11 +274,8 @@ func (h *Hub) process(ctx context.Context, in Inbound) {
 
 	switch strings.ToLower(text) {
 	case "/new", "新对话":
-		conv, err := h.chat.CreateConversation(ctx, u, chat.ConversationPatch{Channel: in.Channel})
-		if err == nil {
-			_ = h.store.Bindings().Update(ctx, b.ID, map[string]any{"conversation_id": conv.ID})
-			h.say(ctx, c, in.PeerID, "好，开个新话题")
-		}
+		// 每个聊天软件只有一段对话（网页上在「外部聊天」里），换话题直接聊就行；聊多了会自动整理。
+		h.say(ctx, c, in.PeerID, "在这里我们一直是同一段对话，想换话题直接说就行\n聊得多了我会自动把之前的整理成要点，也可以发「压缩」让我现在整理")
 		return
 	case "/unbind", "解绑", "解除绑定":
 		if in.Owner != 0 {
@@ -305,7 +302,7 @@ func (h *Hub) process(ctx context.Context, in Inbound) {
 		}
 		return
 	case "/help", "帮助":
-		h.say(ctx, c, in.PeerID, "直接和我聊天就行，发图片、文件也可以\n发「新对话」换个话题，发「压缩」整理之前的聊天，发「解绑」解除绑定")
+		h.say(ctx, c, in.PeerID, "直接和我聊天就行，发图片、文件也可以\n发「压缩」整理之前的聊天，发「解绑」解除绑定")
 		return
 	}
 	h.reply(ctx, c, b, u, in)
@@ -350,7 +347,11 @@ func (h *Hub) botName() string {
 // conversation 返回绑定使用的对话，没有或被删除时新建一段。
 func (h *Hub) conversation(ctx context.Context, b *store.ChannelBinding, u *store.User) (uint64, error) {
 	if b.ConversationID != nil {
-		if _, err := h.store.Conversations().Get(ctx, u.ID, *b.ConversationID); err == nil {
+		if conv, err := h.store.Conversations().Get(ctx, u.ID, *b.ConversationID); err == nil {
+			// 旧版本建的对话没有标记来源：补上，网页上就能分到「外部聊天」里。
+			if conv.Channel == "" {
+				_ = h.store.Conversations().Update(ctx, u.ID, conv.ID, map[string]any{"channel": b.Channel})
+			}
 			return *b.ConversationID, nil
 		}
 	}
@@ -446,8 +447,10 @@ func (h *Hub) say(ctx context.Context, c Channel, peer, text string) {
 	}
 }
 
-// Deliver 把主动消息（提醒、定时任务、主动关心）发到这段对话绑定的聊天软件；对话没有绑定时只留在网页上。
-func (h *Hub) Deliver(ctx context.Context, u *store.User, res *chat.ProactiveResult) {
+// Deliver 把主动消息发到聊天软件（消息已经保存在对话里，网页上也能看到）。
+// everywhere 为 true（提醒、定时任务）时发到用户绑定的所有聊天软件，不管是在哪里设的；
+// 否则（主动关心）只发到这段对话绑定的聊天软件，对话没有绑定时只留在网页上。
+func (h *Hub) Deliver(ctx context.Context, u *store.User, res *chat.ProactiveResult, everywhere bool) {
 	if res == nil || res.Conversation == nil || res.Message == nil {
 		return
 	}
@@ -458,11 +461,16 @@ func (h *Hub) Deliver(ctx context.Context, u *store.User, res *chat.ProactiveRes
 	for i := range list {
 		b := &list[i]
 		c := h.channels[b.Channel]
-		if c == nil || b.ConversationID == nil || *b.ConversationID != res.Conversation.ID {
+		if c == nil {
+			continue
+		}
+		if !everywhere && (b.ConversationID == nil || *b.ConversationID != res.Conversation.ID) {
 			continue
 		}
 		h.sendReply(ctx, c, b.PeerID, u, res.Message.Content, res.Tools)
-		return
+		if !everywhere {
+			return
+		}
 	}
 }
 

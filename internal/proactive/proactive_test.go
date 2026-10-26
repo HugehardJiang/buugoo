@@ -186,7 +186,7 @@ type fakeDeliver struct {
 	n  int
 }
 
-func (f *fakeDeliver) Deliver(context.Context, *store.User, *chat.ProactiveResult) {
+func (f *fakeDeliver) Deliver(context.Context, *store.User, *chat.ProactiveResult, bool) {
 	f.mu.Lock()
 	f.n++
 	f.mu.Unlock()

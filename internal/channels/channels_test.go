@@ -151,16 +151,21 @@ func TestHubBindAndChat(t *testing.T) {
 
 	// 主动消息发到这段对话绑定的聊天软件。
 	conv, _ := db.Conversations().Get(ctx, u.ID, fc.sends[0].ConversationID)
-	h.Deliver(ctx, u, &chat.ProactiveResult{Conversation: conv, Message: &store.Message{Content: "面试怎么样啦"}})
+	h.Deliver(ctx, u, &chat.ProactiveResult{Conversation: conv, Message: &store.Message{Content: "面试怎么样啦"}}, false)
 	if m := ch.messages(); m[len(m)-1] != "42:面试怎么样啦" {
 		t.Fatalf("%q", m)
 	}
 	other := &store.Conversation{UserID: u.ID}
 	_ = db.Conversations().Create(ctx, other)
 	n := len(ch.messages())
-	h.Deliver(ctx, u, &chat.ProactiveResult{Conversation: other, Message: &store.Message{Content: "x"}})
+	h.Deliver(ctx, u, &chat.ProactiveResult{Conversation: other, Message: &store.Message{Content: "x"}}, false)
 	if len(ch.messages()) != n {
-		t.Fatal("其他对话的主动消息不应发到聊天软件")
+		t.Fatal("其他对话的主动关心不应发到聊天软件")
+	}
+	// 提醒和定时任务：在网页上设的（写进网页的对话）也发到绑定的聊天软件。
+	h.Deliver(ctx, u, &chat.ProactiveResult{Conversation: other, Message: &store.Message{Content: "该吃药啦"}}, true)
+	if m := ch.messages(); len(m) != n+1 || m[n] != "42:该吃药啦" {
+		t.Fatalf("%q", m)
 	}
 
 	// 出错时说人话；解绑。

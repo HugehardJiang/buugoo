@@ -531,6 +531,11 @@ function toolFiles(m: Item): Attachment[] {
   return m.tools?.flatMap((t) => t.files ?? []) ?? []
 }
 const channelLabels: Record<string, string> = { weixin: '微信', qq: 'QQ', telegram: 'Telegram' }
+// 对话列表分两类：网页上的普通聊天，和微信、QQ、Telegram 里的外部聊天（每个聊天软件一段对话）。
+const convSections = computed(() => [
+  { key: 'web', label: '普通聊天', items: convs.value.filter((c) => !c.channel) },
+  { key: 'ext', label: '外部聊天', items: convs.value.filter((c) => !!c.channel) },
+])
 
 function toggle(which: 'memories' | 'thinking', id: number) {
   // id 是 uid(item)
@@ -629,19 +634,25 @@ onBeforeUnmount(() => {
           <Icon name="plus" :size="16" />新对话
         </button>
       </div>
-      <TransitionGroup tag="nav" name="list" class="category-filter-list sidebar__list">
-        <button
-          v-for="c in convs"
-          :key="c.id"
-          class="category-filter"
-          :class="{ 'is-active': c.id === currentId }"
-          :disabled="sending && c.id !== currentId"
-          @click="openConversation(c.id)"
-        >
-          <span>{{ c.title || '新对话' }}</span>
-          <small><i v-if="c.channel" class="src-tag" :title="`在${channelLabels[c.channel]}里聊的`">{{ channelLabels[c.channel] }}</i>{{ shortWhen(c.last_message_at ?? c.created_at) }}</small>
-        </button>
-      </TransitionGroup>
+      <nav class="sidebar__list" aria-label="对话">
+        <template v-for="sec in convSections" :key="sec.key">
+          <p v-if="sec.items.length || sec.key === 'web'" class="conv-sec">{{ sec.label }}</p>
+          <TransitionGroup tag="div" name="list" class="category-filter-list">
+            <button
+              v-for="c in sec.items"
+              :key="c.id"
+              class="category-filter"
+              :class="{ 'is-active': c.id === currentId }"
+              :disabled="sending && c.id !== currentId"
+              @click="openConversation(c.id)"
+            >
+              <span><i v-if="c.channel" class="src-tag" :class="`src-tag--${c.channel}`">{{ channelLabels[c.channel] }}</i>{{ c.title || (c.channel ? `${channelLabels[c.channel]}里的聊天` : '新对话') }}</span>
+              <small>{{ shortWhen(c.last_message_at ?? c.created_at) }}</small>
+            </button>
+          </TransitionGroup>
+          <p v-if="sec.key === 'web' && !sec.items.length" class="caption conv-empty">还没有网页上的对话</p>
+        </template>
+      </nav>
       <p class="caption sidebar__foot">每段对话各自独立，但{{ name }}记得的事在所有对话里都通用。</p>
     </aside>
 
@@ -901,6 +912,11 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .src-tag { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px; background: var(--color-accent-tint); color: var(--color-accent-active); font-size: 11px; font-style: normal; line-height: 17px; vertical-align: 1px; }
+.src-tag--qq { background: #dbeafe; color: #1d4ed8; }
+.src-tag--telegram { background: #e0f2fe; color: #0369a1; }
+.conv-sec { margin: 14px 8px 6px; color: var(--color-muted); font-size: 12px; letter-spacing: .04em; }
+.conv-sec:first-child { margin-top: 2px; }
+.conv-empty { margin: 0 8px; }
 .chat-shell { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .sidebar {
   display: flex; width: var(--sidebar-width); flex: 0 0 var(--sidebar-width); flex-direction: column; min-height: 0;

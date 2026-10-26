@@ -79,7 +79,7 @@ async function compact() {
       <circle cx="10" cy="10" :r="R" class="meter__track" />
       <circle cx="10" cy="10" :r="R" class="meter__bar" :stroke-dasharray="dash" transform="rotate(-90 10 10)" />
     </svg>
-    <span class="meter__pct">{{ st.percent }}%</span>
+    <span class="meter__pct">{{ st.percent === 0 && st.used > 0 ? '<1' : st.percent }}%</span>
   </button>
 
   <Modal :open="open" title="上下文" :subtitle="st?.model ? `模型：${st.model}` : undefined" @close="open = false">

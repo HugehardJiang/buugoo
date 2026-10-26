@@ -27,7 +27,8 @@ type Speaker interface {
 
 // Deliverer 把主动消息发到用户绑定的聊天软件（消息已经保存在对话里，网页上也能看到）。
 type Deliverer interface {
-	Deliver(ctx context.Context, u *store.User, res *chat.ProactiveResult)
+	// everywhere 为 true 时发到用户绑定的所有聊天软件（提醒、定时任务），否则只发到这段对话绑定的聊天软件（主动关心）。
+	Deliver(ctx context.Context, u *store.User, res *chat.ProactiveResult, everywhere bool)
 }
 
 // Mood 返回布谷对用户此刻的心情说明（情绪系统）。
@@ -218,7 +219,7 @@ func (e *Engine) fire(ctx context.Context, r store.Reminder) error {
 		return err
 	}
 	if e.deliver != nil {
-		e.deliver.Deliver(context.WithoutCancel(ctx), u, res)
+		e.deliver.Deliver(context.WithoutCancel(ctx), u, res, true)
 	}
 	e.log.Info("已发送"+kindLabel(r.Kind), "user_id", u.ID, "reminder_id", r.ID)
 	return nil
@@ -310,7 +311,7 @@ func (e *Engine) careFor(ctx context.Context, u *store.User, now time.Time) {
 		return
 	}
 	if e.deliver != nil {
-		e.deliver.Deliver(ctx, u, res)
+		e.deliver.Deliver(ctx, u, res, false)
 	}
 	e.log.Info("已主动发消息", "user_id", u.ID, "reason", reason)
 }
