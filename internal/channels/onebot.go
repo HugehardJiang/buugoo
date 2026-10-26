@@ -127,6 +127,15 @@ func (o *OneBotChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close()
 		o.log.Info("NapCat 已断开")
 	}()
+	// 事件按收到的顺序逐个处理（同一个人连着发的消息不能乱序）；放在单独的协程里，
+	// 处理时调用 NapCat 的接口（例如换取文件地址）还能在这里收到响应。
+	events := make(chan map[string]any, 256)
+	defer close(events)
+	go func() {
+		for ev := range events {
+			o.event(ctx, h, ev)
+		}
+	}()
 	for {
 		_, data, err := conn.ReadMessage()
 		if err != nil {
@@ -146,7 +155,11 @@ func (o *OneBotChannel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			continue
 		}
-		go o.event(ctx, h, ev)
+		select {
+		case events <- ev:
+		default:
+			o.log.Warn("NapCat 事件太多，丢弃一条")
+		}
 	}
 }
 
