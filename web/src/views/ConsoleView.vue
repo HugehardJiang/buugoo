@@ -3,6 +3,7 @@
 // 保存后写入数据目录中的 settings.yaml，管理员需要自己重启服务才会生效。
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ApiError } from '../api'
+import { getConsoleToken, setConsoleToken } from '../consoleToken'
 import ConsoleChannels from '../components/ConsoleChannels.vue'
 import ConsoleExtensions from '../components/ConsoleExtensions.vue'
 import Modal from '../components/Modal.vue'
@@ -20,7 +21,6 @@ interface SettingsResp {
   restart_hint: string
 }
 
-const TOKEN_KEY = 'buugoo.console'
 const token = ref(read())
 const password = ref('')
 const loggingIn = ref(false)
@@ -117,20 +117,11 @@ watch(
 )
 
 function read() {
-  try {
-    return sessionStorage.getItem(TOKEN_KEY) ?? ''
-  } catch {
-    return ''
-  }
+  return getConsoleToken()
 }
 function store(t: string) {
   token.value = t
-  try {
-    if (t) sessionStorage.setItem(TOKEN_KEY, t)
-    else sessionStorage.removeItem(TOKEN_KEY)
-  } catch {
-    // 无痕模式下只在本页有效。
-  }
+  setConsoleToken(t)
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {

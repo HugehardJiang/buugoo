@@ -373,10 +373,12 @@ func (s *Service) systemPrompt(u *store.User, admin bool) string {
 		b.WriteString(`
 现在用户在这个浏览器登录了管理后台，你还可以：查看和修改系统设置（改完要重启服务才生效）、给全站安装或卸载 skill、添加或删除 MCP 插件。
 修改系统设置前先用 search_settings 查到准确的键名和当前值。
+用户让你上网找 skill 时：先用 search_skills 搜，再用 list_repo_skills 看仓库里有哪些，挑最合适的一个用 install_skill 提出安装（带上 path），
+并告诉用户你选的是哪个、为什么。有脚本需要联网的 skill，装好后提醒用户可以用 update_skill 打开联网。
 `)
 	} else {
 		b.WriteString(`
-现在用户没有登录管理后台，你只能改他自己的设置。他问到系统设置、安装 skill 或插件时，告诉他先在「设置 → 管理后台」登录，再回来找你。
+现在用户没有登录管理后台，你只能改他自己的设置。他问到系统设置、安装 skill 或插件时，告诉他在这个聊天框上方输入管理员密码登录管理后台（或者去「设置 → 管理后台」登录），登录后再说一次。
 `)
 	}
 	fmt.Fprintf(&b, "\n现在是 %s。用户：%s。\n", time.Now().In(s.d.Config.Location()).Format("2006-01-02 15:04 Mon"), displayName(u))

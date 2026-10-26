@@ -3,6 +3,7 @@
 // 牛马提出的修改显示成确认卡片，点了「确认」才执行。在这个浏览器登录了管理后台时还能改系统设置。
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { api, ApiError, type AgentAction, type AgentMessage, type AgentState, type ModelView } from '../api'
+import { consoleLogin } from '../consoleToken'
 import { renderMarkdown } from '../format'
 import Icon from '../Icon.vue'
 import Modal from './Modal.vue'
@@ -17,12 +18,31 @@ const pendingText = ref('')
 const busy = ref(0)
 const confirmClear = ref(false)
 const scroller = ref<HTMLElement | null>(null)
+const showLogin = ref(false)
+const password = ref('')
+const loggingIn = ref(false)
+
+// login 在这里直接登录管理后台（同一个浏览器的其他标签页、管理后台页面也一起登录了）。
+async function login() {
+  loggingIn.value = true
+  try {
+    await consoleLogin(password.value)
+    password.value = ''
+    showLogin.value = false
+    if (state.value) state.value.admin = (await api.agent()).admin
+    toast('已登录管理后台，牛马现在可以改系统设置、装技能和插件了')
+  } catch (e) {
+    toast((e as Error).message)
+  } finally {
+    loggingIn.value = false
+  }
+}
 
 const messages = computed(() => state.value?.messages ?? [])
 const modelValue = computed(() => (state.value?.model_id == null ? '' : String(state.value.model_id)))
 const examples = computed(() => {
   const list = ['我现在用的什么性格和模型？', '把布谷的性格换成毒舌一点的', '暂停我所有的定时任务', '别让布谷主动找我了']
-  if (state.value?.admin) list.push('帮我从 GitHub 装个 skill（把链接贴给它）', '把每天的消息上限改成 200')
+  if (state.value?.admin) list.push('帮我上网找个查天气的 skill 装上', '把每天的消息上限改成 200')
   return list
 })
 
@@ -156,8 +176,13 @@ function steps(m: AgentMessage): string {
           </select>
         </label>
         <span v-if="state.admin" class="badge-pill admin" title="这个浏览器登录了管理后台">可改系统设置</span>
-        <span v-else class="caption">登录管理后台后，还能让它改系统设置、装技能和插件</span>
+        <button v-else-if="!showLogin" type="button" class="link-btn caption" @click="showLogin = true">登录管理后台，让它也能改系统设置、装技能和插件</button>
       </div>
+      <form v-if="showLogin && !state.admin" class="login" @submit.prevent="login">
+        <input v-model="password" class="text-input" type="password" autocomplete="current-password" placeholder="管理员密码" aria-label="管理员密码" />
+        <button class="btn btn-sm btn-primary" :disabled="!password || loggingIn">{{ loggingIn ? '正在验证' : '登录' }}</button>
+        <button type="button" class="btn btn-sm btn-ghost" @click="showLogin = false">取消</button>
+      </form>
       <p v-if="state.model && !state.model.tools" class="form-flash form-flash--error">
         现在的模型「{{ state.model.name }}」不支持工具调用，牛马用不了。请在上面换一个支持工具的模型。
       </p>
@@ -229,6 +254,9 @@ function steps(m: AgentMessage): string {
 .skel { height: 240px; border-radius: var(--radius-md); }
 .bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 12px; }
 .bar__model { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.link-btn { padding: 0; color: var(--color-accent-active); text-align: left; text-decoration: underline; text-underline-offset: 3px; }
+.login { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: -4px 0 12px; }
+.login .text-input { width: 200px; min-height: 34px; }
 .select { width: auto; max-width: 260px; min-height: 34px; padding-top: 0; padding-bottom: 0; }
 .admin { background: var(--color-accent-tint, rgba(204, 120, 92, .12)); color: var(--color-accent-active); }
 .log {
@@ -270,6 +298,9 @@ function steps(m: AgentMessage): string {
 .compose__input { flex: 1; min-height: 40px; max-height: 160px; resize: vertical; line-height: 1.5; }
 @media (max-width: 600px) {
   .msg { max-width: 94%; }
-  .select { max-width: 180px; }
+  .link-btn { padding: 0; color: var(--color-accent-active); text-align: left; text-decoration: underline; text-underline-offset: 3px; }
+.login { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: -4px 0 12px; }
+.login .text-input { width: 200px; min-height: 34px; }
+.select { max-width: 180px; }
 }
 </style>

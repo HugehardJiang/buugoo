@@ -1,4 +1,5 @@
 // 布谷 HTTP API 客户端。
+import { getConsoleToken } from './consoleToken'
 
 export interface User {
   id: number
@@ -394,12 +395,8 @@ function headers(json: boolean): HeadersInit {
   const t = tokenStore.get()
   if (t) h['Authorization'] = `Bearer ${t}`
   // 在这个浏览器登录了管理后台时带上，牛马助手据此决定能不能改系统设置。
-  try {
-    const c = sessionStorage.getItem('buugoo.console')
-    if (c) h['X-Console-Token'] = c
-  } catch {
-    // 无痕模式
-  }
+  const c = getConsoleToken()
+  if (c) h['X-Console-Token'] = c
   return h
 }
 

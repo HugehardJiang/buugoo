@@ -683,6 +683,60 @@ var specs = []spec{
 		},
 	},
 	{
+		name: "search_skills", label: "在 GitHub 上找 skill", admin: true,
+		desc: "按关键词在 GitHub 上搜含有 skill 的公开仓库（按星数排序），用于帮用户上网找 skill。关键词用英文效果更好，例如 weather、pdf、translate。" +
+			"Anthropic 官方的 skill 合集在 https://github.com/anthropics/skills。搜到后用 list_repo_skills 看仓库里具体有哪些 skill。",
+		avail:  func(s *Service) bool { return s.d.Skills != nil },
+		params: obj(map[string]any{"query": str("关键词")}, "query"),
+		read: func(ctx context.Context, e *env, args json.RawMessage) (string, error) {
+			p, err := parse[struct {
+				Query string `json:"query"`
+			}](args)
+			if err != nil {
+				return "", err
+			}
+			hits, err := e.s.d.Skills.SearchGitHub(ctx, p.Query, 8)
+			if err != nil {
+				return "", err
+			}
+			if len(hits) == 0 {
+				return "没有搜到，换个关键词（英文）试试。", nil
+			}
+			var b strings.Builder
+			for _, h := range hits {
+				fmt.Fprintf(&b, "- %s（%d 星，%s 更新）%s\n  %s\n", h.Name, h.Stars, h.Updated, clip(h.Description, 160), h.URL)
+			}
+			return b.String(), nil
+		},
+	},
+	{
+		name: "list_repo_skills", label: "看仓库里的 skill", admin: true,
+		desc:   "下载一个 GitHub 仓库（或其中的文件夹）看看里面有哪些 skill（路径、名字、说明），不安装。",
+		avail:  func(s *Service) bool { return s.d.Skills != nil },
+		params: obj(map[string]any{"url": str("GitHub 地址")}, "url"),
+		read: func(ctx context.Context, e *env, args json.RawMessage) (string, error) {
+			p, err := parse[struct {
+				URL string `json:"url"`
+			}](args)
+			if err != nil {
+				return "", err
+			}
+			list, err := e.s.d.Skills.PreviewGitHub(ctx, p.URL)
+			if err != nil {
+				return "", err
+			}
+			if len(list) == 0 {
+				return "这里面没有 skill（没有带 SKILL.md 的文件夹）。", nil
+			}
+			var b strings.Builder
+			fmt.Fprintf(&b, "共 %d 个（安装时把 path 填给 install_skill）：\n", len(list))
+			for _, c := range list {
+				fmt.Fprintf(&b, "- path=%q 名字 %s：%s\n", c.Path, c.Name, clip(c.Description, 200))
+			}
+			return b.String(), nil
+		},
+	},
+	{
 		name: "install_skill", label: "安装 skill", admin: true,
 		desc: "给全站安装 skill。二选一：url 填 GitHub 地址（仓库、tree/分支/路径 或 SKILL.md 的地址），仓库里有好几个 skill 时用 path 指定是哪个；" +
 			"或者 content 直接填完整的 SKILL.md 内容（开头要有 name 和 description）。同名的会被覆盖更新。",

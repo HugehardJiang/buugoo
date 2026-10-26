@@ -245,3 +245,46 @@ func TestTools(t *testing.T) {
 		t.Fatal(scriptCode("weather", "x"))
 	}
 }
+
+func TestSearchAndPreview(t *testing.T) {
+	ctx := context.Background()
+	repo := tarGz(t, map[string]string{
+		"x-1/skills/weather/SKILL.md": weatherMD,
+		"x-1/skills/notes/SKILL.md":   "---\nname: notes\ndescription: 记笔记\n---\n",
+	})
+	var gotQ string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/search/repositories":
+			gotQ = r.URL.Query().Get("q")
+			_, _ = w.Write([]byte(`{"items":[{"full_name":"a/b","html_url":"https://github.com/a/b","description":"天气 skill","stargazers_count":42,"pushed_at":"2026-10-01T00:00:00Z"}]}`))
+		case "/repos/a/b/tarball":
+			_, _ = w.Write(repo)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	old := githubAPI
+	githubAPI = srv.URL
+	defer func() { githubAPI = old }()
+	m := newManager(t)
+
+	hits, err := m.SearchGitHub(ctx, "weather", 5)
+	if err != nil || len(hits) != 1 || hits[0].Name != "a/b" || hits[0].Stars != 42 || hits[0].Updated != "2026-10-01" {
+		t.Fatalf("%+v %v", hits, err)
+	}
+	if gotQ != "weather skill" {
+		t.Errorf("q = %q", gotQ)
+	}
+	if _, err := m.SearchGitHub(ctx, " ", 5); err == nil {
+		t.Error("空关键词应失败")
+	}
+	cands, err := m.PreviewGitHub(ctx, "https://github.com/a/b")
+	if err != nil || len(cands) != 2 || cands[1].Path != "skills/weather" {
+		t.Fatalf("%+v %v", cands, err)
+	}
+	if list, _ := m.List(ctx); len(list) != 0 {
+		t.Error("预览不应安装")
+	}
+}
