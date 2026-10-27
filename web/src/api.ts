@@ -1,5 +1,6 @@
 // 布谷 HTTP API 客户端。
 import { getConsoleToken } from './consoleToken'
+import { recordError } from './diag'
 
 export interface User {
   id: number
@@ -27,6 +28,8 @@ export interface Meta {
   uploads: { max_file_bytes: number; max_files: number; any_file?: boolean } | null
   reminders?: boolean
   channels?: boolean
+  // billing 为 true 时有会员系统（多用户版）。
+  billing?: boolean
   // home 是多用户版未登录时介绍主页的标题和标语，空字符串表示用内置的。
   home?: { title: string; tagline: string }
 }
@@ -245,6 +248,9 @@ export interface Quota {
   messages_limit: number
   tokens_limit: number
   exempt: boolean
+  period?: 'day' | 'month'
+  reset_at?: string
+  member?: Member
 }
 
 export interface Message {
@@ -321,6 +327,46 @@ export interface Invite {
   created_at: string
 }
 
+export interface DiagEntry {
+  time: string
+  level: string
+  msg: string
+  attrs?: Record<string, string>
+}
+
+export interface Plan {
+  id: number
+  name: string
+  description: string
+  price: string
+  kind: 'period' | 'pack'
+  unit: 'messages' | 'tokens'
+  days: number
+  cycle: 'day' | 'month' | ''
+  quota: number
+  valid_days: number
+  buy_url: string
+  visible?: boolean
+  sort?: number
+}
+
+export interface Member {
+  active: boolean
+  plan_name?: string
+  unit?: string
+  cycle?: string
+  quota?: number
+  expires_at?: string
+  pack_messages: number
+  pack_tokens: number
+}
+
+export interface BillingAccount {
+  subscription?: { plan_name: string; unit: string; cycle: string; quota: number; expires_at: string }
+  packs: { id: number; name: string; unit: string; total: number; remaining: number; expires_at: string | null }[]
+  logs: { id: number; kind: string; detail: string; created_at: string }[]
+}
+
 export interface MemoPageInfo {
   id: number
   title: string
@@ -381,8 +427,12 @@ export class ApiError extends Error {
     public status: number,
     public code: string,
     message: string,
+    // requestId 是服务器给这次请求的编号（响应头 X-Request-Id），复制诊断信息时带上，方便在服务器日志里找。
+    public requestId = '',
+    public path = '',
   ) {
     super(message)
+    recordError({ time: new Date().toISOString(), status, code, message, requestId, path })
   }
 }
 
@@ -437,7 +487,10 @@ async function toError(resp: Response): Promise<ApiError> {
     // 非 JSON 响应（例如反向代理返回的错误页）。
   }
   if (resp.status === 401) onUnauthorized()
-  return new ApiError(resp.status, code, message)
+  if (resp.status === 502 || resp.status === 503 || resp.status === 504) {
+    if (code === 'http_error') message = `服务器没有响应（HTTP ${resp.status}），布谷的服务可能停止了或者正在重启`
+  }
+  return new ApiError(resp.status, code, message, resp.headers.get('X-Request-Id') ?? '', new URL(resp.url, location.href).pathname)
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -449,7 +502,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       body: body === undefined ? undefined : JSON.stringify(body),
     })
   } catch {
-    throw new ApiError(0, 'network', '无法连接到服务器，请检查网络')
+    throw new ApiError(0, 'network', '无法连接到服务器，请检查网络', '', `/api/v1${path}`)
   }
   if (!resp.ok) throw await toError(resp)
   if (resp.status === 204) return undefined as T
@@ -547,6 +600,9 @@ export const api = {
   weixinLogout: () => request<void>('POST', '/channels/weixin/logout'),
   bindCode: () => request<{ code: string; expires_at: string }>('POST', '/channels/code'),
   unbind: (id: number) => request<void>('DELETE', `/channels/bindings/${id}`),
+  billing: () => request<{ account: BillingAccount; quota: Quota; plans: Plan[] }>('GET', '/billing'),
+  redeem: (code: string) => request<{ message: string }>('POST', '/billing/redeem', { code }),
+  diagnostics: () => request<{ server: Record<string, unknown>; recent: DiagEntry[] }>('GET', '/diagnostics'),
   memos: () => request<{ pages: MemoPageInfo[] }>('GET', '/memos'),
   memo: (id: number) => request<MemoPage>('GET', `/memos/${id}`),
   createMemo: (title: string, content = '') => request<MemoPage>('POST', '/memos', { title, content }),
@@ -651,10 +707,10 @@ export async function sendChat(
           final = payload.message
           break
         case 'error':
-          throw new ApiError(502, payload.error?.code ?? 'error', payload.error?.message ?? '生成失败')
+          throw new ApiError(502, payload.error?.code ?? 'error', payload.error?.message ?? '生成失败', resp.headers.get('X-Request-Id') ?? '', '/api/v1/chat')
       }
     }
   }
-  if (!final) throw new ApiError(0, 'stream', '连接意外中断，回复可能不完整')
+  if (!final) throw new ApiError(0, 'stream', '连接意外中断，回复可能不完整', resp.headers.get('X-Request-Id') ?? '', '/api/v1/chat')
   return final
 }

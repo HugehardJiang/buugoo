@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/HugehardJiang/buugoo/internal/logx"
 	"net/http"
 	"sync"
 	"time"
@@ -91,7 +92,10 @@ func (s *server) llmError(userID uint64, err error) *apiError {
 	if ae.Code == "internal" {
 		ae = &apiError{Status: http.StatusBadGateway, Code: "llm_error", Message: "生成回复失败：" + err.Error()}
 	}
-	return ae
+	// 模型服务返回的错误里偶尔会带上请求头或密钥的片段，打码后再给用户看。
+	cp := *ae
+	cp.Message = logx.Redact(cp.Message)
+	return &cp
 }
 
 type nopSink struct{}

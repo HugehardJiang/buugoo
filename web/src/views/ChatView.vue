@@ -26,6 +26,7 @@ import { memoriesUnlocked } from '../memoryLock'
 import Collapse from '../components/Collapse.vue'
 import { session } from '../session'
 import { toast } from '../toast'
+import { copyDiagnostics } from '../diag'
 
 interface Item extends Message {
   memories?: UsedMemory[]
@@ -54,6 +55,11 @@ const router = useRouter()
 
 const convs = ref<Conversation[]>([])
 const currentId = ref(0)
+
+// copyDiag 复制这条失败回复的诊断信息。
+function copyDiag(m: { id: number; model?: string; error?: string; created_at: string }) {
+  copyDiagnostics({ 对话: currentId.value, 消息: m.id > 0 ? m.id : '（没有保存）', 模型: m.model, 时间: m.created_at, 错误: m.error || '这次没有回复成功' })
+}
 const models = ref<ModelView[]>([])
 const hasModel = ref(true)
 const embeddingReady = ref(true)
@@ -739,6 +745,7 @@ onBeforeUnmount(() => {
                 <span v-if="row.item.role === 'assistant' && row.item.model && !row.item.streaming">· {{ row.item.model }}</span>
                 <span v-if="row.item.status === 'interrupted'">· 已停止</span>
                 <span v-if="row.item.status === 'error'" class="err">· {{ row.item.error || '这次没有回复成功' }}</span>
+                <button v-if="row.item.status === 'error'" type="button" class="chip-note diag" @click="copyDiag(row.item)">复制诊断信息</button>
                 <button
                   v-if="memoriesUnlocked && row.item.memories?.length"
                   class="chip-note recall-toggle"
@@ -1004,6 +1011,7 @@ onBeforeUnmount(() => {
 }
 .meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 6px; color: var(--color-muted); font-size: 12px; }
 .meta .err { color: var(--color-danger); }
+.meta .diag { margin-left: 4px; }
 .recall-toggle { cursor: pointer; height: 24px; font-size: 12px; margin-left: 4px; }
 .recalled {
   display: grid; gap: 8px; max-width: 640px; margin: 10px 0 0; padding: 12px 14px; list-style: none;

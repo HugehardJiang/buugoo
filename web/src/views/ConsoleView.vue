@@ -5,7 +5,11 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ApiError } from '../api'
 import { getConsoleToken, setConsoleToken } from '../consoleToken'
 import ConsoleChannels from '../components/ConsoleChannels.vue'
+import ConsoleCards from '../components/ConsoleCards.vue'
+import ConsoleDiagnostics from '../components/ConsoleDiagnostics.vue'
 import ConsoleExtensions from '../components/ConsoleExtensions.vue'
+import ConsolePlans from '../components/ConsolePlans.vue'
+import ConsoleUsers from '../components/ConsoleUsers.vue'
 import Modal from '../components/Modal.vue'
 import SettingField, { type Field } from '../components/SettingField.vue'
 import { session } from '../session'
@@ -112,7 +116,7 @@ watch(
   (d) => {
     if (!d) return
     if (tab.value === 'persona' && !persona.value) loadPersona()
-    if (!['persona', 'channels', 'extensions'].includes(tab.value) && !d.groups.some((g) => g.key === tab.value)) tab.value = 'models'
+    if (!['persona', 'channels', 'extensions', 'users', 'plans', 'cards', 'diagnostics'].includes(tab.value) && !d.groups.some((g) => g.key === tab.value)) tab.value = 'models'
   },
 )
 
@@ -342,10 +346,17 @@ onMounted(() => {
                 <span v-if="g.dirty" class="toc__badge toc__badge--dirty" :title="`${g.dirty} 项未保存`">{{ g.dirty }}</span>
                 <span v-else-if="g.pending" class="toc__badge" :title="`${g.pending} 项待重启生效`">{{ g.pending }}</span>
               </button>
+              <template v-if="session.meta?.billing">
+                <p class="toc__title">运营</p>
+                <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'users' }" @click="openTab('users')">用户管理</button>
+                <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'plans' }" @click="openTab('plans')">会员套餐</button>
+                <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'cards' }" @click="openTab('cards')">卡密</button>
+              </template>
               <p class="toc__title">其他</p>
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'persona' }" @click="openTab('persona')">人格档案</button>
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'extensions' }" @click="openTab('extensions')">技能与插件</button>
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'channels' }" @click="openTab('channels')">聊天软件连接</button>
+              <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'diagnostics' }" @click="openTab('diagnostics')">诊断</button>
             </nav>
 
             <div class="console__body">
@@ -374,6 +385,17 @@ onMounted(() => {
           <ConsoleChannels v-else-if="!searching && tab === 'channels'" :call="call" />
 
           <ConsoleExtensions v-else-if="!searching && tab === 'extensions'" :call="call" :token="token" />
+
+          <template v-else-if="!searching && ['users', 'plans', 'cards'].includes(tab)">
+            <p v-if="data.default_password" class="form-flash form-flash--error">
+              管理员密码还是默认的 1228，为了安全，用户管理、会员和卡密暂时不能用。请先在服务器上改掉配置文件里的 <code>admin.password</code> 并重启服务。
+            </p>
+            <ConsoleUsers v-else-if="tab === 'users'" :call="call" />
+            <ConsolePlans v-else-if="tab === 'plans'" :call="call" />
+            <ConsoleCards v-else :call="call" :token="token" />
+          </template>
+
+          <ConsoleDiagnostics v-else-if="!searching && tab === 'diagnostics'" :call="call" />
 
           <template v-else>
             <p v-if="error" class="form-flash form-flash--error">{{ error }}</p>

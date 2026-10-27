@@ -64,6 +64,11 @@ func fakeLLM(t *testing.T) *httptest.Server {
 					`{"memories":[`+mem+`],"appraisal":`+appraisal+`}`)
 				return
 			}
+			if strings.Contains(content, "触发上游错误") { // 上游报错，错误里带着密钥
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprint(w, `{"error":{"message":"invalid request, api_key=sk-abcdef1234567890 rejected"}}`)
+				return
+			}
 			w.Header().Set("Content-Type", "text/event-stream")
 			if req["reasoning_effort"] != nil {
 				fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"reasoning_content\":%q}}]}\n\n", "想一想："+req["reasoning_effort"].(string))

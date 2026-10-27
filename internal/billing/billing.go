@@ -146,7 +146,19 @@ func (s *Service) CreatePlan(ctx context.Context, in PlanInput) (*store.Plan, er
 	}
 	p := &store.Plan{}
 	in.apply(p)
-	return p, s.db.WithContext(ctx).Create(p).Error
+	// visible 列有默认值 true，GORM 建记录时会跳过 false（还会把 true 填回结构体），得单独写一次。
+	visible := p.Visible
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(p).Error; err != nil {
+			return err
+		}
+		if !visible {
+			p.Visible = false
+			return tx.Model(p).Update("visible", false).Error
+		}
+		return nil
+	})
+	return p, err
 }
 
 // UpdatePlan 修改套餐（已经开通的不受影响，只影响之后的兑换和开通）。
@@ -537,9 +549,18 @@ type CardFilter struct {
 
 // CardView 是列表里的一张卡密（不含原文）。
 type CardView struct {
-	store.CardKey
-	PlanName string `json:"plan_name"`
-	UsedName string `json:"used_name,omitempty"`
+	ID        uint64     `json:"id"`
+	Hint      string     `json:"hint"`
+	PlanID    uint64     `json:"plan_id"`
+	PlanName  string     `json:"plan_name"`
+	Batch     string     `json:"batch"`
+	Note      string     `json:"note"`
+	Status    string     `json:"status"`
+	ExpiresAt *time.Time `json:"expires_at"`
+	UsedBy    *uint64    `json:"used_by"`
+	UsedName  string     `json:"used_name,omitempty"`
+	UsedAt    *time.Time `json:"used_at"`
+	CreatedAt time.Time  `json:"created_at"`
 }
 
 // Cards 分页查卡密，同时返回总数。
@@ -591,7 +612,8 @@ func (s *Service) Cards(ctx context.Context, f CardFilter, limit, offset int) ([
 	}
 	out := make([]CardView, len(cards))
 	for i, c := range cards {
-		out[i] = CardView{CardKey: c, PlanName: plans[c.PlanID]}
+		out[i] = CardView{ID: c.ID, Hint: c.Hint, PlanID: c.PlanID, PlanName: plans[c.PlanID], Batch: c.Batch, Note: c.Note,
+			Status: c.Status, ExpiresAt: c.ExpiresAt, UsedBy: c.UsedBy, UsedAt: c.UsedAt, CreatedAt: c.CreatedAt}
 		if c.UsedBy != nil {
 			out[i].UsedName = users[*c.UsedBy]
 		}

@@ -60,3 +60,15 @@ export function formatSize(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
+
+// amount 把额度写成好读的样子：1.2 万 token、300 条消息。
+export function amount(unit: string, n: number): string {
+  const num = n >= 10000 ? `${+(n / 10000).toFixed(n >= 1e6 ? 0 : 1)} 万` : String(n)
+  return unit === 'tokens' ? `${num} token` : `${num} 条消息`
+}
+
+// planSummary 是套餐内容的一句话：30 天 · 每天 200 条消息；或 100 万 token · 90 天内有效。
+export function planSummary(p: { kind: string; unit: string; days: number; cycle: string; quota: number; valid_days: number }): string {
+  if (p.kind === 'period') return `${p.days} 天 · 每${p.cycle === 'month' ? '月' : '天'} ${amount(p.unit, p.quota)}`
+  return `${amount(p.unit, p.quota)} · ${p.valid_days > 0 ? `${p.valid_days} 天内有效` : '永久有效'}`
+}

@@ -5,9 +5,11 @@ import { api, ApiError, type Invite, type Quota } from '../api'
 import AgentPanel from '../components/AgentPanel.vue'
 import EmbeddingPanel from '../components/EmbeddingPanel.vue'
 import ExtensionsPanel from '../components/ExtensionsPanel.vue'
+import MemberPanel from '../components/MemberPanel.vue'
 import Modal from '../components/Modal.vue'
 import ModelsPanel from '../components/ModelsPanel.vue'
 import PersonaPanel from '../components/PersonaPanel.vue'
+import { copyDiagnostics } from '../diag'
 import { dateTime } from '../format'
 import { memoriesUnlocked, setMemoriesUnlocked } from '../memoryLock'
 import { applySession, logout, session } from '../session'
@@ -197,7 +199,9 @@ onMounted(async () => {
           </div>
         </section>
 
-        <section v-if="quota" class="panel panel--inset">
+        <MemberPanel v-if="session.meta?.billing && isMulti" />
+
+        <section v-if="quota && !session.meta?.billing" class="panel panel--inset">
           <h2>今日用量</h2>
           <dl class="metrics">
             <div class="metric">
@@ -224,6 +228,10 @@ onMounted(async () => {
           <div v-if="canLogout" class="actions">
             <button class="btn" @click="signOut">退出登录</button>
             <button class="btn btn-ghost" @click="signOutAll">退出所有设备</button>
+          </div>
+          <div class="diag">
+            <p class="caption">遇到问题时，把诊断信息发给管理员，方便定位。里面没有聊天内容，密钥会自动打码。</p>
+            <button class="btn btn-sm" @click="copyDiagnostics({ 来自: '设置页' })">复制诊断信息</button>
           </div>
         </section>
 
@@ -303,6 +311,8 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.diag { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--color-divider); }
+.diag p { margin: 0; }
 .panel p { margin: 0; }
 .row-line { display: flex; align-items: center; gap: 8px; }
 .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }

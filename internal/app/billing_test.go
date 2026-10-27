@@ -88,10 +88,19 @@ func TestBillingAPI(t *testing.T) {
 	if strings.Contains(string(list), body[:8]) || strings.Contains(string(csv), body[:8]) {
 		t.Fatal("卡密原文不应出现在列表或导出里")
 	}
+	if strings.Contains(string(list), "CodeHash") || strings.Contains(string(list), "code_hash") || !strings.Contains(string(list), `"hint"`) {
+		t.Fatalf("卡密列表: %s", list)
+	}
+	// 新建时就隐藏的套餐，用户看不到。
+	console("POST", "/api/v1/console/plans", map[string]any{"name": "内部套餐", "kind": "pack", "unit": "tokens", "quota": 100, "visible": false})
+	_, b = console("GET", "/api/v1/console/plans", nil)
+	if !strings.Contains(string(b), `"name":"内部套餐"`) || !strings.Contains(string(b), `"visible":false`) {
+		t.Fatalf("console plans: %s", b)
+	}
 
 	// 用户看到套餐，兑换后变成会员，额度变成每天 3 条。
 	_, b = ta.do(t, "GET", "/api/v1/billing", tok, nil)
-	if !strings.Contains(string(b), "月卡") || !strings.Contains(string(b), "shop.example.com") {
+	if !strings.Contains(string(b), "月卡") || !strings.Contains(string(b), "shop.example.com") || strings.Contains(string(b), "内部套餐") {
 		t.Fatalf("billing: %s", b)
 	}
 	resp, b = ta.do(t, "POST", "/api/v1/billing/redeem", tok, map[string]string{"code": gen.Codes[0]})

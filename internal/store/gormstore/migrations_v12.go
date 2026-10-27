@@ -16,6 +16,12 @@ type v12User struct {
 
 func (v12User) TableName() string { return "users" }
 
+type v12Message struct {
+	Error string `gorm:"type:text"`
+}
+
+func (v12Message) TableName() string { return "messages" }
+
 type v12Plan struct {
 	ID          uint64 `gorm:"primaryKey"`
 	Name        string `gorm:"size:64;not null"`
@@ -104,10 +110,20 @@ func migrationV12() *gormigrate.Migration {
 					}
 				}
 			}
+			if !m.HasColumn(&v12Message{}, "Error") {
+				if err := m.AddColumn(&v12Message{}, "Error"); err != nil {
+					return err
+				}
+			}
 			return autoMigrate(tx, &v12Plan{}, &v12Subscription{}, &v12CreditPack{}, &v12CardKey{}, &v12BillingLog{})
 		},
 		Rollback: func(tx *gorm.DB) error {
 			m := tx.Migrator()
+			if m.HasColumn(&v12Message{}, "Error") {
+				if err := m.DropColumn(&v12Message{}, "Error"); err != nil {
+					return err
+				}
+			}
 			if err := m.DropTable(&v12BillingLog{}, &v12CardKey{}, &v12CreditPack{}, &v12Subscription{}, &v12Plan{}); err != nil {
 				return err
 			}

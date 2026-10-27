@@ -17,9 +17,9 @@ func New(w io.Writer, level, format string) (*slog.Logger, error) {
 	opts := &slog.HandlerOptions{Level: lv}
 	switch strings.ToLower(format) {
 	case "", "text":
-		return slog.New(slog.NewTextHandler(w, opts)), nil
+		return slog.New(&recentHandler{inner: slog.NewTextHandler(w, opts)}), nil
 	case "json":
-		return slog.New(slog.NewJSONHandler(w, opts)), nil
+		return slog.New(&recentHandler{inner: slog.NewJSONHandler(w, opts)}), nil
 	default:
 		return nil, fmt.Errorf("无效的日志格式 %q（可选 text、json）", format)
 	}

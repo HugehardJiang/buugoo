@@ -55,11 +55,12 @@ type messageDTO struct {
 	Status      string           `json:"status"`
 	Attachments []attachmentDTO  `json:"attachments,omitempty"`
 	Tools       []chat.ToolEvent `json:"tools,omitempty"`
+	Error       string           `json:"error,omitempty"`
 	CreatedAt   time.Time        `json:"created_at"`
 }
 
 func toMessage(m *store.Message) messageDTO {
-	d := messageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Reasoning: m.Reasoning, Model: m.Model,
+	d := messageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Reasoning: m.Reasoning, Model: m.Model, Error: m.Error,
 		Status: m.Status, CreatedAt: m.CreatedAt}
 	if m.Role == store.RoleAssistant {
 		d.Content = chat.StripToolNotes(d.Content) // 以前的回复里可能照抄了工具记录

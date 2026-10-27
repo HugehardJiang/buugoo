@@ -331,6 +331,7 @@ func (r messageRepo) Finish(ctx context.Context, m *store.Message) error {
 			"completion_tokens": m.CompletionTokens,
 			"reasoning":         m.Reasoning,
 			"tool_log":          m.ToolLog,
+			"error":             m.Error,
 		})
 	if res.Error != nil {
 		return mapErr(res.Error)

@@ -131,7 +131,9 @@ type Message struct {
 	Reasoning string  `gorm:"size:65536"`
 	ModelID   *uint64 ``
 	// ToolLog 是本轮回复中的工具调用记录（JSON 数组，见 chat.ToolRecord），用于展示。
-	ToolLog   string `gorm:"size:65536"`
+	ToolLog string `gorm:"size:65536"`
+	// Error 是这条回复失败的原因（密钥已打码），成功时为空。
+	Error     string `gorm:"type:text"`
 	CreatedAt time.Time
 }
 
@@ -528,30 +530,30 @@ type Plan struct {
 
 // Subscription 是用户开通的时长套餐（记下开通时的额度，之后改套餐不影响已开通的）。
 type Subscription struct {
-	ID        uint64 `gorm:"primaryKey"`
-	UserID    uint64 `gorm:"index;not null"`
-	PlanID    uint64 `gorm:"not null"`
-	PlanName  string `gorm:"size:64;not null"`
-	Unit      string `gorm:"size:16;not null"`
-	Cycle     string `gorm:"size:16;not null"`
-	Quota     int64  `gorm:"not null"`
-	ExpiresAt time.Time
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID        uint64    `gorm:"primaryKey" json:"-"`
+	UserID    uint64    `gorm:"index;not null" json:"-"`
+	PlanID    uint64    `gorm:"not null" json:"plan_id"`
+	PlanName  string    `gorm:"size:64;not null" json:"plan_name"`
+	Unit      string    `gorm:"size:16;not null" json:"unit"`
+	Cycle     string    `gorm:"size:16;not null" json:"cycle"`
+	Quota     int64     `gorm:"not null" json:"quota"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"-"`
 }
 
 // CreditPack 是用户的一笔余额（余额包），用完或过期为止。
 type CreditPack struct {
-	ID        uint64 `gorm:"primaryKey"`
-	UserID    uint64 `gorm:"index;not null"`
-	PlanID    uint64 `gorm:"not null;default:0"`
-	Name      string `gorm:"size:64;not null"`
-	Unit      string `gorm:"size:16;not null"`
-	Total     int64  `gorm:"not null"`
-	Remaining int64  `gorm:"not null"`
-	ExpiresAt *time.Time
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID        uint64     `gorm:"primaryKey" json:"id"`
+	UserID    uint64     `gorm:"index;not null" json:"-"`
+	PlanID    uint64     `gorm:"not null;default:0" json:"plan_id"`
+	Name      string     `gorm:"size:64;not null" json:"name"`
+	Unit      string     `gorm:"size:16;not null" json:"unit"`
+	Total     int64      `gorm:"not null" json:"total"`
+	Remaining int64      `gorm:"not null" json:"remaining"`
+	ExpiresAt *time.Time `json:"expires_at"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"-"`
 }
 
 // 卡密状态。
@@ -582,10 +584,10 @@ type CardKey struct {
 
 // BillingLog 是会员相关的一条记录：兑换卡密、管理员开通或调整额度。
 type BillingLog struct {
-	ID     uint64 `gorm:"primaryKey"`
-	UserID uint64 `gorm:"index;not null"`
+	ID     uint64 `gorm:"primaryKey" json:"id"`
+	UserID uint64 `gorm:"index;not null" json:"-"`
 	// Kind：redeem 兑换卡密、grant 管理员开通套餐、adjust 管理员调整余额。
-	Kind      string `gorm:"size:16;not null"`
-	Detail    string `gorm:"size:500;not null"`
-	CreatedAt time.Time
+	Kind      string    `gorm:"size:16;not null" json:"kind"`
+	Detail    string    `gorm:"size:500;not null" json:"detail"`
+	CreatedAt time.Time `json:"created_at"`
 }

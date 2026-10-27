@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/HugehardJiang/buugoo/internal/logx"
 	"io"
 	"log/slog"
 	"strings"
@@ -401,6 +402,10 @@ func (s *Service) Send(ctx context.Context, u *store.User, in SendInput, sink Si
 		reply.Status = store.MessageInterrupted
 	default:
 		reply.Status = store.MessageError
+	}
+	if genErr != nil && !isCanceled(ctx, genErr) {
+		// 记下失败原因，刷新页面后也能看到（密钥打码）。
+		reply.Error = clip(logx.Redact(genErr.Error()), 1000)
 	}
 	if t.usageReported {
 		res.Usage = t.usage

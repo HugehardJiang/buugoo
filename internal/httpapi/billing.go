@@ -242,7 +242,11 @@ func (s *server) consolePlans(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	return c.JSON(http.StatusOK, map[string]any{"plans": ps})
+	out := make([]planDTO, len(ps))
+	for i, p := range ps {
+		out[i] = toPlanDTO(p, true)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"plans": out})
 }
 
 func (s *server) consoleCreatePlan(c echo.Context) error {
@@ -255,7 +259,7 @@ func (s *server) consoleCreatePlan(c echo.Context) error {
 		return err
 	}
 	s.audit(c, "管理后台新建了套餐", "plan", p.ID, "name", p.Name)
-	return c.JSON(http.StatusOK, p)
+	return c.JSON(http.StatusOK, toPlanDTO(*p, true))
 }
 
 func (s *server) consoleUpdatePlan(c echo.Context) error {
@@ -272,7 +276,7 @@ func (s *server) consoleUpdatePlan(c echo.Context) error {
 		return err
 	}
 	s.audit(c, "管理后台修改了套餐", "plan", id)
-	return c.JSON(http.StatusOK, p)
+	return c.JSON(http.StatusOK, toPlanDTO(*p, true))
 }
 
 func (s *server) consolePlanVisible(c echo.Context) error {
@@ -422,6 +426,18 @@ type planDTO struct {
 	Quota       int64  `json:"quota"`
 	ValidDays   int    `json:"valid_days"`
 	BuyURL      string `json:"buy_url"`
+	// 下面两项只给管理后台。
+	Visible *bool `json:"visible,omitempty"`
+	Sort    *int  `json:"sort,omitempty"`
+}
+
+func toPlanDTO(p store.Plan, console bool) planDTO {
+	d := planDTO{ID: p.ID, Name: p.Name, Description: p.Description, Price: p.Price, Kind: p.Kind, Unit: p.Unit,
+		Days: p.Days, Cycle: p.Cycle, Quota: p.Quota, ValidDays: p.ValidDays, BuyURL: p.BuyURL}
+	if console {
+		d.Visible, d.Sort = &p.Visible, &p.Sort
+	}
+	return d
 }
 
 // myBilling 处理 GET /api/v1/billing：自己的会员情况、用量，以及可以买的套餐。
@@ -441,8 +457,7 @@ func (s *server) myBilling(c echo.Context) error {
 	}
 	plans := make([]planDTO, len(ps))
 	for i, p := range ps {
-		plans[i] = planDTO{ID: p.ID, Name: p.Name, Description: p.Description, Price: p.Price, Kind: p.Kind, Unit: p.Unit,
-			Days: p.Days, Cycle: p.Cycle, Quota: p.Quota, ValidDays: p.ValidDays, BuyURL: p.BuyURL}
+		plans[i] = toPlanDTO(p, false)
 	}
 	return c.JSON(http.StatusOK, map[string]any{"account": acc, "quota": st, "plans": plans})
 }

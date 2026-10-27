@@ -51,7 +51,7 @@ type Entitlement struct {
 	Unit         string    `json:"unit,omitempty"`
 	Cycle        string    `json:"cycle,omitempty"`
 	Quota        int64     `json:"quota,omitempty"`
-	ExpiresAt    time.Time `json:"expires_at,omitempty"`
+	ExpiresAt    time.Time `json:"expires_at,omitzero"`
 	PackMessages int64     `json:"pack_messages"`
 	PackTokens   int64     `json:"pack_tokens"`
 }
