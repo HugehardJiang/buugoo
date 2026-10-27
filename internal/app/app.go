@@ -116,7 +116,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	var accountSvc *accounts.Service
 	if cfg.Mode == config.ModeMulti {
 		billingSvc = billing.New(db.Gorm(), box)
-		limiter.SetPlans(billingSvc, db.Users(), "可以在「设置 → 会员」兑换卡密，开通会员或加购余额")
+		limiter.SetPlans(billingSvc, db.Users(), "可以在「个人中心 → 会员」兑换卡密，开通会员或加购余额")
 		accountSvc = accounts.New(db.Gorm(), loc)
 	}
 	vs := memstore.New(db.Memories().LoadEmbeddings, cfg.Memory.Cache, log)

@@ -9,6 +9,7 @@ export interface User {
   is_admin: boolean
   proactive: boolean
   created_at: string
+  avatar_seed: string
 }
 
 export interface Session {
@@ -591,6 +592,9 @@ export const api = {
   updateReminder: (id: number, input: ReminderInput) => request<Reminder>('PUT', `/reminders/${id}`, input),
   pauseReminder: (id: number, pause: boolean) => request<Reminder>('POST', `/reminders/${id}/${pause ? 'pause' : 'resume'}`),
   cancelReminder: (id: number) => request<void>('DELETE', `/reminders/${id}`),
+  profile: () => request<{ user: User; avatar_left: number; avatar_limit: number }>('GET', '/me/profile'),
+  updateProfile: (display_name: string) => request<{ user: User }>('PUT', '/me/profile', { display_name }),
+  regenerateAvatar: () => request<{ user: User; avatar_left: number }>('POST', '/me/avatar'),
   setProactive: (on: boolean) => request<{ on: boolean }>('PUT', '/me/proactive', { on }),
   context: (conversationId: number) => request<ContextStatus>('GET', `/conversations/${conversationId}/context`),
   compact: (conversationId: number) => request<ContextStatus>('POST', `/conversations/${conversationId}/compact`),

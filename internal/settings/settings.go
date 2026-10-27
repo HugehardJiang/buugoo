@@ -28,11 +28,13 @@ type Field struct {
 	Help  string `json:"help,omitempty"`
 	Type  string `json:"type"` // string | bool | int | float | duration | list | select | secret | context
 	// Section 是所在的小节，Advanced 表示是不常用的高级设置（默认折叠），Order 是排列顺序，Unit 是数字的单位。
-	Section  string   `json:"section"`
-	Advanced bool     `json:"advanced,omitempty"`
-	Order    int      `json:"order"`
-	Unit     string   `json:"unit,omitempty"`
-	Options  []string `json:"options,omitempty"`
+	Section  string `json:"section"`
+	Advanced bool   `json:"advanced,omitempty"`
+	Order    int    `json:"order"`
+	Unit     string `json:"unit,omitempty"`
+	// Scale 是网页上一个单位代表的实际数值（例如百万 token 为 1000000），保存时换算回去。
+	Scale   int64    `json:"scale,omitempty"`
+	Options []string `json:"options,omitempty"`
 	// Value 是当前生效（正在运行）的值；密钥类只给出是否已设置。
 	Value any `json:"value"`
 	// Saved 是网页设置文件中保存的值（与运行中不同表示待重启生效）。
@@ -144,7 +146,7 @@ func Fields(cfg *config.Config) ([]Field, error) {
 		}
 		m := meta[key]
 		p := placeOf(key)
-		fd := Field{Key: key, Group: p.group, Section: p.section, Advanced: p.advanced, Order: p.order, Unit: units[key],
+		fd := Field{Key: key, Group: p.group, Section: p.section, Advanced: p.advanced, Order: p.order, Unit: units[key], Scale: scales[key],
 			Label: m.label, Help: m.help, Type: fieldType(key, f), Options: m.options, Value: display(key, f), Env: cfg.FromEnv(key)}
 		if fd.Label == "" {
 			fd.Label = key

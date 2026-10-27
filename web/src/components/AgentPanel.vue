@@ -7,9 +7,12 @@ import { consoleLogin } from '../consoleToken'
 import { renderMarkdown } from '../format'
 import Icon from '../Icon.vue'
 import Modal from './Modal.vue'
+import { session } from '../session'
 import { toast } from '../toast'
 
 const state = ref<AgentState | null>(null)
+// 多用户版只有管理员账号才显示「登录管理后台」的入口。
+const canAdmin = computed(() => session.meta?.mode !== 'multi' || !!session.user?.is_admin)
 const models = ref<ModelView[]>([])
 const loadError = ref('')
 const input = ref('')
@@ -176,7 +179,7 @@ function steps(m: AgentMessage): string {
           </select>
         </label>
         <span v-if="state.admin" class="badge-pill admin" title="这个浏览器登录了管理后台">可改系统设置</span>
-        <button v-else-if="!showLogin" type="button" class="link-btn caption" @click="showLogin = true">登录管理后台，让它也能改系统设置、装技能和插件</button>
+        <button v-else-if="!showLogin && canAdmin" type="button" class="link-btn caption" @click="showLogin = true">登录管理后台，让它也能改系统设置、装技能和插件</button>
       </div>
       <form v-if="showLogin && !state.admin" class="login" @submit.prevent="login">
         <input v-model="password" class="text-input" type="password" autocomplete="current-password" placeholder="管理员密码" aria-label="管理员密码" />

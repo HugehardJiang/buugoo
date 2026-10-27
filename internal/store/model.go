@@ -31,8 +31,12 @@ type User struct {
 	// DisabledAt 不为空表示账号被管理员停用（不能登录、不能聊天），DisabledReason 是原因。
 	DisabledAt     *time.Time
 	DisabledReason string `gorm:"size:200;not null;default:''"`
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// AvatarSeed 决定随机头像的样子（空时按用户 ID 生成）；AvatarYear 年里已经重新生成了 AvatarRegens 次。
+	AvatarSeed   string `gorm:"size:32;not null;default:''"`
+	AvatarYear   int    `gorm:"not null;default:0"`
+	AvatarRegens int    `gorm:"not null;default:0"`
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // OwnerID 是 single 模式下唯一用户的 ID。

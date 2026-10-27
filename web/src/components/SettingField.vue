@@ -9,6 +9,7 @@ export interface Field {
   advanced?: boolean
   order: number
   unit?: string
+  scale?: number
   label: string
   help?: string
   type: 'string' | 'bool' | 'int' | 'float' | 'duration' | 'list' | 'select' | 'secret' | 'context'
@@ -42,12 +43,23 @@ function editContext(raw: string) {
   emit('edit', raw.trim() === '' || !(v > 0) ? 0 : Math.round(v * 100000))
 }
 
+// 带 scale 的数字（例如每日 token 以百万为单位）：显示时除以 scale，保存时乘回去。
+function scaled(v: unknown) {
+  const n = Number(v)
+  return Number.isFinite(n) ? String(Math.round((n / f.value.scale!) * 1000) / 1000) : String(v ?? '')
+}
+function editScaled(raw: string) {
+  const v = parseFloat(raw)
+  emit('edit', raw.trim() === '' || !Number.isFinite(v) ? 0 : Math.round(v * f.value.scale!))
+}
+
 function display(v: unknown) {
   if (f.value.type === 'secret') return v ? '已设置' : '未设置'
   if (Array.isArray(v)) return v.join(', ') || '（空）'
   if (v === '' || v === null || v === undefined) return '（空）'
   if (f.value.type === 'bool') return v ? '开启' : '关闭'
   if (f.value.type === 'context') return Number(v) > 0 ? `${Number(v) / 100000} × 10 万` : '自动识别'
+  if (f.value.scale) return `${scaled(v)} ${f.value.unit ?? ''}`.trim()
   return String(v) + (f.value.unit ? ` ${f.value.unit}` : '')
 }
 const hasSaved = computed(() => f.value.saved !== undefined && f.value.saved !== null)
@@ -117,10 +129,10 @@ const hasSaved = computed(() => f.value.saved !== undefined && f.value.saved !==
           :id="id"
           class="text-input"
           type="number"
-          :step="field.type === 'float' ? 'any' : '1'"
-          :value="value"
+          :step="field.type === 'float' || field.scale ? 'any' : '1'"
+          :value="field.scale ? scaled(value) : value"
           :disabled="disabled"
-          @input="emit('edit', ($event.target as HTMLInputElement).value)"
+          @input="field.scale ? editScaled(($event.target as HTMLInputElement).value) : emit('edit', ($event.target as HTMLInputElement).value)"
         />
         <span v-if="field.unit" class="unit">{{ field.unit }}</span>
       </div>

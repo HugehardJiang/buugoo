@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -30,10 +31,17 @@ type userDTO struct {
 	IsAdmin     bool      `json:"is_admin"`
 	Proactive   bool      `json:"proactive"`
 	CreatedAt   time.Time `json:"created_at"`
+	// AvatarSeed 决定随机头像的样子，网页按它画出小鸟。
+	AvatarSeed string `json:"avatar_seed"`
 }
 
 func toUser(u *store.User) userDTO {
-	return userDTO{ID: u.ID, Username: u.Username, DisplayName: u.DisplayName, IsAdmin: u.IsAdmin, Proactive: u.Proactive, CreatedAt: u.CreatedAt}
+	seed := u.AvatarSeed
+	if seed == "" {
+		seed = fmt.Sprintf("user-%d", u.ID)
+	}
+	return userDTO{ID: u.ID, Username: u.Username, DisplayName: u.DisplayName, IsAdmin: u.IsAdmin, Proactive: u.Proactive,
+		CreatedAt: u.CreatedAt, AvatarSeed: seed}
 }
 
 type sessionDTO struct {

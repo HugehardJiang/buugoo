@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// 设置 → 会员：现在的套餐和余额、这个周期用了多少，可以买的套餐（带购买链接），兑换卡密。
+// 个人中心 → 会员：现在的套餐和余额、这个周期用了多少，可以买的套餐（带购买链接），兑换卡密。
 import { computed, onMounted, ref } from 'vue'
 import { api, ApiError, type BillingAccount, type Plan, type Quota } from '../api'
-import { amount, dateTime, planSummary } from '../format'
+import { amount, dateTime, mtok, planSummary } from '../format'
 import { toast } from '../toast'
 
 const account = ref<BillingAccount | null>(null)
@@ -19,7 +19,7 @@ const usage = computed(() => {
   if (!q) return []
   const out: { label: string; used: number; limit: number; unit: string }[] = []
   if (q.messages_limit) out.push({ label: '消息', used: q.messages, limit: q.messages_limit, unit: 'messages' })
-  if (q.tokens_limit) out.push({ label: 'token', used: q.tokens, limit: q.tokens_limit, unit: 'tokens' })
+  if (q.tokens_limit) out.push({ label: '百万 token', used: q.tokens, limit: q.tokens_limit, unit: 'tokens' })
   return out
 })
 
@@ -75,7 +75,7 @@ function pct(used: number, limit: number) {
           <p class="caption">{{ quota.period === 'month' ? '本月' : '今天' }}已用</p>
           <template v-if="usage.length">
             <div v-for="u in usage" :key="u.label" class="meter">
-              <div class="meter__label"><span>{{ u.label }}</span><span>{{ u.used }} / {{ u.limit }}</span></div>
+              <div class="meter__label"><span>{{ u.label }}</span><span>{{ u.unit === 'tokens' ? `${mtok(u.used)} / ${mtok(u.limit)}` : `${u.used} / ${u.limit}` }}</span></div>
               <div class="workspace-progress"><i :style="{ width: `${pct(u.used, u.limit)}%` }" /></div>
             </div>
           </template>

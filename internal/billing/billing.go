@@ -289,7 +289,7 @@ func (s *Service) grant(tx *gorm.DB, userID uint64, p *store.Plan) (string, erro
 
 func amount(unit string, n int64) string {
 	if unit == store.UnitTokens {
-		return fmt.Sprintf(" %d token", n)
+		return " " + quota.MTokens(n) + " 百万 token"
 	}
 	return fmt.Sprintf(" %d 条消息", n)
 }

@@ -11,6 +11,7 @@ export const router = createRouter({
     { path: '/files', name: 'files', component: () => import('./views/FilesView.vue') },
     { path: '/tasks', name: 'tasks', component: () => import('./views/TasksView.vue') },
     { path: '/channels', name: 'channels', component: () => import('./views/ChannelsView.vue') },
+    { path: '/profile', name: 'profile', component: () => import('./views/ProfileView.vue') },
     { path: '/settings', name: 'settings', component: () => import('./views/SettingsView.vue') },
     { path: '/console', name: 'console', component: () => import('./views/ConsoleView.vue') },
     { path: '/welcome', name: 'welcome', component: () => import('./views/WelcomeView.vue') },
@@ -37,6 +38,8 @@ router.beforeEach(async (to) => {
     return { name: 'login', query: { next: to.fullPath } }
   }
   if (to.name === 'login' && !needsLogin()) return { name: 'chat' }
+  // 多用户版里已经登录的普通用户看不到管理后台（没登录时仍可以用管理员密码进入，方便第一次配置）。
+  if (to.name === 'console' && multi && session.user && !session.user.is_admin) return { name: 'chat' }
   return true
 })
 

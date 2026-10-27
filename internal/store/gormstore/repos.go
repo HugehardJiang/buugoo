@@ -95,6 +95,31 @@ func (r userRepo) UpdateFields(ctx context.Context, id uint64, fields map[string
 	return r.update(ctx, id, fields)
 }
 
+func (r userRepo) RegenerateAvatar(ctx context.Context, id uint64, seed string, year, limit int) (int, error) {
+	// 一条带条件的 UPDATE 完成检查和计数，同时点很多次也不会超过上限。
+	res := r.db.WithContext(ctx).Model(&store.User{}).
+		Where("id = ? AND (avatar_year <> ? OR avatar_regens < ?)", id, year, limit).
+		Updates(map[string]any{
+			"avatar_seed":   seed,
+			"avatar_regens": gorm.Expr("CASE WHEN avatar_year = ? THEN avatar_regens + 1 ELSE 1 END", year),
+			"avatar_year":   year,
+		})
+	if res.Error != nil {
+		return 0, mapErr(res.Error)
+	}
+	if res.RowsAffected == 0 {
+		if _, err := r.GetByID(ctx, id); err != nil {
+			return 0, err
+		}
+		return limit, store.ErrAvatarLimit
+	}
+	u, err := r.GetByID(ctx, id)
+	if err != nil {
+		return 0, err
+	}
+	return u.AvatarRegens, nil
+}
+
 func (r userRepo) SetProactive(ctx context.Context, id uint64, on bool) error {
 	return r.update(ctx, id, map[string]any{"proactive": on})
 }

@@ -62,9 +62,20 @@ export function formatSize(n: number): string {
 
 
 // amount 把额度写成好读的样子：1.2 万 token、300 条消息。
+// TOKEN_UNIT 是 token 额度的显示和填写单位：百万 token。
+export const TOKEN_UNIT = 1_000_000
+
+// mtok 把 token 数写成以百万为单位的数字（最多三位小数）。
+export function mtok(n: number): string {
+  if (!n) return '0'
+  const v = n / TOKEN_UNIT
+  if (Math.abs(v) < 0.001) return v > 0 ? '<0.001' : '>-0.001'
+  return String(+v.toFixed(Math.abs(v) < 1 ? 3 : 2))
+}
+
 export function amount(unit: string, n: number): string {
-  const num = n >= 10000 ? `${+(n / 10000).toFixed(n >= 1e6 ? 0 : 1)} 万` : String(n)
-  return unit === 'tokens' ? `${num} token` : `${num} 条消息`
+  if (unit === 'tokens') return `${mtok(n)} 百万 token`
+  return `${n >= 10000 ? `${+(n / 10000).toFixed(1)} 万` : n} 条消息`
 }
 
 // planSummary 是套餐内容的一句话：30 天 · 每天 200 条消息；或 100 万 token · 90 天内有效。

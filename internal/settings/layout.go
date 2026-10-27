@@ -82,13 +82,16 @@ var hidden = map[string]bool{"chat.history_messages": true, "chat.max_context_to
 // units 是数字设置的单位（显示在输入框后面）。
 var units = map[string]string{
 	"chat.compact_at": "%", "chat.keep_recent": "%",
-	"quota.daily_messages": "条", "quota.daily_tokens": "token",
+	"quota.daily_messages": "条", "quota.daily_tokens": "百万 token",
 	"llm.chat.max_tokens": "token", "llm.utility.max_tokens": "token",
 	"memory.retrieval.top_k": "条", "memory.compact.max_memories": "条", "memory.retrieval.candidate_k": "条", "memory.cache.max_bytes": "字节",
 	"tools.python.memory_mb": "MB", "tools.python.lib_max_mb": "MB", "tools.python.workspace_mb": "MB",
 	"uploads.max_file_mb": "MB", "uploads.user_quota_mb": "MB", "uploads.max_files": "个", "uploads.doc_chars": "字",
 	"proactive.idle_hours": "小时", "proactive.min_gap_hours": "小时",
 }
+
+// scales 是网页上按大单位填写的数字设置（见 Field.Scale）。
+var scales = map[string]int64{"quota.daily_tokens": 1_000_000}
 
 type place struct {
 	group, section string

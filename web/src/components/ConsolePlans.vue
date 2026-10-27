@@ -2,7 +2,7 @@
 // 管理后台 → 会员套餐：新建、修改、显示或隐藏、删除套餐。改套餐只影响之后的兑换，已经开通的不变。
 import { computed, onMounted, ref } from 'vue'
 import { ApiError, type Plan } from '../api'
-import { planSummary } from '../format'
+import { planSummary, TOKEN_UNIT } from '../format'
 import Modal from './Modal.vue'
 import { toast } from '../toast'
 
@@ -40,6 +40,14 @@ function openEdit(p: Plan) {
   isNew.value = false
   formError.value = ''
 }
+
+// token 套餐的额度以百万 token 填写。
+const quotaShown = computed({
+  get: () => (editing.value?.unit === 'tokens' ? +(editing.value.quota / TOKEN_UNIT).toFixed(3) : editing.value?.quota ?? 0),
+  set: (v: number) => {
+    if (editing.value) editing.value.quota = editing.value.unit === 'tokens' ? Math.round(Number(v) * TOKEN_UNIT) : Number(v)
+  },
+})
 
 const preview = computed(() => (editing.value ? planSummary(editing.value) : ''))
 
@@ -94,7 +102,7 @@ async function confirmRemove() {
     </div>
     <p class="muted intro">
       时长套餐在有效期内每天（或每月）给固定额度，代替免费额度；余额包一次给一笔额度，周期额度用完后再用它。
-      显示的套餐会出现在用户「设置 → 会员」里，可以附上购买链接（发卡平台、店铺等），用户买到卡密后在那里兑换。
+      显示的套餐会出现在用户「个人中心 → 会员」里，可以附上购买链接（发卡平台、店铺等），用户买到卡密后在那里兑换。
     </p>
     <p v-if="error" class="form-flash form-flash--error">{{ error }}</p>
     <div v-else-if="plans === null" class="skeleton skel" aria-hidden="true" />
@@ -142,12 +150,15 @@ async function confirmRemove() {
             <label class="field__label" for="pl-u">计费单位</label>
             <select id="pl-u" v-model="editing.unit" class="text-input">
               <option value="messages">消息条数</option>
-              <option value="tokens">token</option>
+              <option value="tokens">token（按百万计）</option>
             </select>
           </div>
           <div class="field">
             <label class="field__label" for="pl-q">{{ editing.kind === 'period' ? '每周期额度' : '总额度' }}</label>
-            <input id="pl-q" v-model.number="editing.quota" class="text-input" type="number" min="1" required />
+            <div class="with-unit">
+              <input id="pl-q" v-model.number="quotaShown" class="text-input" type="number" :min="editing.unit === 'tokens' ? 0.001 : 1" :step="editing.unit === 'tokens' ? 'any' : 1" required />
+              <span class="caption">{{ editing.unit === 'tokens' ? '百万 token' : '条' }}</span>
+            </div>
           </div>
         </div>
         <div v-if="editing.kind === 'period'" class="form-row">
@@ -201,6 +212,9 @@ async function confirmRemove() {
 </template>
 
 <style scoped>
+.with-unit { display: flex; align-items: center; gap: 8px; }
+.with-unit .text-input { flex: 1; min-width: 0; }
+.with-unit .caption { white-space: nowrap; }
 .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .head h2 { margin: 0; }
 .intro { margin: 8px 0 12px; font-size: 14px; line-height: 1.7; }

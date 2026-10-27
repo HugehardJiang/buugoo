@@ -11,6 +11,8 @@ var (
 	ErrNotFound      = errors.New("记录不存在")
 	ErrConflict      = errors.New("记录已存在")
 	ErrInviteInvalid = errors.New("邀请码无效、已过期或已用完")
+	// ErrAvatarLimit 表示今年重新生成头像的次数用完了。
+	ErrAvatarLimit = errors.New("今年重新生成头像的次数用完了")
 )
 
 // TableName 固定表名，避免依赖 GORM 的复数化规则。
@@ -107,6 +109,8 @@ type UserRepo interface {
 	MarkProactive(ctx context.Context, id uint64, at time.Time) error
 	// UpdateFields 修改用户的个人设置（键为列名，只允许 display_name、disabled_skills、disabled_plugins、agent_model_id）。
 	UpdateFields(ctx context.Context, id uint64, fields map[string]any) error
+	// RegenerateAvatar 换成新的头像种子，year 年里最多 limit 次（到了返回 ErrAvatarLimit），返回今年已用的次数。
+	RegenerateAvatar(ctx context.Context, id uint64, seed string, year, limit int) (int, error)
 }
 
 // ReminderRepo 是提醒数据访问接口。

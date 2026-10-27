@@ -1,18 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, ApiError, type Invite, type Quota } from '../api'
+import { api, ApiError, type Invite } from '../api'
 import AgentPanel from '../components/AgentPanel.vue'
 import EmbeddingPanel from '../components/EmbeddingPanel.vue'
 import ExtensionsPanel from '../components/ExtensionsPanel.vue'
-import MemberPanel from '../components/MemberPanel.vue'
 import Modal from '../components/Modal.vue'
 import ModelsPanel from '../components/ModelsPanel.vue'
 import PersonaPanel from '../components/PersonaPanel.vue'
-import { copyDiagnostics } from '../diag'
 import { dateTime } from '../format'
 import { memoriesUnlocked, setMemoriesUnlocked } from '../memoryLock'
-import { applySession, logout, session } from '../session'
+import { session } from '../session'
 import { toast } from '../toast'
 
 const router = useRouter()
@@ -42,16 +40,11 @@ async function compactMemories() {
     compacting.value = false
   }
 }
-const quota = ref<Quota | null>(null)
 const error = ref('')
 const message = ref('')
 
 const isMulti = computed(() => session.meta?.mode === 'multi')
 const isAdmin = computed(() => !!session.user?.is_admin)
-const canLogout = computed(() => !!session.meta?.password_required)
-
-const oldPw = ref('')
-const newPw = ref('')
 
 const invites = ref<Invite[]>([])
 const inviteUses = ref(1)
@@ -65,35 +58,8 @@ function fail(e: unknown) {
 async function load() {
   try {
     const me = await api.me()
-    quota.value = me.quota
     session.user = me.user
     if (isMulti.value && me.user.is_admin) invites.value = (await api.invites()).invites
-  } catch (e) {
-    fail(e)
-  }
-}
-
-function signOut() {
-  logout()
-  router.replace('/login')
-}
-
-async function signOutAll() {
-  try {
-    await api.logoutAll()
-    signOut()
-  } catch (e) {
-    fail(e)
-  }
-}
-
-async function changePassword() {
-  error.value = ''
-  message.value = ''
-  try {
-    applySession(await api.changePassword(oldPw.value, newPw.value))
-    oldPw.value = newPw.value = ''
-    toast('密码已修改，其他设备需要重新登录')
   } catch (e) {
     fail(e)
   }
@@ -131,14 +97,6 @@ async function copy(text: string) {
   } catch {
     message.value = text
   }
-}
-
-function limitText(used: number, limit: number) {
-  return limit > 0 ? `${used} / ${limit}` : `${used}`
-}
-
-function percent(used: number, limit: number) {
-  return limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
 }
 
 onMounted(async () => {
@@ -199,60 +157,6 @@ onMounted(async () => {
           </div>
         </section>
 
-        <MemberPanel v-if="session.meta?.billing && isMulti" />
-
-        <section v-if="quota && !session.meta?.billing" class="panel panel--inset">
-          <h2>今日用量</h2>
-          <dl class="metrics">
-            <div class="metric">
-              <dt>消息</dt>
-              <dd>{{ limitText(quota.messages, quota.messages_limit) }}</dd>
-              <div v-if="quota.messages_limit" class="workspace-progress"><i :style="{ width: percent(quota.messages, quota.messages_limit) + '%' }" /></div>
-            </div>
-            <div class="metric">
-              <dt>Token</dt>
-              <dd>{{ limitText(quota.tokens, quota.tokens_limit) }}</dd>
-              <div v-if="quota.tokens_limit" class="workspace-progress"><i :style="{ width: percent(quota.tokens, quota.tokens_limit) + '%' }" /></div>
-            </div>
-          </dl>
-          <p class="caption">按 {{ quota.day }} 统计<template v-if="!quota.messages_limit && !quota.tokens_limit">，当前不限量</template><template v-else-if="quota.exempt">，管理员不受限额限制</template>。</p>
-        </section>
-
-        <section class="panel panel--inset">
-          <h2>账号</h2>
-          <div v-if="isMulti" class="row-line">
-            <span>{{ session.user?.username }}</span>
-            <span v-if="isAdmin" class="badge-pill">管理员</span>
-          </div>
-          <p v-else class="muted">自部署单用户模式，数据只保存在你自己的服务器上。</p>
-          <div v-if="canLogout" class="actions">
-            <button class="btn" @click="signOut">退出登录</button>
-            <button class="btn btn-ghost" @click="signOutAll">退出所有设备</button>
-          </div>
-          <div class="diag">
-            <p class="caption">遇到问题时，把诊断信息发给管理员，方便定位。里面没有聊天内容，密钥会自动打码。</p>
-            <button class="btn btn-sm" @click="copyDiagnostics({ 来自: '设置页' })">复制诊断信息</button>
-          </div>
-        </section>
-
-        <section v-if="isMulti" class="panel panel--inset">
-          <h2>修改密码</h2>
-          <form @submit.prevent="changePassword">
-            <div class="form-row">
-              <div class="field">
-                <label class="field__label" for="old">当前密码</label>
-                <input id="old" v-model="oldPw" class="text-input" type="password" autocomplete="current-password" required />
-              </div>
-              <div class="field">
-                <label class="field__label" for="new">新密码</label>
-                <input id="new" v-model="newPw" class="text-input" type="password" autocomplete="new-password" minlength="8" required />
-                <p class="field__hint">至少 8 位。修改后其他设备需要重新登录。</p>
-              </div>
-            </div>
-            <button class="btn btn-primary">修改密码</button>
-          </form>
-        </section>
-
         <section v-if="isMulti && isAdmin" class="panel panel--inset">
           <h2>邀请码</h2>
           <form class="invite-form" @submit.prevent="createInvite">
@@ -311,16 +215,8 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.diag { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--color-divider); }
-.diag p { margin: 0; }
 .panel p { margin: 0; }
-.row-line { display: flex; align-items: center; gap: 8px; }
 .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
-.metrics { display: grid; margin: 0 0 12px; }
-.metric { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; padding: 14px 0; border-top: 1px solid var(--color-divider); font-size: 14px; }
-.metric dt { color: var(--color-text-secondary); }
-.metric dd { margin: 0; font-weight: 500; font-variant-numeric: tabular-nums; }
-.metric .workspace-progress { grid-column: 1 / -1; }
 .invite-form { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 0 12px; align-items: start; }
 .invite-form .gen { grid-column: 1 / -1; justify-self: start; }
 @media (max-width: 767px) { .invite-form { grid-template-columns: 1fr 1fr; } .invite-form .note { grid-column: 1 / -1; } }

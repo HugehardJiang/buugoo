@@ -8,6 +8,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"strconv"
 	"time"
 
 	"github.com/HugehardJiang/buugoo/internal/config"
@@ -28,6 +30,21 @@ type ExceededError struct {
 	Hint string
 }
 
+// MTokens 把 token 数写成以百万为单位的数字（最多三位小数，例如 1.5、0.025）。
+func MTokens(n int64) string {
+	if n == 0 {
+		return "0"
+	}
+	v := float64(n) / 1e6
+	if v > -0.001 && v < 0.001 {
+		if v > 0 {
+			return "<0.001"
+		}
+		return ">-0.001"
+	}
+	return strconv.FormatFloat(math.Round(v*1000)/1000, 'f', -1, 64)
+}
+
 func (e *ExceededError) Error() string {
 	what := "消息数"
 	if e.Kind == "tokens" {
@@ -37,7 +54,11 @@ func (e *ExceededError) Error() string {
 	if e.Period == store.CycleMonth {
 		when = "本月"
 	}
-	msg := fmt.Sprintf("%s%s已达上限（%d/%d），将于 %s 重置", when, what, e.Used, e.Limit, e.Reset.Format("01-02 15:04"))
+	used, limit := fmt.Sprint(e.Used), fmt.Sprint(e.Limit)
+	if e.Kind == "tokens" {
+		used, limit = MTokens(int64(e.Used)), MTokens(int64(e.Limit))+" 百万"
+	}
+	msg := fmt.Sprintf("%s%s已达上限（%s/%s），将于 %s 重置", when, what, used, limit, e.Reset.Format("01-02 15:04"))
 	if e.Hint != "" {
 		msg += "。" + e.Hint
 	}

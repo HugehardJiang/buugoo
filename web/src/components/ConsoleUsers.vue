@@ -2,7 +2,7 @@
 // 管理后台 → 用户管理：搜索、筛选、查看用量和会员，开通套餐、调整余额、重置密码、设管理员、停用、删除。
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ApiError, type BillingAccount, type Plan, type Quota } from '../api'
-import { amount, dateTime, shortWhen } from '../format'
+import { amount, dateTime, mtok, shortWhen, TOKEN_UNIT } from '../format'
 import Modal from './Modal.vue'
 import { toast } from '../toast'
 
@@ -132,7 +132,7 @@ async function remove() {
 
 function usageText(r: { messages: number; tokens: number; messages_limit: number; tokens_limit: number }) {
   const m = r.messages_limit ? `${r.messages}/${r.messages_limit} 条` : `${r.messages} 条`
-  const t = r.tokens_limit ? `${r.tokens}/${r.tokens_limit} token` : `${r.tokens} token`
+  const t = r.tokens_limit ? `${mtok(r.tokens)}/${mtok(r.tokens_limit)} 百万 token` : `${mtok(r.tokens)} 百万 token`
   return `${m} · ${t}`
 }
 </script>
@@ -169,8 +169,8 @@ function usageText(r: { messages: number; tokens: number; messages_limit: number
               <template v-if="r.pack_tokens">{{ amount('tokens', r.pack_tokens) }}</template>
               <template v-if="!r.pack_messages && !r.pack_tokens">—</template>
             </td>
-            <td class="caption">{{ r.today_messages }} 条<br />{{ r.today_tokens }} token</td>
-            <td class="caption">{{ r.total_messages }} 条<br />{{ r.total_tokens }} token</td>
+            <td class="caption">{{ r.today_messages }} 条<br />{{ mtok(r.today_tokens) }} 百万 token</td>
+            <td class="caption">{{ r.total_messages }} 条<br />{{ mtok(r.total_tokens) }} 百万 token</td>
             <td class="caption">{{ r.last_active || '—' }}</td>
             <td class="caption">{{ shortWhen(r.created_at) }}</td>
           </tr>
@@ -208,10 +208,10 @@ function usageText(r: { messages: number; tokens: number; messages_limit: number
             </div>
             <h3>调整余额</h3>
             <div class="inline">
-              <select v-model="adjust.unit" class="text-input" aria-label="单位"><option value="messages">条消息</option><option value="tokens">token</option></select>
-              <input v-model.number="adjust.amount" class="text-input num" type="number" placeholder="+100 或 -50" aria-label="数量" />
+              <select v-model="adjust.unit" class="text-input" aria-label="单位"><option value="messages">条消息</option><option value="tokens">百万 token</option></select>
+              <input v-model.number="adjust.amount" class="text-input num" type="number" step="any" :placeholder="adjust.unit === 'tokens' ? '+2 或 -0.5' : '+100 或 -50'" aria-label="数量" />
               <input v-model="adjust.note" class="text-input" placeholder="备注（可选）" maxlength="50" aria-label="备注" />
-              <button type="button" class="btn btn-sm" :disabled="busy || !adjust.amount" @click="act('adjust', { ...adjust }, '已调整')">调整</button>
+              <button type="button" class="btn btn-sm" :disabled="busy || !adjust.amount" @click="act('adjust', { ...adjust, amount: adjust.unit === 'tokens' ? Math.round(adjust.amount * TOKEN_UNIT) : adjust.amount }, '已调整')">调整</button>
             </div>
           </div>
         </div>

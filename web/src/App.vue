@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Icon from './Icon.vue'
 import { connectedCount, refreshChannels } from './channelState'
+import Avatar from './components/Avatar.vue'
 import Lightbox from './components/Lightbox.vue'
 import { memoriesUnlocked } from './memoryLock'
 import { needsLogin, session } from './session'
@@ -71,6 +72,16 @@ onBeforeUnmount(() => clearInterval(channelTimer))
         </RouterLink>
         <span class="app-rail__spacer" />
         <RouterLink
+          to="/profile"
+          class="app-rail__item"
+          :class="{ 'is-active': route.name === 'profile' }"
+          title="个人中心"
+          aria-label="个人中心"
+        >
+          <span class="app-rail__icon app-rail__avatar"><Avatar :seed="session.user?.avatar_seed ?? ''" :size="24" label="" /></span>
+          <span class="app-rail__label">我的</span>
+        </RouterLink>
+        <RouterLink
           to="/settings"
           class="app-rail__item"
           :class="{ 'is-active': route.name === 'settings' }"
@@ -95,5 +106,7 @@ onBeforeUnmount(() => clearInterval(channelTimer))
 </template>
 
 <style scoped>
+.app-rail__avatar :deep(.avatar) { box-shadow: 0 0 0 1.5px var(--color-divider); }
+.is-active .app-rail__avatar :deep(.avatar) { box-shadow: 0 0 0 2px var(--color-accent); }
 .fatal { max-width: 420px; margin: 18vh auto 0; padding: 0 16px; text-align: center; color: var(--color-text-secondary); }
 </style>
