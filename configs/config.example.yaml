@@ -206,6 +206,11 @@ memory:
     dedup_similarity: 0.95   # 与已有记忆相似度高于该值视为重复，不再写入
     workers: 2
     queue_size: 256
+  # 记忆压缩：一个人的记忆超过 max_memories 条时自动整理，把相近的合并、旧的零碎记忆概括成几条，
+  # 压到上限的七成左右（用 utility 模型，消耗计入该用户的每日用量）。0 表示不自动压缩，设置页仍可手动「整理记忆」
+  compact:
+    max_memories: 300
+    similarity: 0.8   # 相似度超过这个值的记忆当成相近的合并
   # 内存向量缓存（按用户缓存）
   cache:
     max_users: 1000

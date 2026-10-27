@@ -23,6 +23,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/llm"
 	"github.com/HugehardJiang/buugoo/internal/llm/provider"
 	"github.com/HugehardJiang/buugoo/internal/mcp"
+	"github.com/HugehardJiang/buugoo/internal/memo"
 	"github.com/HugehardJiang/buugoo/internal/memory"
 	"github.com/HugehardJiang/buugoo/internal/models"
 	"github.com/HugehardJiang/buugoo/internal/persona"
@@ -119,6 +120,13 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 				log.Error("记录后台用量失败", "user_id", job.UserID, "err", err)
 			}
 		})
+	compactor := memory.NewCompactor(db.Memories(), vs, emb, utilLLM, cfg.Memory.Compact, log,
+		func(ctx context.Context, userID uint64, u llm.Usage) {
+			if err := limiter.Record(ctx, userID, 0, u.PromptTokens, u.CompletionTokens); err != nil {
+				log.Error("记录后台用量失败", "user_id", userID, "err", err)
+			}
+		})
+	writer.OnWritten(compactor.Auto)
 	if cfg.Uploads.Dir == "" {
 		cfg.Uploads.Dir = filepath.Join(cfg.DataDir, "uploads")
 	}
@@ -134,6 +142,8 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	toolsProv.skills = skillSvc
 	pluginSvc := mcp.New(db.Gorm(), box, log)
 	toolsProv.plugins = pluginSvc
+	memoSvc := memo.New(db.Gorm())
+	toolsProv.memos = memoSvc
 	if cfg.Proactive.Reminders {
 		toolsProv.reminders, toolsProv.loc = db.Reminders(), loc
 	}
@@ -187,10 +197,10 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 		return nil, err
 	}
 	handler := httpapi.New(httpapi.Deps{
-		Config: cfg, Store: db, Auth: authSvc, Chat: chatSvc, Memories: memory.NewManager(db.Memories(), vs),
+		Config: cfg, Store: db, Auth: authSvc, Chat: chatSvc, Memories: memory.NewManager(db.Memories(), vs), Compactor: compactor,
 		Quota: limiter, Models: modelSvc, Reembed: memory.NewReembedder(db.Memories(), emb, vs, log),
 		Uploads: uploadSvc, Emotion: emo, Persona: personas, Channels: hub, Logger: log,
-		Skills: skillSvc, Plugins: pluginSvc,
+		Skills: skillSvc, Plugins: pluginSvc, Memos: memoSvc,
 		Agent: agent.New(agent.Deps{DB: db.Gorm(), Users: db.Users(), Reminders: toolsProv.reminders, Models: modelSvc,
 			Quota: limiter, Skills: skillSvc, Plugins: pluginSvc, Config: cfg, Box: box, Logger: log}),
 	})

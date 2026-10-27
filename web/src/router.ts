@@ -7,6 +7,7 @@ export const router = createRouter({
   routes: [
     { path: '/', name: 'chat', component: () => import('./views/ChatView.vue') },
     { path: '/memories', name: 'memories', component: () => import('./views/MemoriesView.vue') },
+    { path: '/memos', name: 'memos', component: () => import('./views/MemosView.vue') },
     { path: '/files', name: 'files', component: () => import('./views/FilesView.vue') },
     { path: '/tasks', name: 'tasks', component: () => import('./views/TasksView.vue') },
     { path: '/channels', name: 'channels', component: () => import('./views/ChannelsView.vue') },

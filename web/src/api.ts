@@ -319,6 +319,28 @@ export interface Invite {
   created_at: string
 }
 
+export interface MemoPageInfo {
+  id: number
+  title: string
+  size: number
+  preview: string
+  updated_at: string
+}
+
+export interface MemoPage {
+  id: number
+  title: string
+  content: string
+  updated_at: string
+}
+
+export interface CompactReport {
+  before: number
+  after: number
+  merged: number
+  created: number
+}
+
 export interface Extension {
   kind: 'skill' | 'plugin'
   name: string
@@ -523,6 +545,12 @@ export const api = {
   weixinLogout: () => request<void>('POST', '/channels/weixin/logout'),
   bindCode: () => request<{ code: string; expires_at: string }>('POST', '/channels/code'),
   unbind: (id: number) => request<void>('DELETE', `/channels/bindings/${id}`),
+  memos: () => request<{ pages: MemoPageInfo[] }>('GET', '/memos'),
+  memo: (id: number) => request<MemoPage>('GET', `/memos/${id}`),
+  createMemo: (title: string, content = '') => request<MemoPage>('POST', '/memos', { title, content }),
+  updateMemo: (id: number, patch: { title?: string; content?: string }) => request<MemoPage>('PUT', `/memos/${id}`, patch),
+  deleteMemo: (id: number) => request<void>('DELETE', `/memos/${id}`),
+  compactMemories: () => request<CompactReport>('POST', '/memories/compact'),
   extensions: () => request<{ extensions: Extension[] }>('GET', '/me/extensions'),
   toggleExtension: (kind: Extension['kind'], name: string, enabled: boolean) =>
     request<void>('PUT', '/me/extensions', { kind, name, enabled }),

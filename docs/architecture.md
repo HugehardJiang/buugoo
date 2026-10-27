@@ -31,6 +31,7 @@ internal/tools        模型可调用的工具：DeepSeek 搜索/抓取、运行
 internal/skills       skill：解析 SKILL.md、从 GitHub / zip / 粘贴安装、聊天中按需读取与在沙箱运行脚本
 internal/mcp          MCP 插件客户端（stdio、Streamable HTTP、SSE）与连接管理，工具接入聊天
 internal/agent        牛马助手：独立的聊天记录与工具循环，修改先生成确认卡片，确认后执行
+internal/memo         备忘录：多页面的存储，聊天时读写备忘录的工具（删除要对方确认）
 internal/memory       记忆：提取、打分、检索、写入、管理、第二阶段接口
 internal/prompt       提示词组装
 internal/persona      人格档案

@@ -178,9 +178,17 @@ type EmbeddingConfig struct {
 
 // MemoryConfig 是记忆系统配置。
 type MemoryConfig struct {
-	Retrieval RetrievalConfig   `koanf:"retrieval"`
-	Write     MemoryWriteConfig `koanf:"write"`
-	Cache     VectorCacheConfig `koanf:"cache"`
+	Retrieval RetrievalConfig     `koanf:"retrieval"`
+	Write     MemoryWriteConfig   `koanf:"write"`
+	Cache     VectorCacheConfig   `koanf:"cache"`
+	Compact   MemoryCompactConfig `koanf:"compact"`
+}
+
+// MemoryCompactConfig 是记忆压缩参数：一个人的记忆超过 MaxMemories 条时，自动把相近的记忆合并、
+// 把旧的零碎记忆概括成几条，压到上限的七成左右。MaxMemories 为 0 表示不自动压缩（设置页仍可手动整理）。
+type MemoryCompactConfig struct {
+	MaxMemories int     `koanf:"max_memories"`
+	Similarity  float64 `koanf:"similarity"`
 }
 
 // RetrievalConfig 是检索打分参数：score = α·recency + β·importance + γ·relevance。
@@ -489,6 +497,7 @@ func Default() *Config {
 				Workers:             2,
 				QueueSize:           256,
 			},
+			Compact: MemoryCompactConfig{MaxMemories: 300, Similarity: 0.8},
 			Cache: VectorCacheConfig{
 				MaxUsers: 1000,
 				MaxBytes: 512 << 20,
@@ -720,6 +729,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Chat.CompactAt < 30 || c.Chat.CompactAt > 95 {
 		errs = append(errs, errors.New("chat.compact_at 必须在 30-95 之间"))
+	}
+	if c.Memory.Compact.MaxMemories < 0 || (c.Memory.Compact.MaxMemories > 0 && c.Memory.Compact.MaxMemories < 50) {
+		errs = append(errs, errors.New("memory.compact.max_memories 为 0（不自动压缩）或不小于 50"))
+	}
+	if c.Memory.Compact.Similarity <= 0 || c.Memory.Compact.Similarity >= 1 {
+		errs = append(errs, errors.New("memory.compact.similarity 必须在 0-1 之间"))
 	}
 	if c.Chat.KeepRecent < 5 || c.Chat.KeepRecent >= c.Chat.CompactAt {
 		errs = append(errs, errors.New("chat.keep_recent 必须不小于 5，并且小于 chat.compact_at"))

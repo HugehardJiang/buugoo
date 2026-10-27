@@ -45,7 +45,7 @@ var layout = []section{
 	{"chat", "每日限额", []string{"quota.daily_messages", "quota.daily_tokens", "quota.exempt_admins"}},
 	{"chat", "性格", []string{"persona.disabled_presets", "~persona.file"}},
 
-	{"memory", "记忆", []string{"memory.write.enabled", "memory.write.importance_threshold", "memory.retrieval.top_k",
+	{"memory", "记忆", []string{"memory.write.enabled", "memory.write.importance_threshold", "memory.retrieval.top_k", "memory.compact.max_memories", "~memory.compact.similarity",
 		"~memory.retrieval.min_relevance", "~memory.retrieval.candidate_k", "~memory.retrieval.alpha", "~memory.retrieval.beta", "~memory.retrieval.gamma",
 		"~memory.retrieval.decay", "~memory.write.dedup_similarity", "~memory.write.access_boost", "~memory.write.workers", "~memory.write.queue_size",
 		"~memory.cache.max_users", "~memory.cache.max_bytes", "~memory.cache.ttl", "~scheduler.enabled", "~scheduler.consolidation_spec"}},
@@ -83,7 +83,7 @@ var units = map[string]string{
 	"chat.compact_at": "%", "chat.keep_recent": "%",
 	"quota.daily_messages": "条", "quota.daily_tokens": "token",
 	"llm.chat.max_tokens": "token", "llm.utility.max_tokens": "token",
-	"memory.retrieval.top_k": "条", "memory.retrieval.candidate_k": "条", "memory.cache.max_bytes": "字节",
+	"memory.retrieval.top_k": "条", "memory.compact.max_memories": "条", "memory.retrieval.candidate_k": "条", "memory.cache.max_bytes": "字节",
 	"tools.python.memory_mb": "MB", "tools.python.lib_max_mb": "MB", "tools.python.workspace_mb": "MB",
 	"uploads.max_file_mb": "MB", "uploads.user_quota_mb": "MB", "uploads.max_files": "个", "uploads.doc_chars": "字",
 	"proactive.idle_hours": "小时", "proactive.min_gap_hours": "小时",

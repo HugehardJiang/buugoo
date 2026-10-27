@@ -2,12 +2,15 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/mcp"
+	"github.com/HugehardJiang/buugoo/internal/memo"
 	"github.com/HugehardJiang/buugoo/internal/models"
 	"github.com/HugehardJiang/buugoo/internal/proactive"
 	"github.com/HugehardJiang/buugoo/internal/skills"
@@ -37,6 +40,8 @@ type toolProvider struct {
 	skills *skills.Manager
 	// plugins 不为空时提供管理员安装的 MCP 插件。
 	plugins *mcp.Manager
+	// memos 不为空时提供读写备忘录的工具。
+	memos *memo.Service
 }
 
 func newToolProvider(cfg *config.Config, log *slog.Logger) *toolProvider {
@@ -184,6 +189,9 @@ func (p *toolProvider) For(ctx context.Context, u *store.User, conv *store.Conve
 	if p.skills != nil {
 		opts.Extra = append(opts.Extra, skills.Tools(p.skills, p.skills.For(ctx, u), runner, ws)...)
 	}
+	if p.memos != nil {
+		opts.Extra = append(opts.Extra, memo.Tools(p.memos, u.ID, turnID())...)
+	}
 	if p.plugins != nil {
 		opts.Extra = append(opts.Extra, p.plugins.Tools(ctx, p.plugins.For(ctx, skills.SplitNames(u.DisabledPlugins)))...)
 	}
@@ -191,4 +199,11 @@ func (p *toolProvider) For(ctx context.Context, u *store.User, conv *store.Conve
 		return nil
 	}
 	return tools.New(opts)
+}
+
+// turnID 是每一轮对话不同的编号（备忘录的删除要在提出之后的回复里确认）。
+func turnID() string {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
 }

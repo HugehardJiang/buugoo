@@ -23,6 +23,7 @@ function icon(name: string) {
   if (['set_reminder', 'schedule_task', 'list_reminders', 'cancel_reminder'].includes(name)) return 'clock' as const
   if (name === 'use_skill' || name === 'read_skill_file') return 'book' as const
   if (name.startsWith('mcp_')) return 'link' as const
+  if (name.startsWith('memo_')) return 'note' as const
   return 'code' as const
 }
 

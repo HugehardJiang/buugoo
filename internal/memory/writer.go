@@ -42,6 +42,7 @@ type Writer struct {
 	log         *slog.Logger
 	onUsage     UsageFunc
 	onAppraisal AppraisalFunc
+	onWritten   func(userID uint64)
 
 	queue   chan WriteJob
 	wg      sync.WaitGroup
@@ -136,6 +137,9 @@ type AppraisalFunc func(ctx context.Context, job WriteJob, a emotion.Appraisal)
 // OnAppraisal 设置情绪评价的回调（在 Start 之前调用）。
 func (w *Writer) OnAppraisal(fn AppraisalFunc) { w.onAppraisal = fn }
 
+// OnWritten 设置写入新记忆后的回调（检查记忆是不是太多了、需要压缩）。
+func (w *Writer) OnWritten(fn func(userID uint64)) { w.onWritten = fn }
+
 // Process 同步执行一个写入任务，返回新写入的记忆。
 func (w *Writer) Process(ctx context.Context, job WriteJob) ([]store.Memory, error) {
 	unlock := w.lockUser(job.UserID)
@@ -213,6 +217,9 @@ func (w *Writer) Process(ctx context.Context, job WriteJob) ([]store.Memory, err
 		written = append(written, m)
 		w.log.Info("写入记忆", "user_id", job.UserID, "memory_id", m.ID, "type", m.Type,
 			"importance", m.Importance, "source", m.Source)
+	}
+	if len(written) > 0 && w.onWritten != nil {
+		w.onWritten(job.UserID)
 	}
 	return written, errors.Join(errs...)
 }

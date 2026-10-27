@@ -41,6 +41,9 @@ Docker 用 `.env`）。
   `base_url: https://dashscope.aliyuncs.com/compatible-mode/v1`、`model: text-embedding-v3`、`dim: 1024`。
 - 检索参数：`memory.retrieval`（权重 α/β/γ、衰减、候选数、条数、相关度阈值）。
 - 记忆门槛：`memory.write.importance_threshold`。
+- 记忆上限：`memory.compact.max_memories`（默认 300）。一个人的记忆超过这么多条时自动整理：相近的合并、
+  旧的零碎记忆概括成几条，压到七成左右；`memory.compact.similarity`（默认 0.8）是当成「相近」的相似度。
+  设为 0 关闭自动整理（设置页「大脑皮层 → 整理记忆」仍可手动整理），见 [memory.md](memory.md)。
 - 官网防止费用失控：`quota.daily_messages`、`quota.daily_tokens`。
 
 ## 加密与安全

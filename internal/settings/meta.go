@@ -68,6 +68,8 @@ var meta = map[string]struct {
 	"memory.retrieval.top_k":            {"使用数量", "每轮最多放进提示词的记忆数", nil},
 	"memory.retrieval.min_relevance":    {"最低相关度", "", nil},
 	"memory.write.enabled":              {"写入新记忆", "", nil},
+	"memory.compact.max_memories":       {"记忆上限", "一个人的记忆超过这么多条时，自动把相近的合并、旧的零碎记忆概括成几条，压到七成左右；0 表示不自动压缩（设置页仍可手动整理）", nil},
+	"memory.compact.similarity":         {"合并相似度", "两条记忆的相似度超过这个值（0-1）才当成相近的合并", nil},
 	"memory.write.importance_threshold": {"重要性门槛", "1-10，低于此值的不记", nil},
 	"memory.write.access_boost":         {"使用后加强", "记忆被想起时强度的增量", nil},
 	"memory.write.dedup_similarity":     {"去重相似度", "与已有记忆相似度高于此值时不重复写入", nil},

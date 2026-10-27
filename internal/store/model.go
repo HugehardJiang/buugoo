@@ -476,3 +476,14 @@ type AgentAction struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
+
+// MemoPage 是用户备忘录里的一页（标题 + Markdown 正文）。不主动删除就一直保留，
+// 布谷只在对方明确要读写备忘录时才用到，平时不进入对话上下文。
+type MemoPage struct {
+	ID        uint64 `gorm:"primaryKey"`
+	UserID    uint64 `gorm:"index;not null"`
+	Title     string `gorm:"size:64;not null"`
+	Content   string `gorm:"type:text"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}

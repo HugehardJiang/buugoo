@@ -28,6 +28,18 @@ function hideMemories() {
   setMemoriesUnlocked(false)
   toast(`大脑皮层合上了。${name.value}的记忆和心情都还在，只是不再摊开给你看`)
 }
+const compacting = ref(false)
+async function compactMemories() {
+  compacting.value = true
+  try {
+    const r = await api.compactMemories()
+    toast(r.merged ? `整理好了：${r.merged} 条相近的记忆合成了 ${r.created} 条，现在一共 ${r.after} 条` : `没有需要合并的记忆，现在一共 ${r.after} 条`)
+  } catch (e) {
+    toast(e instanceof ApiError ? e.message : '整理失败')
+  } finally {
+    compacting.value = false
+  }
+}
 const quota = ref<Quota | null>(null)
 const error = ref('')
 const message = ref('')
@@ -176,6 +188,13 @@ onMounted(async () => {
               <button class="btn" @click="peeking = true">偷看一眼</button>
             </div>
           </template>
+          <div class="compact">
+            <p class="caption">
+              聊得越久记的事越多。整理一下会把重复、相近的记忆合并成一条，信息不丢，聊天时消耗的额度也更少。
+              记得太多时也会自动整理。
+            </p>
+            <button class="btn btn-sm" :disabled="compacting" @click="compactMemories">{{ compacting ? '正在整理…' : '整理记忆' }}</button>
+          </div>
         </section>
 
         <section v-if="quota" class="panel panel--inset">
@@ -300,5 +319,7 @@ onMounted(async () => {
 .invite .code { font-size: 14px; letter-spacing: .06em; }
 .spacer { flex: 1; }
 .version { text-align: center; margin-top: 28px; }
+.compact { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--color-divider); }
+.compact .caption { flex: 1; }
 .peek-note { margin: 0; font-size: 14px; line-height: 1.65; }
 </style>

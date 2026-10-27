@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/HugehardJiang/buugoo/internal/agent"
 	"github.com/HugehardJiang/buugoo/internal/mcp"
+	"github.com/HugehardJiang/buugoo/internal/memo"
 	"github.com/HugehardJiang/buugoo/internal/skills"
 	"log/slog"
 	"net/http"
@@ -41,9 +42,11 @@ type Deps struct {
 	Auth     *auth.Service
 	Chat     *chat.Service
 	Memories *memory.Manager
-	Quota    *quota.Limiter
-	Models   *models.Service
-	Reembed  *memory.Reembedder
+	// Compactor 为空时不提供手动整理记忆。
+	Compactor *memory.Compactor
+	Quota     *quota.Limiter
+	Models    *models.Service
+	Reembed   *memory.Reembedder
 	// Uploads 为空时不提供上传接口。
 	Uploads *uploads.Service
 	Emotion *emotion.Engine
@@ -54,6 +57,7 @@ type Deps struct {
 	Skills  *skills.Manager
 	Plugins *mcp.Manager
 	Agent   *agent.Service
+	Memos   *memo.Service
 	Logger  *slog.Logger
 }
 
@@ -178,6 +182,9 @@ func New(d Deps) http.Handler {
 	priv.GET("/memories", s.listMemories)
 	priv.GET("/memories/:id", s.getMemory)
 	priv.DELETE("/memories/:id", s.deleteMemory)
+	if s.Compactor != nil {
+		priv.POST("/memories/compact", s.compactMemories)
+	}
 	priv.GET("/debug/prompt", s.debugPrompt)
 	priv.GET("/emotion", s.getEmotion)
 	priv.DELETE("/emotion", s.resetEmotion)
@@ -204,6 +211,13 @@ func New(d Deps) http.Handler {
 	admin.POST("/embedding/reembed", s.adminStartReembed)
 
 	s.routeExtensions(e, api, priv, console)
+	if s.Memos != nil {
+		priv.GET("/memos", s.listMemos)
+		priv.POST("/memos", s.createMemo)
+		priv.GET("/memos/:id", s.getMemo)
+		priv.PUT("/memos/:id", s.updateMemo)
+		priv.DELETE("/memos/:id", s.deleteMemo)
+	}
 
 	// QQ（NapCat）的反向 WebSocket 连接，用访问令牌鉴权。
 	if s.Channels != nil {
@@ -328,6 +342,13 @@ func toAPIError(err error) *apiError {
 	var le *llm.APIError
 	var mi *models.InvalidError
 	var ue *uploads.UserError
+	var memoErr *memo.UserError
+	switch {
+	case errors.As(err, &memoErr):
+		return &apiError{Status: http.StatusBadRequest, Code: "invalid_memo", Message: memoErr.Msg}
+	case errors.Is(err, memo.ErrNotFound):
+		return &apiError{Status: http.StatusNotFound, Code: "not_found", Message: err.Error()}
+	}
 	if ee := extensionError(err); ee != nil {
 		return ee
 	}
@@ -373,6 +394,8 @@ func toAPIError(err error) *apiError {
 		return &apiError{Status: http.StatusServiceUnavailable, Code: "no_model", Message: err.Error()}
 	case errors.Is(err, secret.ErrDecrypt):
 		return &apiError{Status: http.StatusConflict, Code: "key_unreadable", Message: err.Error()}
+	case errors.Is(err, memory.ErrCompactBusy):
+		return &apiError{Status: http.StatusConflict, Code: "busy", Message: err.Error()}
 	case errors.Is(err, memory.ErrReembedRunning):
 		return &apiError{Status: http.StatusConflict, Code: "busy", Message: err.Error()}
 	case errors.Is(err, chat.ErrInvalidThinking), errors.Is(err, chat.ErrModelNotFound), errors.Is(err, chat.ErrTitleTooLong):

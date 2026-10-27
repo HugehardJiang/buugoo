@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 设计系统 Icons 组的线性图标：24px 网格、1.8 描边、圆角端点、无填充，颜色继承 currentColor。
-defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' | 'trash' | 'chevron' | 'clip' | 'file' | 'search' | 'code' | 'globe' | 'x' | 'brain' | 'folder' | 'image' | 'check' | 'sparkle' | 'download' | 'clock' | 'link'; size?: number }>()
+defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' | 'trash' | 'chevron' | 'clip' | 'file' | 'search' | 'code' | 'globe' | 'x' | 'brain' | 'folder' | 'image' | 'check' | 'sparkle' | 'download' | 'clock' | 'link' | 'note'; size?: number }>()
 </script>
 
 <template>
@@ -36,6 +36,10 @@ defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' |
     </template>
     <template v-else-if="name === 'menu'">
       <path d="M4 7h16M4 12h16M4 17h10" />
+    </template>
+    <template v-else-if="name === 'note'">
+      <path d="M6 3h9l4 4v14H6z" />
+      <path d="M15 3v4h4M9 12h6M9 16h4" />
     </template>
     <template v-else-if="name === 'edit'">
       <path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z" />
