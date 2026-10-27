@@ -67,6 +67,7 @@ type Config struct {
 	Tools     ToolsConfig     `koanf:"tools"`
 	Emotion   EmotionConfig   `koanf:"emotion"`
 	Admin     AdminConfig     `koanf:"admin"`
+	Home      HomeConfig      `koanf:"home"`
 	Proactive ProactiveConfig `koanf:"proactive"`
 	Channels  ChannelsConfig  `koanf:"channels"`
 
@@ -411,6 +412,12 @@ type LogConfig struct {
 const DefaultAdminPassword = "1228"
 
 // AdminConfig 是网页管理后台的配置。
+// HomeConfig 是多用户版未登录时介绍主页的文字，留空使用内置的。
+type HomeConfig struct {
+	Title   string `koanf:"title"`
+	Tagline string `koanf:"tagline"`
+}
+
 type AdminConfig struct {
 	// Password 是管理后台的登录密码，只能在配置文件或环境变量中修改，网页上不能改。
 	Password string `koanf:"password"`

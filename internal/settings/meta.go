@@ -67,6 +67,8 @@ var meta = map[string]struct {
 	"memory.retrieval.candidate_k":      {"候选数量", "先按相关度取出的候选记忆数", nil},
 	"memory.retrieval.top_k":            {"使用数量", "每轮最多放进提示词的记忆数", nil},
 	"memory.retrieval.min_relevance":    {"最低相关度", "", nil},
+	"home.title":                        {"主页标题", "留空使用「<名字>，一个真的记得你的 AI 朋友」", nil},
+	"home.tagline":                      {"主页标语", "标题下面的一句介绍，留空使用内置的", nil},
 	"memory.write.enabled":              {"写入新记忆", "", nil},
 	"memory.compact.max_memories":       {"记忆上限", "一个人的记忆超过这么多条时，自动把相近的合并、旧的零碎记忆概括成几条，压到七成左右；0 表示不自动压缩（设置页仍可手动整理）", nil},
 	"memory.compact.similarity":         {"合并相似度", "两条记忆的相似度超过这个值（0-1）才当成相近的合并", nil},

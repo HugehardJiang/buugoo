@@ -27,6 +27,8 @@ export interface Meta {
   uploads: { max_file_bytes: number; max_files: number; any_file?: boolean } | null
   reminders?: boolean
   channels?: boolean
+  // home 是多用户版未登录时介绍主页的标题和标语，空字符串表示用内置的。
+  home?: { title: string; tagline: string }
 }
 
 export interface Attachment {

@@ -10,7 +10,7 @@ import { toasts } from './toast'
 
 const route = useRoute()
 const inWorkspace = computed(
-  () => route.name !== 'login' && session.loaded && !!session.meta && !(route.name === 'console' && needsLogin()),
+  () => route.name !== 'login' && route.name !== 'welcome' && session.loaded && !!session.meta && !(route.name === 'console' && needsLogin()),
 )
 const name = computed(() => session.meta?.name ?? '布谷')
 

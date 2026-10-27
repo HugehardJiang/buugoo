@@ -67,6 +67,7 @@ var layout = []section{
 	{"files", "上传", []string{"uploads.max_file_mb", "uploads.user_quota_mb", "uploads.max_files", "~uploads.doc_chars", "~uploads.dir"}},
 
 	{"account", "登录与注册", []string{"mode", "auth.access_password", "auth.registration", "auth.jwt_secret", "~auth.token_ttl"}},
+	{"account", "介绍主页（多用户版未登录时显示）", []string{"home.title", "home.tagline"}},
 	{"account", "安全", []string{"security.allow_private_model_urls", "~admin.password", "~security.encryption_key"}},
 
 	{"server", "网络", []string{"timezone", "server.listen", "server.base_url", "~server.cors_origins", "~server.read_timeout", "~server.write_timeout"}},

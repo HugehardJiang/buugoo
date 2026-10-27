@@ -13,6 +13,7 @@ export const router = createRouter({
     { path: '/channels', name: 'channels', component: () => import('./views/ChannelsView.vue') },
     { path: '/settings', name: 'settings', component: () => import('./views/SettingsView.vue') },
     { path: '/console', name: 'console', component: () => import('./views/ConsoleView.vue') },
+    { path: '/welcome', name: 'welcome', component: () => import('./views/WelcomeView.vue') },
     { path: '/login', name: 'login', component: () => import('./views/LoginView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
@@ -28,7 +29,13 @@ router.beforeEach(async (to) => {
     }
   }
   // 管理后台用管理员密码单独验证，不需要先登录用户账号。
-  if (to.name !== 'login' && to.name !== 'console' && needsLogin()) return { name: 'login', query: { next: to.fullPath } }
+  const multi = session.meta?.mode === 'multi'
+  if (to.name === 'welcome') return multi && needsLogin() ? true : { name: 'chat' }
+  if (to.name !== 'login' && to.name !== 'console' && needsLogin()) {
+    // 多用户版直接打开首页时先看介绍主页，其他页面直接去登录（登录后回到原来的页面）。
+    if (multi && to.name === 'chat') return { name: 'welcome' }
+    return { name: 'login', query: { next: to.fullPath } }
+  }
   if (to.name === 'login' && !needsLogin()) return { name: 'chat' }
   return true
 })

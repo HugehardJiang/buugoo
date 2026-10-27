@@ -20,7 +20,7 @@ const inviteCode = ref(typeof route.query.invite === 'string' ? route.query.invi
 const error = ref('')
 const busy = ref(false)
 
-if (inviteCode.value && canRegister.value) tab.value = 'register'
+if ((inviteCode.value || route.query.tab === 'register') && canRegister.value) tab.value = 'register'
 
 async function submit() {
   error.value = ''
@@ -48,6 +48,7 @@ async function submit() {
 
 <template>
   <main class="auth">
+    <RouterLink v-if="isMulti" to="/welcome" class="back caption">‹ 了解{{ meta?.name ?? '布谷' }}</RouterLink>
     <div class="brand">
       <img src="/logo.png" alt="" width="40" height="40" />
       <strong>BUUGOO</strong>
@@ -106,4 +107,7 @@ h1 { margin: 0; font-size: 36px; line-height: 1.2; letter-spacing: -0.015em; tex
 .form { width: 100%; max-width: 380px; }
 .tabs { margin-bottom: 20px; }
 .submit { width: 100%; margin-top: 4px; }
+.back { position: absolute; top: 20px; left: 20px; color: var(--color-text-secondary); }
+.back:hover { color: var(--color-ink); }
+.auth { position: relative; }
 </style>

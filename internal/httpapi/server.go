@@ -282,6 +282,8 @@ func (s *server) meta(c echo.Context) error {
 		"reminders": s.Config.Proactive.Reminders || s.Config.Proactive.Care,
 		// channels 为 true 时显示「聊天软件」入口。
 		"channels": s.Channels != nil && len(s.Channels.Enabled()) > 0,
+		// home 是多用户版未登录时介绍主页的标题和标语，空字符串表示用内置的。
+		"home": map[string]string{"title": s.Config.Home.Title, "tagline": s.Config.Home.Tagline},
 	})
 }
 

@@ -31,6 +31,11 @@ auth:
   # multi 模式的注册方式：open（开放注册）| invite（邀请码注册）| closed（关闭注册）
   registration: invite
 
+# 多用户版未登录时的介绍主页（单用户版不显示），留空使用内置的文字；也可以在管理后台「账号与安全」里改
+home:
+  title: ""     # 默认「<名字>，一个真的记得你的 AI 朋友」
+  tagline: ""   # 标题下面的一句介绍
+
 admin:
   # 网页管理后台（设置 → 管理后台）的密码。默认 1228，所有人都知道，请务必改掉。
   # 只能在这里或环境变量 BUUGOO_ADMIN__PASSWORD 中修改；网页上保存的设置写在 <data_dir>/settings.yaml，
