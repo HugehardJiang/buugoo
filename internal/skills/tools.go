@@ -161,11 +161,42 @@ func Tools(m *Manager, list []store.Skill, runner tools.Runner, ws tools.Workspa
 					env.Skills, env.Network = m.Dir(), s.AllowNetwork
 				})
 				res.Input = s.Name + "：" + in.Command
+				if hint := networkHint(s.AllowNetwork, res.Output+res.Detail); hint != "" {
+					res.Output += "\n\n" + hint
+					res.Detail += "\n\n" + hint
+				}
 				return res
 			},
 		})
 	}
 	return out
+}
+
+// netErrors 是脚本连不上网时常见的报错。
+var netErrors = []string{
+	"temporary failure in name resolution", "name or service not known", "nodename nor servname",
+	"getaddrinfo", "could not resolve host", "nameresolutionerror", "network is unreachable", "no address associated with hostname",
+}
+
+// networkHint 在脚本因为连不上网失败时给出原因，让布谷能直接告诉对方怎么办。
+func networkHint(allowed bool, out string) string {
+	lower := strings.ToLower(out)
+	hit := false
+	for _, e := range netErrors {
+		if strings.Contains(lower, e) {
+			hit = true
+			break
+		}
+	}
+	switch {
+	case !hit:
+		return ""
+	case !allowed:
+		return "【提示】这个 skill 的脚本没有开启联网，所以连不上网。管理员可以在「管理后台 → 技能与插件」里给它勾选「脚本可联网」，不用重启。"
+	default:
+		return "【提示】这个 skill 已允许联网，但沙箱里解析不了域名或连不上网。请管理员检查服务器上的 Docker 容器能否联网，" +
+			"必要时在 /etc/docker/daemon.json 里设置 dns（例如 223.5.5.5）后重启 Docker。"
+	}
 }
 
 // scriptCode 是在沙箱里运行 skill 命令的 Python 代码：在 skill 文件夹里用 sh 执行，输出原样打印。
