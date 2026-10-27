@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/HugehardJiang/buugoo/internal/accounts"
 	"github.com/HugehardJiang/buugoo/internal/agent"
+	"github.com/HugehardJiang/buugoo/internal/billing"
 	"github.com/HugehardJiang/buugoo/internal/mcp"
 	"github.com/HugehardJiang/buugoo/internal/memo"
 	"github.com/HugehardJiang/buugoo/internal/skills"
@@ -58,13 +60,17 @@ type Deps struct {
 	Plugins *mcp.Manager
 	Agent   *agent.Service
 	Memos   *memo.Service
-	Logger  *slog.Logger
+	// Billing、Accounts 为空时不提供会员和用户管理（single 模式）。
+	Billing  *billing.Service
+	Accounts *accounts.Service
+	Logger   *slog.Logger
 }
 
 type server struct {
 	Deps
-	log     *slog.Logger
-	console *consoleSessions
+	log         *slog.Logger
+	console     *consoleSessions
+	redeemGuard redeemGuard
 }
 
 const ctxUserKey = "buugoo.user"
@@ -211,6 +217,7 @@ func New(d Deps) http.Handler {
 	admin.POST("/embedding/reembed", s.adminStartReembed)
 
 	s.routeExtensions(e, api, priv, console)
+	s.routeBilling(api, priv, console)
 	if s.Memos != nil {
 		priv.GET("/memos", s.listMemos)
 		priv.POST("/memos", s.createMemo)
@@ -284,6 +291,8 @@ func (s *server) meta(c echo.Context) error {
 		"channels": s.Channels != nil && len(s.Channels.Enabled()) > 0,
 		// home 是多用户版未登录时介绍主页的标题和标语，空字符串表示用内置的。
 		"home": map[string]string{"title": s.Config.Home.Title, "tagline": s.Config.Home.Tagline},
+		// billing 为 true 时设置页显示「会员」（多用户版）。
+		"billing": s.Billing != nil,
 	})
 }
 
@@ -344,6 +353,17 @@ func toAPIError(err error) *apiError {
 	var le *llm.APIError
 	var mi *models.InvalidError
 	var ue *uploads.UserError
+	var accErr *accounts.UserError
+	if errors.As(err, &accErr) {
+		return &apiError{Status: http.StatusBadRequest, Code: "invalid_input", Message: accErr.Msg}
+	}
+	if errors.Is(err, accounts.ErrNotFound) {
+		return &apiError{Status: http.StatusNotFound, Code: "not_found", Message: err.Error()}
+	}
+	var billErr *billing.UserError
+	if errors.As(err, &billErr) {
+		return &apiError{Status: http.StatusBadRequest, Code: "invalid_input", Message: billErr.Msg}
+	}
 	var memoErr *memo.UserError
 	switch {
 	case errors.As(err, &memoErr):
@@ -376,6 +396,12 @@ func toAPIError(err error) *apiError {
 	case errors.As(err, &qe):
 		return &apiError{Status: http.StatusTooManyRequests, Code: "quota_exceeded", Message: qe.Error(),
 			Detail: map[string]any{"kind": qe.Kind, "limit": qe.Limit, "used": qe.Used, "reset_at": qe.Reset}}
+	case errors.Is(err, auth.ErrAccountDisabled), errors.Is(err, quota.ErrDisabled):
+		return &apiError{Status: http.StatusForbidden, Code: "account_disabled", Message: err.Error()}
+	case errors.Is(err, billing.ErrCardInvalid):
+		return &apiError{Status: http.StatusBadRequest, Code: "card_invalid", Message: err.Error()}
+	case errors.Is(err, billing.ErrNotFound):
+		return &apiError{Status: http.StatusNotFound, Code: "not_found", Message: err.Error()}
 	case errors.Is(err, auth.ErrUnauthorized):
 		return &apiError{Status: http.StatusUnauthorized, Code: "unauthorized", Message: auth.ErrUnauthorized.Error()}
 	case errors.Is(err, auth.ErrInvalidCredentials):

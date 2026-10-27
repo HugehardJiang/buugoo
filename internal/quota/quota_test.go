@@ -25,6 +25,18 @@ func (m memUsage) Add(_ context.Context, userID uint64, day string, msgs, p, c i
 	return nil
 }
 
+func (m memUsage) Sum(_ context.Context, userID uint64, from, to string) (store.UsageDaily, error) {
+	var out store.UsageDaily
+	for d, u := range m {
+		if d >= from && d <= to {
+			out.Messages += u.Messages
+			out.PromptTokens += u.PromptTokens
+			out.CompletionTokens += u.CompletionTokens
+		}
+	}
+	return out, nil
+}
+
 func TestLimiter(t *testing.T) {
 	loc, _ := time.LoadLocation("Asia/Shanghai")
 	usage := memUsage{}

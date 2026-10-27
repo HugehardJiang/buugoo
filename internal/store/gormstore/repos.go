@@ -546,6 +546,16 @@ func (r usageRepo) Get(ctx context.Context, userID uint64, day string) (store.Us
 	return u, nil
 }
 
+func (r usageRepo) Sum(ctx context.Context, userID uint64, fromDay, toDay string) (store.UsageDaily, error) {
+	var out struct {
+		Messages, PromptTokens, CompletionTokens int
+	}
+	err := r.db.WithContext(ctx).Model(&store.UsageDaily{}).
+		Select("COALESCE(SUM(messages), 0) AS messages, COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, COALESCE(SUM(completion_tokens), 0) AS completion_tokens").
+		Where("user_id = ? AND day >= ? AND day <= ?", userID, fromDay, toDay).Scan(&out).Error
+	return store.UsageDaily{UserID: userID, Messages: out.Messages, PromptTokens: out.PromptTokens, CompletionTokens: out.CompletionTokens}, mapErr(err)
+}
+
 func (r usageRepo) Add(ctx context.Context, userID uint64, day string, messages, promptTokens, completionTokens int) error {
 	row := store.UsageDaily{
 		UserID: userID, Day: day,

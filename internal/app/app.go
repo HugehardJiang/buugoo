@@ -12,8 +12,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/HugehardJiang/buugoo/internal/accounts"
 	"github.com/HugehardJiang/buugoo/internal/agent"
 	"github.com/HugehardJiang/buugoo/internal/auth"
+	"github.com/HugehardJiang/buugoo/internal/billing"
 	"github.com/HugehardJiang/buugoo/internal/buildinfo"
 	"github.com/HugehardJiang/buugoo/internal/channels"
 	"github.com/HugehardJiang/buugoo/internal/chat"
@@ -109,6 +111,14 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 
 	loc := cfg.Location()
 	limiter := quota.New(cfg.Quota, db.Usage(), loc)
+	// 会员系统只在多用户版：会员按套餐的额度，额度用完再用余额包。
+	var billingSvc *billing.Service
+	var accountSvc *accounts.Service
+	if cfg.Mode == config.ModeMulti {
+		billingSvc = billing.New(db.Gorm(), box)
+		limiter.SetPlans(billingSvc, db.Users(), "可以在「设置 → 会员」兑换卡密，开通会员或加购余额")
+		accountSvc = accounts.New(db.Gorm(), loc)
+	}
 	vs := memstore.New(db.Memories().LoadEmbeddings, cfg.Memory.Cache, log)
 	retriever := memory.NewRetriever(db.Memories(), vs, emb, cfg.Memory.Retrieval, cfg.Memory.Write.AccessBoost)
 	writer := memory.NewWriter(db.Memories(), vs, emb, memory.NewLLMExtractor(utilLLM), cfg.Memory.Write, log,
@@ -196,11 +206,22 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	if err != nil {
 		return nil, err
 	}
+	if accountSvc != nil {
+		accountSvc.OnDelete = func(userID uint64) {
+			uploadSvc.RemoveUser(userID)
+			vs.Invalidate(userID)
+			if hub != nil {
+				if wx := hub.Weixin(); wx != nil {
+					wx.Logout(context.Background(), userID, "账号已删除")
+				}
+			}
+		}
+	}
 	handler := httpapi.New(httpapi.Deps{
 		Config: cfg, Store: db, Auth: authSvc, Chat: chatSvc, Memories: memory.NewManager(db.Memories(), vs), Compactor: compactor,
 		Quota: limiter, Models: modelSvc, Reembed: memory.NewReembedder(db.Memories(), emb, vs, log),
 		Uploads: uploadSvc, Emotion: emo, Persona: personas, Channels: hub, Logger: log,
-		Skills: skillSvc, Plugins: pluginSvc, Memos: memoSvc,
+		Skills: skillSvc, Plugins: pluginSvc, Memos: memoSvc, Billing: billingSvc, Accounts: accountSvc,
 		Agent: agent.New(agent.Deps{DB: db.Gorm(), Users: db.Users(), Reminders: toolsProv.reminders, Models: modelSvc,
 			Quota: limiter, Skills: skillSvc, Plugins: pluginSvc, Config: cfg, Box: box, Logger: log}),
 	})

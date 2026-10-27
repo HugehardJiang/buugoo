@@ -28,8 +28,11 @@ type User struct {
 	DisabledPlugins string `gorm:"size:2000;not null;default:''"`
 	// AgentModelID 是牛马助手使用的模型，为空时用默认模型。
 	AgentModelID *uint64
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// DisabledAt 不为空表示账号被管理员停用（不能登录、不能聊天），DisabledReason 是原因。
+	DisabledAt     *time.Time
+	DisabledReason string `gorm:"size:200;not null;default:''"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // OwnerID 是 single 模式下唯一用户的 ID。
@@ -486,4 +489,103 @@ type MemoPage struct {
 	Content   string `gorm:"type:text"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// 套餐的种类、计费单位和额度周期。
+const (
+	PlanPeriod = "period" // 时长套餐：有效期内每天（或每月）有固定额度
+	PlanPack   = "pack"   // 余额包：一次给一笔额度，用完为止
+
+	UnitMessages = "messages"
+	UnitTokens   = "tokens"
+
+	CycleDay   = "day"
+	CycleMonth = "month"
+)
+
+// Plan 是一种会员套餐，管理员可以随时修改、显示或隐藏。
+type Plan struct {
+	ID          uint64 `gorm:"primaryKey"`
+	Name        string `gorm:"size:64;not null"`
+	Description string `gorm:"type:text"`
+	// Price 是给用户看的价格文字（例如「¥19.9 / 月」），不参与计算。
+	Price string `gorm:"size:64;not null;default:''"`
+	Kind  string `gorm:"size:16;not null"`
+	Unit  string `gorm:"size:16;not null"`
+	// 时长套餐：Days 天，每个 Cycle（天或自然月）Quota 额度。
+	Days  int    `gorm:"not null;default:0"`
+	Cycle string `gorm:"size:16;not null;default:''"`
+	// Quota 是时长套餐每周期的额度，或余额包的总额度。
+	Quota int64 `gorm:"not null;default:0"`
+	// ValidDays 是余额包的有效天数，0 表示永久。
+	ValidDays int    `gorm:"not null;default:0"`
+	BuyURL    string `gorm:"size:512;not null;default:''"`
+	Visible   bool   `gorm:"not null;default:true"`
+	Sort      int    `gorm:"not null;default:0"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// Subscription 是用户开通的时长套餐（记下开通时的额度，之后改套餐不影响已开通的）。
+type Subscription struct {
+	ID        uint64 `gorm:"primaryKey"`
+	UserID    uint64 `gorm:"index;not null"`
+	PlanID    uint64 `gorm:"not null"`
+	PlanName  string `gorm:"size:64;not null"`
+	Unit      string `gorm:"size:16;not null"`
+	Cycle     string `gorm:"size:16;not null"`
+	Quota     int64  `gorm:"not null"`
+	ExpiresAt time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// CreditPack 是用户的一笔余额（余额包），用完或过期为止。
+type CreditPack struct {
+	ID        uint64 `gorm:"primaryKey"`
+	UserID    uint64 `gorm:"index;not null"`
+	PlanID    uint64 `gorm:"not null;default:0"`
+	Name      string `gorm:"size:64;not null"`
+	Unit      string `gorm:"size:16;not null"`
+	Total     int64  `gorm:"not null"`
+	Remaining int64  `gorm:"not null"`
+	ExpiresAt *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// 卡密状态。
+const (
+	CardUnused   = "unused"
+	CardUsed     = "used"
+	CardDisabled = "disabled"
+)
+
+// CardKey 是一张卡密，兑换后开通绑定的套餐。
+// 数据库里只存卡密的 HMAC（CodeHash），不存原文：数据库泄露也拿不到能用的卡密。
+// 原文只在生成时给管理员看一次；Hint 是打码后的样子（例如 BG-****-****-7K2Q），用来对账。
+type CardKey struct {
+	ID       uint64 `gorm:"primaryKey"`
+	CodeHash string `gorm:"size:64;uniqueIndex;not null"`
+	Hint     string `gorm:"size:64;not null;default:''"`
+	PlanID   uint64 `gorm:"index;not null"`
+	// Batch 是生成批次的编号，Note 是备注（例如渠道）。
+	Batch  string `gorm:"size:32;index;not null"`
+	Note   string `gorm:"size:200;not null;default:''"`
+	Status string `gorm:"size:16;index;not null;default:'unused'"`
+	// ExpiresAt 是卡密本身的兑换截止时间，为空表示不过期。
+	ExpiresAt *time.Time
+	UsedBy    *uint64 `gorm:"index"`
+	UsedAt    *time.Time
+	CreatedAt time.Time
+}
+
+// BillingLog 是会员相关的一条记录：兑换卡密、管理员开通或调整额度。
+type BillingLog struct {
+	ID     uint64 `gorm:"primaryKey"`
+	UserID uint64 `gorm:"index;not null"`
+	// Kind：redeem 兑换卡密、grant 管理员开通套餐、adjust 管理员调整余额。
+	Kind      string `gorm:"size:16;not null"`
+	Detail    string `gorm:"size:500;not null"`
+	CreatedAt time.Time
 }

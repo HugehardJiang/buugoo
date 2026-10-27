@@ -238,6 +238,8 @@ type UsageRepo interface {
 	Get(ctx context.Context, userID uint64, day string) (UsageDaily, error)
 	// Add 原子地累加某天的用量。
 	Add(ctx context.Context, userID uint64, day string, messages, promptTokens, completionTokens int) error
+	// Sum 返回 [fromDay, toDay] 之间（含两头）的用量合计，Day 为空。
+	Sum(ctx context.Context, userID uint64, fromDay, toDay string) (UsageDaily, error)
 }
 
 // JobRepo 是后台任务运行记录的数据访问接口。

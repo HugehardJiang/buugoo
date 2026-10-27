@@ -4,7 +4,9 @@ package secret
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -18,6 +20,8 @@ import (
 // Box 负责加密与解密。
 type Box struct {
 	aead cipher.AEAD
+	// macKey 由主密钥派生，用于 HMAC（例如卡密只存 HMAC，不存原文）。
+	macKey []byte
 }
 
 // ErrDecrypt 表示无法解密（密钥不对或数据损坏）。
@@ -38,7 +42,8 @@ func New(key []byte) (*Box, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Box{aead: aead}, nil
+	mk := sha256.Sum256(append([]byte("buugoo-hmac-v1:"), key...))
+	return &Box{aead: aead, macKey: mk[:]}, nil
 }
 
 // Load 按以下顺序取得密钥：配置值（64 位十六进制）→ <dataDir>/secret.key（不存在时生成）。
@@ -77,6 +82,13 @@ func Load(configured, dataDir string) (*Box, string, error) {
 	default:
 		return nil, "", fmt.Errorf("读取加密密钥: %w", err)
 	}
+}
+
+// HMAC 返回 s 的 HMAC-SHA256（十六进制）。同一个主密钥下结果固定，可以用来查找，但不能反推出原文。
+func (b *Box) HMAC(s string) string {
+	h := hmac.New(sha256.New, b.macKey)
+	h.Write([]byte(s))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // Seal 加密明文，返回可存入数据库的字符串。空字符串原样返回。

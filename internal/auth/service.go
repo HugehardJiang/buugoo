@@ -22,6 +22,7 @@ var (
 	ErrUnauthorized       = errors.New("未登录或登录已失效")
 	ErrInvalidCredentials = errors.New("用户名或密码错误")
 	ErrForbidden          = errors.New("没有权限")
+	ErrAccountDisabled    = errors.New("账号已被停用，有疑问请联系管理员")
 	ErrRegistrationClosed = errors.New("当前不开放注册")
 	ErrInviteRequired     = errors.New("需要邀请码")
 	ErrUsernameTaken      = errors.New("用户名已被使用")
@@ -139,6 +140,10 @@ func (s *Service) Login(ctx context.Context, username, password string) (*Sessio
 	if err := CheckPassword(u.PasswordHash, password); err != nil {
 		return nil, err
 	}
+	// 密码对了才告诉对方账号被停用（避免用来探测账号）。
+	if u.DisabledAt != nil {
+		return nil, ErrAccountDisabled
+	}
 	return s.issue(u)
 }
 
@@ -248,6 +253,9 @@ func (s *Service) Authenticate(ctx context.Context, token string) (*store.User, 
 	if u.TokenVersion != c.TokenVersion {
 		return nil, ErrUnauthorized
 	}
+	if u.DisabledAt != nil {
+		return nil, ErrAccountDisabled
+	}
 	return u, nil
 }
 
@@ -279,6 +287,25 @@ func (s *Service) ChangePassword(ctx context.Context, u *store.User, oldPw, newP
 		return nil, err
 	}
 	return s.issue(nu)
+}
+
+// ResetPassword 由管理员给用户设新密码（不需要旧密码），这个用户之前的登录全部失效。
+func (s *Service) ResetPassword(ctx context.Context, userID uint64, newPw string) error {
+	if s.mode != config.ModeMulti {
+		return ErrNotSupported
+	}
+	u, err := s.store.Users().GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if err := validateCredentials(u.Username, newPw); err != nil {
+		return err
+	}
+	hash, err := HashPassword(newPw)
+	if err != nil {
+		return err
+	}
+	return s.store.Users().UpdatePassword(ctx, u.ID, hash)
 }
 
 // CreateUser 由管理员或命令行直接创建用户（不受注册方式限制）。

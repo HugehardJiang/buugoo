@@ -96,6 +96,20 @@ func (s *Service) RemoveWorkspace(userID, conversationID uint64) {
 	}
 }
 
+// RemoveUser 删除一个用户的全部文件和运行代码的工作目录（删除用户时，数据库记录另外删）。
+func (s *Service) RemoveUser(userID uint64) {
+	id := strconv.FormatUint(userID, 10)
+	dirs := []string{filepath.Join(s.cfg.Dir, id)}
+	if s.workspaces != "" {
+		dirs = append(dirs, filepath.Join(s.workspaces, id))
+	}
+	for _, d := range dirs {
+		if err := os.RemoveAll(d); err != nil {
+			s.log.Warn("删除用户文件失败", "dir", d, "err", err)
+		}
+	}
+}
+
 // Path 返回附件文件在服务器上的位置。
 func (s *Service) Path(a *store.Attachment) string { return s.abs(a.Path) }
 

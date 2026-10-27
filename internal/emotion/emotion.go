@@ -530,6 +530,8 @@ func (e *Engine) Get(ctx context.Context, userID uint64) (View, error) {
 	if !e.Enabled() {
 		return View{}, nil
 	}
+	// 和更新情绪用同一把锁：否则可能读到更新前的状态、更新后的事件，前后对不上。
+	defer e.lock(userID)()
 	s, err := e.load(ctx, userID)
 	if err != nil {
 		return View{}, err
