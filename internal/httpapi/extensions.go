@@ -400,7 +400,15 @@ func (s *server) agentConfirm(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	a, err := s.Agent.Confirm(c.Request().Context(), currentUser(c), id, s.consoleActive(c))
+	var req struct {
+		Options map[string]bool `json:"options"`
+	}
+	if c.Request().ContentLength > 0 {
+		if err := bind(c, &req); err != nil {
+			return err
+		}
+	}
+	a, err := s.Agent.Confirm(c.Request().Context(), currentUser(c), id, s.consoleActive(c), req.Options)
 	if err != nil {
 		return err
 	}

@@ -157,19 +157,24 @@ func Tools(m *Manager, list []store.Skill, runner tools.Runner, ws tools.Workspa
 				if strings.TrimSpace(in.Command) == "" || len(in.Command) > 4000 {
 					return tools.Result{Input: in.Command, Output: "命令为空或太长", Summary: "命令不对"}
 				}
-				res := tools.RunCode(ctx, runner, ws, scriptCode(s.Name, in.Command), func(env *tools.RunEnv) {
-					env.Skills, env.Network = m.Dir(), s.AllowNetwork
-				})
-				res.Input = s.Name + "：" + in.Command
-				if hint := networkHint(s.AllowNetwork, res.Output+res.Detail); hint != "" {
-					res.Output += "\n\n" + hint
-					res.Detail += "\n\n" + hint
-				}
-				return res
+				return RunScript(ctx, m, runner, ws, &s, in.Command)
 			},
 		})
 	}
 	return out
+}
+
+// RunScript 在沙箱里运行 skill 文件夹里的命令（按这个 skill 的联网设置），连不上网时附上原因。ws 可以为空。
+func RunScript(ctx context.Context, m *Manager, runner tools.Runner, ws tools.Workspace, s *store.Skill, command string) tools.Result {
+	res := tools.RunCode(ctx, runner, ws, scriptCode(s.Name, command), func(env *tools.RunEnv) {
+		env.Skills, env.Network = m.Dir(), s.AllowNetwork
+	})
+	res.Input = s.Name + "：" + command
+	if hint := networkHint(s.AllowNetwork, res.Output+res.Detail); hint != "" {
+		res.Output += "\n\n" + hint
+		res.Detail += "\n\n" + hint
+	}
+	return res
 }
 
 // netErrors 是脚本连不上网时常见的报错。

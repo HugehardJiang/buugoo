@@ -33,6 +33,8 @@ type Candidate struct {
 	Path        string `json:"path"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	// Network 不为空表示脚本看起来要联网，内容是依据。
+	Network string `json:"network,omitempty"`
 }
 
 // cleanPath 规范压缩包里的路径，不安全的（绝对路径、..）返回空。
@@ -184,7 +186,7 @@ func discover(t tree, under string) []Candidate {
 		if err != nil {
 			continue
 		}
-		out = append(out, Candidate{Path: dir, Name: m.Name, Description: m.Description})
+		out = append(out, Candidate{Path: dir, Name: m.Name, Description: m.Description, Network: detectNetwork(t, dir)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out

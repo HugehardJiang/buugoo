@@ -41,6 +41,13 @@ type spec struct {
 	read    func(ctx context.Context, e *env, args json.RawMessage) (string, error)
 	propose func(ctx context.Context, e *env, args json.RawMessage) (summary string, params any, err error)
 	run     func(ctx context.Context, e *env, params json.RawMessage) (string, error)
+	// option 不为空时，确认卡片上多一个开关，用户可以在确认前改（对应参数里同名的布尔字段）。
+	option *option
+}
+
+// option 是确认卡片上的一个开关。
+type option struct {
+	key, label string
 }
 
 // actions 是修改类工具（按名字查找，确认时用）。
@@ -732,6 +739,9 @@ var specs = []spec{
 			fmt.Fprintf(&b, "共 %d 个（安装时把 path 填给 install_skill）：\n", len(list))
 			for _, c := range list {
 				fmt.Fprintf(&b, "- path=%q 名字 %s：%s\n", c.Path, c.Name, clip(c.Description, 200))
+				if c.Network != "" {
+					b.WriteString("  检测：看起来要联网（" + c.Network + "）\n")
+				}
 			}
 			return b.String(), nil
 		},
@@ -739,16 +749,22 @@ var specs = []spec{
 	{
 		name: "install_skill", label: "安装 skill", admin: true,
 		desc: "给全站安装 skill。二选一：url 填 GitHub 地址（仓库、tree/分支/路径 或 SKILL.md 的地址），仓库里有好几个 skill 时用 path 指定是哪个；" +
-			"或者 content 直接填完整的 SKILL.md 内容（开头要有 name 和 description）。同名的会被覆盖更新。",
+			"或者 content 直接填完整的 SKILL.md 内容（开头要有 name 和 description）。同名的会被覆盖更新。" +
+			"network 填你判断这个 skill 的脚本要不要联网（查天气、调接口、下载数据等要联网），network_reason 用一句话说依据；" +
+			"确认卡片上会让用户自己决定开不开联网。",
 		avail: func(s *Service) bool { return s.d.Skills != nil },
 		params: obj(map[string]any{"url": str("GitHub 地址"), "path": str("仓库里 skill 文件夹的路径（可选）"),
-			"content": str("SKILL.md 的完整内容")}),
+			"content": str("SKILL.md 的完整内容"), "network": boolean("你判断脚本要不要联网"), "network_reason": str("判断的依据（一句话）")}),
+		option: &option{key: "network", label: "允许这个 skill 的脚本联网"},
 		propose: func(ctx context.Context, e *env, args json.RawMessage) (string, any, error) {
 			p, err := parse[installSkill](args)
 			if err != nil {
 				return "", nil, err
 			}
 			p.URL, p.Path = strings.TrimSpace(p.URL), strings.Trim(strings.TrimSpace(p.Path), "/")
+			p.NetworkReason = clip(strings.TrimSpace(p.NetworkReason), 120)
+			var s string
+			detected := ""
 			switch {
 			case p.URL != "" && p.Content != "":
 				return "", nil, errors.New("url 和 content 只填一个")
@@ -756,44 +772,220 @@ var specs = []spec{
 				if _, err := skills.ParseGitHub(p.URL); err != nil {
 					return "", nil, err
 				}
-				s := "从 GitHub 安装 skill：" + p.URL
+				s = "从 GitHub 安装 skill：" + p.URL
 				if p.Path != "" {
 					s += "（" + p.Path + "）"
 				}
-				return s + "。安装后所有用户都能用", p, nil
+				// 下载下来看看脚本（不安装），推测要不要联网；下载失败不影响提出安装。
+				if list, err := e.s.d.Skills.PreviewGitHub(ctx, p.URL); err == nil {
+					for _, c := range list {
+						if len(list) == 1 || c.Path == p.Path {
+							detected = c.Network
+						}
+					}
+				}
 			case strings.TrimSpace(p.Content) != "":
 				m, _, err := skills.Parse([]byte(p.Content), "")
 				if err != nil {
 					return "", nil, err
 				}
-				return "安装 skill「" + m.Name + "」：" + clip(m.Description, 120) + "。安装后所有用户都能用", p, nil
+				s = "安装 skill「" + m.Name + "」：" + clip(m.Description, 120)
+				detected = skills.DetectText(p.Content)
+			default:
+				return "", nil, errors.New("要填 url 或 content")
 			}
-			return "", nil, errors.New("要填 url 或 content")
+			s += "。安装后所有用户都能用。"
+			p.Network = p.Network || detected != ""
+			switch {
+			case p.Network:
+				reason := p.NetworkReason
+				if detected != "" {
+					reason = strings.Trim(reason+"；检测到"+detected, "；")
+				}
+				s += "\n看起来需要联网：" + reason + "。"
+			default:
+				s += "\n看起来不需要联网。"
+			}
+			return s, p, nil
 		},
 		run: func(ctx context.Context, e *env, params json.RawMessage) (string, error) {
 			p, err := parse[installSkill](params)
 			if err != nil {
 				return "", err
 			}
+			var sk *store.Skill
 			if p.Content != "" {
-				sk, err := e.s.d.Skills.InstallText(ctx, p.Content)
+				if sk, err = e.s.d.Skills.InstallText(ctx, p.Content); err != nil {
+					return "", err
+				}
+			} else {
+				res, err := e.s.d.Skills.InstallGitHub(ctx, p.URL, p.Path)
 				if err != nil {
 					return "", err
 				}
-				return "已安装 skill「" + sk.Name + "」", nil
+				if res.Skill == nil {
+					names := make([]string, len(res.Candidates))
+					for i, c := range res.Candidates {
+						names[i] = fmt.Sprintf("%s（path=%s）", c.Name, c.Path)
+					}
+					return "", errors.New("仓库里有好几个 skill，没有安装，请选一个再提：" + strings.Join(names, "；"))
+				}
+				sk = res.Skill
 			}
-			res, err := e.s.d.Skills.InstallGitHub(ctx, p.URL, p.Path)
+			net := p.Network
+			if _, err := e.s.d.Skills.Update(ctx, sk.ID, nil, &net); err != nil {
+				return "", err
+			}
+			out := fmt.Sprintf("已安装 skill「%s」（%d 个文件），脚本%s联网", sk.Name, sk.Files, map[bool]string{true: "可以", false: "不能"}[net])
+			if !net {
+				if d := e.s.d.Skills.DetectInstalled(sk.Name); d != "" {
+					out += "（" + d + "，以后需要可以再打开）"
+				}
+			}
+			return out, nil
+		},
+	},
+	{
+		name: "inspect_skill", label: "检查 skill", admin: true,
+		desc:   "查看一个已安装的 skill：开关、能否联网、来源、文件列表、SKILL.md 全文，以及服务器推测它要不要联网。排查 skill 的问题时先看这个。",
+		avail:  func(s *Service) bool { return s.d.Skills != nil },
+		params: obj(map[string]any{"name": str("skill 名字")}, "name"),
+		read: func(ctx context.Context, e *env, args json.RawMessage) (string, error) {
+			p, err := parse[struct {
+				Name string `json:"name"`
+			}](args)
 			if err != nil {
 				return "", err
 			}
-			if res.Skill == nil {
-				names := make([]string, len(res.Candidates))
-				for i, c := range res.Candidates {
-					names[i] = fmt.Sprintf("%s（path=%s）", c.Name, c.Path)
-				}
-				return "", errors.New("仓库里有好几个 skill，没有安装，请选一个再提：" + strings.Join(names, "；"))
+			sk, err := e.s.d.Skills.ByName(ctx, p.Name)
+			if err != nil {
+				return "", errors.New("没有叫 " + p.Name + " 的 skill")
 			}
-			return "已安装 skill「" + res.Skill.Name + "」（" + fmt.Sprint(res.Skill.Files) + " 个文件）", nil
+			var b strings.Builder
+			fmt.Fprintf(&b, "skill「%s」：%s\n全站%s，脚本%s联网，来源 %s %s\n", sk.Name, sk.Description, onOff(sk.Enabled),
+				map[bool]string{true: "可以", false: "不能"}[sk.AllowNetwork], sk.Source, sk.SourceURL)
+			if d := e.s.d.Skills.DetectInstalled(sk.Name); d != "" {
+				b.WriteString("服务器推测要联网：" + d + "\n")
+			}
+			if e.s.d.Runner == nil || e.s.d.Runner(ctx, e.u) == nil {
+				b.WriteString("注意：服务器现在不能运行代码（没有 Docker 沙箱），skill 的脚本都跑不了。\n")
+			}
+			if files := e.s.d.Skills.Files(sk.Name, 200); len(files) > 0 {
+				b.WriteString("\n文件：\n" + strings.Join(files, "\n") + "\n")
+			}
+			md, _ := e.s.d.Skills.ReadFile(sk.Name, "SKILL.md")
+			b.WriteString("\n--- SKILL.md ---\n" + clip(string(md), 8000))
+			return b.String(), nil
+		},
+	},
+	{
+		name: "read_skill_source", label: "看 skill 的文件", admin: true,
+		desc:   "读 skill 里的一个文件（脚本、参考资料）的全文，排查问题用。",
+		avail:  func(s *Service) bool { return s.d.Skills != nil },
+		params: obj(map[string]any{"name": str("skill 名字"), "path": str("文件路径，例如 scripts/main.py")}, "name", "path"),
+		read: func(ctx context.Context, e *env, args json.RawMessage) (string, error) {
+			p, err := parse[editSkillFile](args)
+			if err != nil {
+				return "", err
+			}
+			b, err := e.s.d.Skills.ReadFile(p.Name, p.Path)
+			if err != nil {
+				return "", err
+			}
+			if !utf8.Valid(b) {
+				return fmt.Sprintf("%s 是二进制文件（%d 字节），不能显示。", p.Path, len(b)), nil
+			}
+			return withLineNumbers(clip(string(b), 30000)), nil
+		},
+	},
+	{
+		name: "test_skill", label: "试运行 skill", admin: true,
+		desc: "在沙箱里试运行 skill 文件夹里的一条命令（例如 python scripts/main.py --help），看输出和报错，用来找问题、验证修好了没有。" +
+			"按这个 skill 现在的联网设置运行，最多运行几十秒。",
+		avail:  func(s *Service) bool { return s.d.Skills != nil && s.d.Runner != nil },
+		params: obj(map[string]any{"name": str("skill 名字"), "command": str("要运行的命令")}, "name", "command"),
+		read: func(ctx context.Context, e *env, args json.RawMessage) (string, error) {
+			p, err := parse[struct {
+				Name    string `json:"name"`
+				Command string `json:"command"`
+			}](args)
+			if err != nil {
+				return "", err
+			}
+			if strings.TrimSpace(p.Command) == "" || len(p.Command) > 4000 {
+				return "", errors.New("命令为空或太长")
+			}
+			sk, err := e.s.d.Skills.ByName(ctx, p.Name)
+			if err != nil {
+				return "", errors.New("没有叫 " + p.Name + " 的 skill")
+			}
+			r := e.s.d.Runner(ctx, e.u)
+			if r == nil {
+				return "服务器现在不能运行代码（没有 Docker 沙箱），没法试运行。", nil
+			}
+			res := skills.RunScript(ctx, e.s.d.Skills, r, nil, sk, p.Command)
+			out := res.Output
+			if out == "" {
+				out = res.Detail
+			}
+			return "结果：" + res.Summary + "\n" + clip(out, 8000), nil
+		},
+	},
+	{
+		name: "edit_skill_file", label: "修改 skill 的文件", admin: true,
+		desc: "修复 skill：改写（或新建）skill 里的一个文件，content 填改好后的完整内容；delete 为 true 时删除这个文件。" +
+			"reason 用一句话说明修什么。改 SKILL.md 时不能改 name。改之前先用 read_skill_source 看原文，改完用 test_skill 验证。",
+		avail: func(s *Service) bool { return s.d.Skills != nil },
+		params: obj(map[string]any{"name": str("skill 名字"), "path": str("文件路径"), "content": str("改好后的完整内容"),
+			"delete": boolean("删除这个文件"), "reason": str("修什么（一句话）")}, "name", "path", "reason"),
+		propose: func(ctx context.Context, e *env, args json.RawMessage) (string, any, error) {
+			p, err := parse[editSkillFile](args)
+			if err != nil {
+				return "", nil, err
+			}
+			if _, err := e.s.d.Skills.ByName(ctx, p.Name); err != nil {
+				return "", nil, errors.New("没有叫 " + p.Name + " 的 skill")
+			}
+			p.Path = skills.CleanRel(p.Path)
+			if p.Path == "" {
+				return "", nil, errors.New("文件路径不对")
+			}
+			if strings.TrimSpace(p.Reason) == "" {
+				return "", nil, errors.New("reason 要说明修什么")
+			}
+			old, readErr := e.s.d.Skills.ReadFile(p.Name, p.Path)
+			head := fmt.Sprintf("修改 skill「%s」的 %s：%s", p.Name, p.Path, clip(p.Reason, 150))
+			switch {
+			case p.Delete:
+				if readErr != nil {
+					return "", nil, errors.New("这个 skill 里没有 " + p.Path)
+				}
+				return fmt.Sprintf("删除 skill「%s」的 %s：%s", p.Name, p.Path, clip(p.Reason, 150)), p, nil
+			case p.Content == "":
+				return "", nil, errors.New("content 为空；要删除文件请用 delete")
+			case readErr != nil:
+				return head + fmt.Sprintf("\n（新文件，%d 行）", strings.Count(p.Content, "\n")+1), p, nil
+			case string(old) == p.Content:
+				return "", nil, errors.New("内容没有变化")
+			}
+			return head + "\n" + lineDiff(string(old), p.Content, 600), p, nil
+		},
+		run: func(ctx context.Context, e *env, params json.RawMessage) (string, error) {
+			p, err := parse[editSkillFile](params)
+			if err != nil {
+				return "", err
+			}
+			var content []byte
+			if !p.Delete {
+				content = []byte(p.Content)
+			}
+			if _, err := e.s.d.Skills.WriteFile(ctx, p.Name, p.Path, content); err != nil {
+				return "", err
+			}
+			if p.Delete {
+				return "已删除 " + p.Path, nil
+			}
+			return "已保存 " + p.Path, nil
 		},
 	},
 	{
@@ -963,9 +1155,19 @@ type reminderOp struct {
 }
 
 type installSkill struct {
-	URL     string `json:"url,omitempty"`
-	Path    string `json:"path,omitempty"`
+	URL           string `json:"url,omitempty"`
+	Path          string `json:"path,omitempty"`
+	Content       string `json:"content,omitempty"`
+	Network       bool   `json:"network"`
+	NetworkReason string `json:"network_reason,omitempty"`
+}
+
+type editSkillFile struct {
+	Name    string `json:"name"`
+	Path    string `json:"path"`
 	Content string `json:"content,omitempty"`
+	Delete  bool   `json:"delete,omitempty"`
+	Reason  string `json:"reason"`
 }
 
 type updateSkill struct {
@@ -1032,4 +1234,37 @@ func sortedKeys(m map[string]string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// withLineNumbers 给每行加上行号，方便模型说清楚改哪里。
+func withLineNumbers(s string) string {
+	lines := strings.Split(s, "\n")
+	var b strings.Builder
+	for i, l := range lines {
+		fmt.Fprintf(&b, "%4d  %s\n", i+1, l)
+	}
+	return b.String()
+}
+
+// lineDiff 粗略列出改了哪些行（删掉的以 - 开头，加上的以 + 开头），最多 limit 个字。
+func lineDiff(old, cur string, limit int) string {
+	a, b := strings.Split(old, "\n"), strings.Split(cur, "\n")
+	// 去掉相同的开头和结尾，中间的就是改动。
+	i := 0
+	for i < len(a) && i < len(b) && a[i] == b[i] {
+		i++
+	}
+	ja, jb := len(a), len(b)
+	for ja > i && jb > i && a[ja-1] == b[jb-1] {
+		ja, jb = ja-1, jb-1
+	}
+	var out strings.Builder
+	fmt.Fprintf(&out, "（第 %d 行起，删 %d 行，加 %d 行）\n", i+1, ja-i, jb-i)
+	for _, l := range a[i:ja] {
+		out.WriteString("- " + l + "\n")
+	}
+	for _, l := range b[i:jb] {
+		out.WriteString("+ " + l + "\n")
+	}
+	return clip(strings.TrimRight(out.String(), "\n"), limit)
 }

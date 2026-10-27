@@ -26,6 +26,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/secret"
 	"github.com/HugehardJiang/buugoo/internal/skills"
 	"github.com/HugehardJiang/buugoo/internal/store"
+	"github.com/HugehardJiang/buugoo/internal/tools"
 )
 
 // 错误。
@@ -41,7 +42,7 @@ var (
 
 const (
 	maxInput    = 4000
-	maxRounds   = 8
+	maxRounds   = 14 // 修 skill 要看文件、试运行、改、再试，步骤多一些
 	historySize = 40
 	callTimeout = 3 * time.Minute
 	// RoleEvent 是确认或取消修改后记下的系统消息：给牛马看，界面上不单独显示。
@@ -61,6 +62,8 @@ type Deps struct {
 	// Box 加密保存修改的参数（里面可能有 API Key）；为空时不加密（测试用）。
 	Box    *secret.Box
 	Logger *slog.Logger
+	// Runner 返回这个用户能用的代码沙箱（试运行 skill 用），没有时返回 nil；本身为空表示不能运行代码。
+	Runner func(ctx context.Context, u *store.User) tools.Runner
 }
 
 // Service 是牛马助手。
@@ -96,6 +99,15 @@ type ActionView struct {
 	Status  string    `json:"status"`
 	Result  string    `json:"result,omitempty"`
 	Created time.Time `json:"created_at"`
+	// Option 是卡片上可以在确认前改的开关（例如安装 skill 时是否允许联网）。
+	Option *OptionView `json:"option,omitempty"`
+}
+
+// OptionView 是确认卡片上的一个开关。
+type OptionView struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Value bool   `json:"value"`
 }
 
 // MessageView 是一条聊天记录。
@@ -114,8 +126,17 @@ type toolLog struct {
 	Actions []uint64   `json:"actions,omitempty"`
 }
 
-func toAction(a *store.AgentAction) ActionView {
-	return ActionView{ID: a.ID, Kind: a.Kind, Summary: a.Summary, Admin: a.Admin, Status: a.Status, Result: a.Result, Created: a.CreatedAt}
+func (s *Service) toAction(a *store.AgentAction) ActionView {
+	v := ActionView{ID: a.ID, Kind: a.Kind, Summary: a.Summary, Admin: a.Admin, Status: a.Status, Result: a.Result, Created: a.CreatedAt}
+	if sp := actions[a.Kind]; sp != nil && sp.option != nil {
+		if plain, err := s.open(a.Params); err == nil {
+			var m map[string]any
+			if json.Unmarshal([]byte(plain), &m) == nil {
+				v.Option = &OptionView{Key: sp.option.key, Label: sp.option.label, Value: m[sp.option.key] == true}
+			}
+		}
+	}
+	return v
 }
 
 // History 返回最近的聊天记录（不含系统消息），确认卡片放在提出它的那条回复里。
@@ -150,7 +171,7 @@ func (s *Service) History(ctx context.Context, u *store.User) ([]MessageView, er
 		v := MessageView{ID: m.ID, Role: m.Role, Content: m.Content, Tools: logs[i].Tools, CreatedAt: m.CreatedAt}
 		for _, id := range logs[i].Actions {
 			if a := actions[id]; a != nil {
-				v.Actions = append(v.Actions, toAction(a))
+				v.Actions = append(v.Actions, s.toAction(a))
 			}
 		}
 		out = append(out, v)
@@ -302,7 +323,7 @@ func (s *Service) Send(ctx context.Context, u *store.User, text string, admin bo
 	}
 	v := &MessageView{ID: m.ID, Role: m.Role, Content: m.Content, Tools: t.log.Tools, CreatedAt: m.CreatedAt}
 	for _, a := range t.actions {
-		v.Actions = append(v.Actions, toAction(a))
+		v.Actions = append(v.Actions, s.toAction(a))
 	}
 	return v, nil
 }
@@ -374,7 +395,14 @@ func (s *Service) systemPrompt(u *store.User, admin bool) string {
 现在用户在这个浏览器登录了管理后台，你还可以：查看和修改系统设置（改完要重启服务才生效）、给全站安装或卸载 skill、添加或删除 MCP 插件。
 修改系统设置前先用 search_settings 查到准确的键名和当前值。
 用户让你上网找 skill 时：先用 search_skills 搜，再用 list_repo_skills 看仓库里有哪些，挑最合适的一个用 install_skill 提出安装（带上 path），
-并告诉用户你选的是哪个、为什么。有脚本需要联网的 skill，装好后提醒用户可以用 update_skill 打开联网。
+并告诉用户你选的是哪个、为什么。安装前判断它的脚本要不要联网（看说明和 list_repo_skills 的检测结果：查天气、调接口、下载数据都要联网），
+把判断填进 install_skill 的 network 和 network_reason；确认卡片上有「允许联网」的开关，由用户自己决定，告诉用户你的建议。
+用户说某个 skill 有问题（报错、超时、结果不对）时帮他修：
+1. inspect_skill 看说明和文件，read_skill_source 看相关脚本；
+2. 用 test_skill 跑一下复现问题（命令照说明里的写，参数尽量简单）；
+3. 找出原因再动手：没开联网就用 update_skill 提出打开；脚本的 bug、过时的接口地址、没有超时设置等用 edit_skill_file 改（content 填完整的新文件）；
+   不确定新的接口地址时可以先 test_skill 试一下能不能访问；
+4. 用户确认修改后，再用 test_skill 验证。服务器网络本身访问不了某个网站（境外服务器访问国内网站、被墙等）这种修不了的，直接说明原因，建议换别的 skill。
 `)
 	} else {
 		b.WriteString(`
@@ -393,7 +421,8 @@ func displayName(u *store.User) string {
 }
 
 // Confirm 执行一项修改。admin 表示这个请求带着有效的管理后台登录。
-func (s *Service) Confirm(ctx context.Context, u *store.User, id uint64, admin bool) (*ActionView, error) {
+// options 是用户在卡片上改过的开关（可以为空）。
+func (s *Service) Confirm(ctx context.Context, u *store.User, id uint64, admin bool, options map[string]bool) (*ActionView, error) {
 	a, err := s.pending(ctx, u, id)
 	if err != nil {
 		return nil, err
@@ -416,6 +445,11 @@ func (s *Service) Confirm(ctx context.Context, u *store.User, id uint64, admin b
 	}
 	var result string
 	params, err := s.open(a.Params)
+	if err == nil && def.option != nil {
+		if v, ok := options[def.option.key]; ok {
+			params, err = setParam(params, def.option.key, v)
+		}
+	}
 	if err == nil {
 		result, err = def.run(ctx, &env{s: s, u: u, admin: admin}, json.RawMessage(params))
 	}
@@ -438,7 +472,7 @@ func (s *Service) Confirm(ctx context.Context, u *store.User, id uint64, admin b
 	}
 	s.event(bg, u.ID, fmt.Sprintf("用户%s修改 #%d「%s」：%s", verb, a.ID, a.Summary, a.Result))
 	s.log.Info("牛马执行了修改", "user", u.ID, "kind", a.Kind, "status", a.Status, "admin", a.Admin)
-	v := toAction(a)
+	v := s.toAction(a)
 	return &v, nil
 }
 
@@ -458,7 +492,7 @@ func (s *Service) Cancel(ctx context.Context, u *store.User, id uint64) (*Action
 	}
 	a.Status = store.ActionCanceled
 	s.event(ctx, u.ID, fmt.Sprintf("用户取消了修改 #%d「%s」", a.ID, a.Summary))
-	v := toAction(a)
+	v := s.toAction(a)
 	return &v, nil
 }
 
@@ -501,4 +535,15 @@ func clip(s string, n int) string {
 		return string(r[:n]) + "…"
 	}
 	return s
+}
+
+// setParam 改参数（JSON 对象）里的一个字段。
+func setParam(params, key string, v any) (string, error) {
+	var m map[string]any
+	if err := json.Unmarshal([]byte(params), &m); err != nil {
+		return "", err
+	}
+	m[key] = v
+	b, err := json.Marshal(m)
+	return string(b), err
 }

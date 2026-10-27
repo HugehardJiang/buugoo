@@ -405,6 +405,7 @@ export interface AgentAction {
   status: 'pending' | 'running' | 'done' | 'canceled' | 'failed'
   result?: string
   created_at: string
+  option?: { key: string; label: string; value: boolean }
 }
 
 export interface AgentMessage {
@@ -618,7 +619,8 @@ export const api = {
     request<void>('PUT', '/me/extensions', { kind, name, enabled }),
   agent: () => request<AgentState>('GET', '/agent'),
   agentSend: (content: string) => request<AgentMessage>('POST', '/agent/messages', { content }),
-  agentConfirm: (id: number) => request<AgentAction>('POST', `/agent/actions/${id}/confirm`),
+  agentConfirm: (id: number, options?: Record<string, boolean>) =>
+    request<AgentAction>('POST', `/agent/actions/${id}/confirm`, options ? { options } : undefined),
   agentCancel: (id: number) => request<AgentAction>('POST', `/agent/actions/${id}/cancel`),
   agentModel: (id: number | null) => request<void>('PUT', '/agent/model', { id }),
   agentClear: () => request<void>('DELETE', '/agent'),

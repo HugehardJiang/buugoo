@@ -35,7 +35,9 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/scheduler"
 	"github.com/HugehardJiang/buugoo/internal/secret"
 	"github.com/HugehardJiang/buugoo/internal/skills"
+	"github.com/HugehardJiang/buugoo/internal/store"
 	"github.com/HugehardJiang/buugoo/internal/store/gormstore"
+	"github.com/HugehardJiang/buugoo/internal/tools"
 	"github.com/HugehardJiang/buugoo/internal/uploads"
 	"github.com/HugehardJiang/buugoo/internal/vector/memstore"
 )
@@ -223,7 +225,8 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 		Uploads: uploadSvc, Emotion: emo, Persona: personas, Channels: hub, Logger: log,
 		Skills: skillSvc, Plugins: pluginSvc, Memos: memoSvc, Billing: billingSvc, Accounts: accountSvc,
 		Agent: agent.New(agent.Deps{DB: db.Gorm(), Users: db.Users(), Reminders: toolsProv.reminders, Models: modelSvc,
-			Quota: limiter, Skills: skillSvc, Plugins: pluginSvc, Config: cfg, Box: box, Logger: log}),
+			Quota: limiter, Skills: skillSvc, Plugins: pluginSvc, Config: cfg, Box: box, Logger: log,
+			Runner: func(ctx context.Context, u *store.User) tools.Runner { return toolsProv.python(ctx, u) }}),
 	})
 	a := &App{Config: cfg, Log: log, DB: db, Auth: authSvc, Chat: chatSvc, Models: modelSvc, Writer: writer, Handler: handler,
 		uploads: uploadSvc, tools: toolsProv, channels: hub, plugins: pluginSvc}

@@ -158,14 +158,14 @@ func TestPersonalChange(t *testing.T) {
 	if strings.Contains(raw.Params, "小明") {
 		t.Errorf("params not sealed: %q", raw.Params)
 	}
-	a, err := s.Confirm(ctx, u, reply.Actions[0].ID, false)
+	a, err := s.Confirm(ctx, u, reply.Actions[0].ID, false, nil)
 	if err != nil || a.Status != store.ActionDone {
 		t.Fatalf("confirm = %+v %v", a, err)
 	}
 	if got, _ := db.Users().GetByID(ctx, u.ID); got.DisplayName != "小明" {
 		t.Errorf("display name = %q", got.DisplayName)
 	}
-	if _, err := s.Confirm(ctx, u, a.ID, false); !errors.Is(err, ErrHandled) {
+	if _, err := s.Confirm(ctx, u, a.ID, false, nil); !errors.Is(err, ErrHandled) {
 		t.Errorf("confirm twice = %v", err)
 	}
 
@@ -230,10 +230,10 @@ func TestSystemChange(t *testing.T) {
 	if !strings.Contains(string(b), "chat.compact_at") {
 		t.Errorf("search result missing: %s", b)
 	}
-	if _, err := s.Confirm(ctx, u, reply.Actions[0].ID, false); !errors.Is(err, ErrNeedConsole) {
+	if _, err := s.Confirm(ctx, u, reply.Actions[0].ID, false, nil); !errors.Is(err, ErrNeedConsole) {
 		t.Errorf("confirm without console = %v", err)
 	}
-	a, err := s.Confirm(ctx, u, reply.Actions[0].ID, true)
+	a, err := s.Confirm(ctx, u, reply.Actions[0].ID, true, nil)
 	if err != nil || a.Status != store.ActionDone {
 		t.Fatalf("confirm = %+v %v", a, err)
 	}

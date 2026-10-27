@@ -101,11 +101,26 @@ function replace(a: AgentAction) {
   }
 }
 
+// 卡片上开关的当前值（用户可以在确认前改），没动过时用牛马提议的值。
+const optionValues = ref<Record<number, boolean>>({})
+function optionValue(a: AgentAction) {
+  return optionValues.value[a.id] ?? a.option?.value ?? false
+}
+
+// 卡片说明的第一行是标题，后面（例如改了哪些代码）用等宽字体显示。
+function summaryHead(a: AgentAction) {
+  return a.summary.split('\n')[0]
+}
+function summaryRest(a: AgentAction) {
+  return a.summary.split('\n').slice(1).join('\n')
+}
+
 async function decide(a: AgentAction, ok: boolean) {
   if (busy.value) return
   busy.value = a.id
   try {
-    const r = ok ? await api.agentConfirm(a.id) : await api.agentCancel(a.id)
+    const opts = a.option ? { [a.option.key]: optionValue(a) } : undefined
+    const r = ok ? await api.agentConfirm(a.id, opts) : await api.agentCancel(a.id)
     replace(r)
     if (r.status === 'failed') toast('执行失败：' + (r.result ?? ''))
   } catch (e) {
@@ -205,8 +220,13 @@ function steps(m: AgentMessage): string {
             <div v-for="a in m.actions ?? []" :key="a.id" class="action" :class="`is-${a.status}`">
               <p class="action__summary">
                 <span v-if="a.admin" class="badge-pill badge-pill--sys">系统</span>
-                {{ a.summary }}
+                {{ summaryHead(a) }}
               </p>
+              <pre v-if="summaryRest(a)" class="action__detail" :class="{ 'is-code': /^[-+（]/m.test(summaryRest(a)) }">{{ summaryRest(a) }}</pre>
+              <label v-if="a.option && a.status === 'pending'" class="check-row action__option">
+                <input type="checkbox" :checked="optionValue(a)" @change="optionValues[a.id] = ($event.target as HTMLInputElement).checked" />
+                {{ a.option.label }}
+              </label>
               <div v-if="a.status === 'pending'" class="action__btns">
                 <button type="button" class="btn btn-sm btn-ghost" :disabled="!!busy" @click="decide(a, false)">取消</button>
                 <button type="button" class="btn btn-sm btn-primary" :disabled="!!busy" @click="decide(a, true)">
@@ -286,6 +306,9 @@ function steps(m: AgentMessage): string {
 .action.is-failed { border-color: rgba(181, 51, 51, .3); }
 .action.is-canceled { opacity: .6; }
 .action__summary { margin: 0; white-space: pre-wrap; font-size: 13px; }
+.action__detail { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 13px; color: var(--color-text-secondary); }
+.action__detail.is-code { max-height: 240px; overflow: auto; padding: 8px; border-radius: var(--radius-sm, 6px); background: var(--color-surface); font-family: var(--font-mono); font-size: 12px; }
+.action__option { margin-top: 8px; font-size: 13px; }
 .badge-pill--sys { margin-right: 4px; background: var(--color-warning); color: #fff; }
 .action__btns { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
 .action__state { display: flex; align-items: center; gap: 4px; margin: 6px 0 0; }
