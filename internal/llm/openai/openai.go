@@ -286,7 +286,7 @@ func (c *Chat) build(req llm.ChatRequest, stream bool) chatRequest {
 		r.ResponseFormat = &respFormat{Type: "json_object"}
 	}
 	for _, t := range req.Tools {
-		r.Tools = append(r.Tools, wireTool{Type: "function", Function: wireToolDef{Name: t.Name, Description: t.Description, Parameters: t.Parameters}})
+		r.Tools = append(r.Tools, wireTool{Type: "function", Function: wireToolDef{Name: t.Name, Description: t.Description, Parameters: llm.CleanSchema(t.Parameters)}})
 	}
 	c.applyThinking(&r, req.Thinking)
 	return r

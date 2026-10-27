@@ -90,7 +90,7 @@ func (s *server) llmError(userID uint64, err error) *apiError {
 	s.log.Warn("对话生成失败", "user_id", userID, "err", err)
 	ae := toAPIError(err)
 	if ae.Code == "internal" {
-		ae = &apiError{Status: http.StatusBadGateway, Code: "llm_error", Message: "生成回复失败：" + err.Error()}
+		ae = &apiError{Status: http.StatusFailedDependency, Code: "llm_error", Message: "生成回复失败：" + err.Error()}
 	}
 	// 模型服务返回的错误里偶尔会带上请求头或密钥的片段，打码后再给用户看。
 	cp := *ae

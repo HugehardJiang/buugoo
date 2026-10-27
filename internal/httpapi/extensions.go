@@ -255,7 +255,7 @@ func (s *server) consoleReconnectPlugin(c echo.Context) error {
 		if errors.Is(err, mcp.ErrNotFound) {
 			return err
 		}
-		return &apiError{Status: http.StatusBadGateway, Code: "plugin_unreachable", Message: "连接失败：" + err.Error()}
+		return &apiError{Status: http.StatusFailedDependency, Code: "plugin_unreachable", Message: "连接失败：" + err.Error()}
 	}
 	return c.NoContent(http.StatusNoContent)
 }

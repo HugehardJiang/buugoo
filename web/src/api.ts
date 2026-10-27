@@ -488,7 +488,7 @@ async function toError(resp: Response): Promise<ApiError> {
   }
   if (resp.status === 401) onUnauthorized()
   if (resp.status === 502 || resp.status === 503 || resp.status === 504) {
-    if (code === 'http_error') message = `服务器没有响应（HTTP ${resp.status}），布谷的服务可能停止了或者正在重启`
+    if (code === 'http_error') message = `没有收到布谷的回复（HTTP ${resp.status}）：可能是布谷的服务停了或在重启，也可能是前面的反向代理（Nginx、宝塔、Cloudflare）把错误换成了自己的页面`
   }
   return new ApiError(resp.status, code, message, resp.headers.get('X-Request-Id') ?? '', new URL(resp.url, location.href).pathname)
 }

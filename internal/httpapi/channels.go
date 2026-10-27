@@ -111,7 +111,7 @@ func (s *server) weixinLogin(c echo.Context) error {
 	}
 	l, err := w.StartLogin(c.Request().Context(), currentUser(c).ID)
 	if err != nil {
-		return &apiError{Status: http.StatusBadGateway, Code: "weixin_error", Message: err.Error()}
+		return &apiError{Status: http.StatusFailedDependency, Code: "weixin_error", Message: err.Error()}
 	}
 	return c.JSON(http.StatusOK, l)
 }

@@ -25,7 +25,11 @@ const hint = "备忘录：对方明确要你「记到备忘录」、查备忘录
 func Tools(s *Service, userID uint64, turn string) []tools.Extra {
 	str := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
 	obj := func(props map[string]any, required ...string) map[string]any {
-		return map[string]any{"type": "object", "properties": props, "required": required}
+		m := map[string]any{"type": "object", "properties": props}
+		if len(required) > 0 {
+			m["required"] = required
+		}
+		return m
 	}
 	type pageArgs struct {
 		Page string `json:"page"`

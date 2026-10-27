@@ -198,7 +198,11 @@ func installHandler(in Installer) handler {
 }
 
 func object(props map[string]any, required ...string) map[string]any {
-	return map[string]any{"type": "object", "properties": props, "required": required}
+	m := map[string]any{"type": "object", "properties": props}
+	if len(required) > 0 {
+		m["required"] = required
+	}
+	return m
 }
 
 func (s *Set) add(def llm.Tool, h handler) {

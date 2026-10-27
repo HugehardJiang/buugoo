@@ -70,6 +70,12 @@ func TestTools(t *testing.T) {
 	ctx := context.Background()
 	s := newService(t)
 	turn1 := Tools(s, 1, "t1")
+	for _, x := range turn1 {
+		// 较严格的模型服务会因为 "required": null 拒绝整个请求。
+		if b, _ := json.Marshal(x.Def.Parameters); strings.Contains(string(b), "null") {
+			t.Fatalf("%s 的参数里有 null: %s", x.Def.Name, b)
+		}
+	}
 	if r := call(t, turn1, "memo_list", map[string]any{}); !strings.Contains(r.Output, "空") {
 		t.Errorf("list empty = %q", r.Output)
 	}

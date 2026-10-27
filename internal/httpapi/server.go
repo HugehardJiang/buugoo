@@ -438,7 +438,7 @@ func toAPIError(err error) *apiError {
 		return &apiError{Status: http.StatusServiceUnavailable, Code: "llm_not_configured",
 			Message: "模型缺少 API Key：请在「设置 → 模型」中填写"}
 	case errors.As(err, &le):
-		return &apiError{Status: http.StatusBadGateway, Code: "llm_error", Message: "生成回复失败：" + le.Error()}
+		return &apiError{Status: http.StatusFailedDependency, Code: "llm_error", Message: "生成回复失败：" + le.Error()}
 	case errors.Is(err, store.ErrNotFound):
 		return &apiError{Status: http.StatusNotFound, Code: "not_found", Message: "记录不存在"}
 	case errors.As(err, &he):
