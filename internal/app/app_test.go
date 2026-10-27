@@ -947,8 +947,15 @@ func TestQQChannel(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	// 用户在网页上看到 QQ 已开启并生成绑定码。
-	_, b := ta.do(t, "GET", "/api/v1/channels", "", nil)
+	// 用户在网页上看到 QQ 已开启并生成绑定码。服务器登记连接是异步的，等它显示已连接。
+	var b []byte
+	for i := 0; i < 40; i++ {
+		_, b = ta.do(t, "GET", "/api/v1/channels", "", nil)
+		if strings.Contains(string(b), `"account":"10001"`) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	if !strings.Contains(string(b), `"name":"qq"`) || !strings.Contains(string(b), `"account":"10001"`) {
 		t.Fatalf("channels: %s", b)
 	}
