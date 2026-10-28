@@ -79,7 +79,7 @@ func (s *Service) Proactive(ctx context.Context, u *store.User, reason string, a
 	modelID := model.ID
 	msg := &store.Message{ConversationID: conv.ID, UserID: u.ID, Role: store.RoleAssistant, Content: text,
 		Model: model.ModelFor("off"), ModelID: &modelID, Status: store.MessageComplete,
-		PromptTokens: resp.Usage.PromptTokens, CompletionTokens: resp.Usage.CompletionTokens}
+		PromptTokens: resp.Usage.PromptTokens, CompletionTokens: resp.Usage.CompletionTokens, CachedTokens: cachedOf(resp.Usage)}
 	if err := s.store.Messages().Create(ctx, msg); err != nil {
 		return nil, fmt.Errorf("保存消息: %w", err)
 	}
@@ -140,7 +140,7 @@ func (s *Service) RunTask(ctx context.Context, u *store.User, task string) (*Pro
 	if !t.usageReported {
 		usage = llm.Usage{PromptTokens: p.prompt.EstimatedTokens*max(1, t.rounds) + t.toolTokens, CompletionTokens: prompt.EstimateTokens(reply.Content)}
 	}
-	reply.PromptTokens, reply.CompletionTokens = usage.PromptTokens, usage.CompletionTokens
+	reply.PromptTokens, reply.CompletionTokens, reply.CachedTokens = usage.PromptTokens, usage.CompletionTokens, cachedOf(usage)
 	if !model.Personal {
 		if err := s.quota.Record(bg, u.ID, quota.Tokens(quota.ModelKey(model.ID), usage)); err != nil {
 			s.log.Error("记录用量失败", "user_id", u.ID, "err", err)

@@ -249,6 +249,9 @@ type ContextStatus struct {
 	Summarized bool   `json:"summarized"`
 	Enabled    bool   `json:"enabled"`
 	Model      string `json:"model"`
+	// CacheRate 是最近一条回复的输入命中服务商缓存的比例（百分比），CacheTotal 是这段对话合计的；服务商不返回缓存信息时为空。
+	CacheRate  *int `json:"cache_rate,omitempty"`
+	CacheTotal *int `json:"cache_total,omitempty"`
 }
 
 // Context 返回对话的上下文用量。还没统计过（旧对话）时按摘要和未整理的消息估算。
@@ -275,6 +278,9 @@ func (s *Service) Context(ctx context.Context, u *store.User, convID uint64) (*C
 		Pending: conv.CompactPending, Summary: conv.Summary, Summarized: conv.SummaryUntil > 0, Enabled: s.summarizer != nil}
 	if model != nil {
 		st.Model = model.Name
+	}
+	if last, total, err := s.store.Messages().CacheStats(ctx, u.ID, conv.ID); err == nil {
+		st.CacheRate, st.CacheTotal = last, total
 	}
 	return st, nil
 }

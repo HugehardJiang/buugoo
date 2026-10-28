@@ -307,3 +307,31 @@ func TestJobsAndMeta(t *testing.T) {
 		}
 	})
 }
+
+func TestMessageCacheStats(t *testing.T) {
+	forEachDriver(t, func(t *testing.T, s *DB) {
+		ctx := context.Background()
+		c, err := s.Conversations().Primary(ctx, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if last, total, err := s.Messages().CacheStats(ctx, 1, c.ID); err != nil || last != nil || total != nil {
+			t.Fatalf("没有数据时应为空: %v %v %v", last, total, err)
+		}
+		ptr := func(n int) *int { return &n }
+		for _, m := range []store.Message{
+			{PromptTokens: 1000, CachedTokens: ptr(500)},
+			{PromptTokens: 1000, CachedTokens: ptr(900)},
+			{PromptTokens: 1000}, // 服务商没返回缓存信息，不算进去
+		} {
+			m.ConversationID, m.UserID, m.Role, m.Content = c.ID, 1, store.RoleAssistant, "x"
+			if err := s.Messages().Create(ctx, &m); err != nil {
+				t.Fatal(err)
+			}
+		}
+		last, total, err := s.Messages().CacheStats(ctx, 1, c.ID)
+		if err != nil || last == nil || *last != 90 || total == nil || *total != 70 {
+			t.Fatalf("last=%v total=%v err=%v", last, total, err)
+		}
+	})
+}

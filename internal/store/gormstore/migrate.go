@@ -34,6 +34,7 @@ func migrations() []*gormigrate.Migration {
 		migrationV12(),
 		migrationV13(),
 		migrationV14(),
+		migrationV15(),
 	}
 }
 

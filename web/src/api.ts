@@ -171,6 +171,9 @@ export interface ContextStatus {
   summarized: boolean
   enabled: boolean
   model: string
+  // cache_rate 是最近一条回复命中服务商缓存的比例（%），cache_total 是这段对话合计的；服务商不返回缓存信息时没有。
+  cache_rate?: number
+  cache_total?: number
 }
 
 export interface ModelView {

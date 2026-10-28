@@ -414,7 +414,7 @@ func (s *Service) Send(ctx context.Context, u *store.User, in SendInput, sink Si
 		res.Usage = llm.Usage{PromptTokens: p.prompt.EstimatedTokens*max(1, t.rounds) + t.toolTokens,
 			CompletionTokens: prompt.EstimateTokens(reply.Content) + prompt.EstimateTokens(reply.Reasoning)}
 	}
-	reply.PromptTokens, reply.CompletionTokens = res.Usage.PromptTokens, res.Usage.CompletionTokens
+	reply.PromptTokens, reply.CompletionTokens, reply.CachedTokens = res.Usage.PromptTokens, res.Usage.CompletionTokens, cachedOf(res.Usage)
 	if err := s.store.Messages().Finish(bg, reply); err != nil {
 		return res, errors.Join(genErr, fmt.Errorf("保存回复: %w", err))
 	}
@@ -694,6 +694,15 @@ func (s *Service) autoTitle(ctx context.Context, u *store.User, conv *store.Conv
 		return
 	}
 	conv.Title = title
+}
+
+// cachedOf 是要记进消息的缓存命中 token 数；服务商没返回缓存信息时为空。
+func cachedOf(u llm.Usage) *int {
+	if !u.CacheReported {
+		return nil
+	}
+	n := u.CachedTokens
+	return &n
 }
 
 func isCanceled(ctx context.Context, err error) bool {

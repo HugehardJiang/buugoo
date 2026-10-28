@@ -129,7 +129,9 @@ type Message struct {
 	Model            string `gorm:"size:128;not null;default:''"`
 	PromptTokens     int    `gorm:"not null;default:0"`
 	CompletionTokens int    `gorm:"not null;default:0"`
-	Status           string `gorm:"size:16;not null;default:'complete'"`
+	// CachedTokens 是输入里命中服务商缓存的 token 数；为空表示服务商没返回缓存信息。
+	CachedTokens *int
+	Status       string `gorm:"size:16;not null;default:'complete'"`
 	// Reasoning 是模型的思考过程，用于展示；DeepSeek 使用工具时按要求回传，其他情况不放进之后的提示词。
 	// 不参与记忆提取。
 	Reasoning string  `gorm:"size:65536"`

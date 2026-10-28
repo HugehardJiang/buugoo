@@ -71,8 +71,8 @@ async function compact() {
     type="button"
     class="meter"
     :class="`is-${level}`"
-    :title="`上下文已用约 ${st.percent}%`"
-    :aria-label="`上下文已用约 ${st.percent}%，查看详情`"
+    :title="`上下文已用约 ${st.percent}%` + (st.cache_rate != null ? `，最近一条回复的缓存命中率 ${st.cache_rate}%` : '')"
+    :aria-label="`上下文已用约 ${st.percent}%` + (st.cache_rate != null ? `，缓存命中 ${st.cache_rate}%` : '') + '，查看详情'"
     @click="open = true"
   >
     <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
@@ -80,6 +80,7 @@ async function compact() {
       <circle cx="10" cy="10" :r="R" class="meter__bar" :stroke-dasharray="dash" transform="rotate(-90 10 10)" />
     </svg>
     <span class="meter__pct">{{ st.percent === 0 && st.used > 0 ? '<1' : st.percent }}%</span>
+    <span v-if="st.cache_rate != null" class="meter__cache">缓存 {{ st.cache_rate }}%</span>
   </button>
 
   <Modal :open="open" title="上下文" :subtitle="st?.model ? `模型：${st.model}` : undefined" @close="open = false">
@@ -98,6 +99,15 @@ async function compact() {
         </template>
         <template v-else>管理员没有开启长对话压缩，上下文放不下时最早的消息会被直接丢掉。</template>
       </p>
+      <div v-if="st.cache_rate != null" class="cache">
+        <p class="usage">
+          缓存命中：最近一条回复 <strong>{{ st.cache_rate }}%</strong><template v-if="st.cache_total != null">，这段对话合计 {{ st.cache_total }}%</template>
+        </p>
+        <p class="caption">
+          模型服务会把和上次一样的开头部分缓存起来，命中的部分算得快、也便宜很多。聊得越久命中率一般越高；
+          刚压缩过、换了模型或者隔了很久再聊时会低一些。
+        </p>
+      </div>
       <p v-if="st.pending" class="form-flash">已经超过阈值，下一条消息发出后会先整理之前的聊天，再回复。</p>
 
       <div v-if="st.summary" class="summary">
@@ -123,6 +133,12 @@ async function compact() {
   color: var(--color-text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; transition: background-color .15s ease;
 }
 .meter:hover { background: var(--color-hover-wash); color: var(--color-ink); }
+.meter__cache { margin-left: 4px; padding-left: 8px; border-left: 1px solid var(--color-hairline-strong); }
+@media (max-width: 560px) {
+  .meter { gap: 3px; padding: 0 4px; }
+  .meter__cache { margin-left: 2px; padding-left: 5px; }
+}
+.cache { margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--color-divider); }
 .meter__track { fill: none; stroke: var(--color-hairline-strong); stroke-width: 2.4; }
 .meter__bar { fill: none; stroke: var(--color-accent); stroke-width: 2.4; stroke-linecap: round; transition: stroke-dasharray .5s var(--ease-editorial); }
 .meter.is-warn .meter__bar { stroke: var(--color-warning); }

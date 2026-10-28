@@ -82,6 +82,8 @@ type Usage struct {
 	CompletionTokens int `json:"completion_tokens"`
 	// CachedTokens 是输入里命中了服务商缓存的 token 数（包含在 PromptTokens 里），按更便宜的价格计费。
 	CachedTokens int `json:"cached_tokens,omitempty"`
+	// CacheReported 表示服务商返回了缓存信息（没返回时不知道命中了多少，不能当成 0）。
+	CacheReported bool `json:"cache_reported,omitempty"`
 }
 
 // Total 返回总 token 数。
@@ -92,6 +94,7 @@ func (u *Usage) Add(o Usage) {
 	u.PromptTokens += o.PromptTokens
 	u.CompletionTokens += o.CompletionTokens
 	u.CachedTokens += o.CachedTokens
+	u.CacheReported = u.CacheReported || o.CacheReported
 }
 
 // UnmarshalJSON 读取各家服务商的用量格式：缓存命中的 token 在 DeepSeek 是 prompt_cache_hit_tokens，
@@ -101,6 +104,7 @@ func (u *Usage) UnmarshalJSON(b []byte) error {
 		PromptTokens     int  `json:"prompt_tokens"`
 		CompletionTokens int  `json:"completion_tokens"`
 		CachedTokens     int  `json:"cached_tokens"`
+		CacheReported    bool `json:"cache_reported"`
 		CacheHit         *int `json:"prompt_cache_hit_tokens"`
 		Details          *struct {
 			CachedTokens int `json:"cached_tokens"`
@@ -110,11 +114,12 @@ func (u *Usage) UnmarshalJSON(b []byte) error {
 		return err
 	}
 	u.PromptTokens, u.CompletionTokens, u.CachedTokens = raw.PromptTokens, raw.CompletionTokens, raw.CachedTokens
+	u.CacheReported = raw.CacheReported
 	switch {
 	case raw.CacheHit != nil:
-		u.CachedTokens = *raw.CacheHit
-	case raw.Details != nil && raw.Details.CachedTokens > 0:
-		u.CachedTokens = raw.Details.CachedTokens
+		u.CachedTokens, u.CacheReported = *raw.CacheHit, true
+	case raw.Details != nil:
+		u.CachedTokens, u.CacheReported = raw.Details.CachedTokens, true
 	}
 	u.CachedTokens = min(max(u.CachedTokens, 0), u.PromptTokens)
 	return nil

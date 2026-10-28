@@ -345,6 +345,30 @@ func (r messageRepo) Create(ctx context.Context, m *store.Message) error {
 	return mapErr(r.db.WithContext(ctx).Create(m).Error)
 }
 
+func (r messageRepo) CacheStats(ctx context.Context, userID, conversationID uint64) (*int, *int, error) {
+	pct := func(cached, prompt int64) *int {
+		if prompt <= 0 {
+			return nil
+		}
+		v := int(cached * 100 / prompt)
+		return &v
+	}
+	q := func() *gorm.DB {
+		return r.db.WithContext(ctx).Model(&store.Message{}).
+			Where("user_id = ? AND conversation_id = ? AND cached_tokens IS NOT NULL AND prompt_tokens > 0", userID, conversationID)
+	}
+	var last store.Message
+	err := q().Order("id DESC").Select("cached_tokens", "prompt_tokens").Limit(1).Find(&last).Error
+	if err != nil || last.CachedTokens == nil {
+		return nil, nil, mapErr(err)
+	}
+	var sum struct{ Cached, Prompt int64 }
+	if err := q().Select("COALESCE(SUM(cached_tokens), 0) AS cached, COALESCE(SUM(prompt_tokens), 0) AS prompt").Scan(&sum).Error; err != nil {
+		return nil, nil, mapErr(err)
+	}
+	return pct(int64(*last.CachedTokens), int64(last.PromptTokens)), pct(sum.Cached, sum.Prompt), nil
+}
+
 func (r messageRepo) Finish(ctx context.Context, m *store.Message) error {
 	res := r.db.WithContext(ctx).Model(&store.Message{}).
 		Where("id = ? AND user_id = ?", m.ID, m.UserID).
@@ -354,6 +378,7 @@ func (r messageRepo) Finish(ctx context.Context, m *store.Message) error {
 			"model":             m.Model,
 			"prompt_tokens":     m.PromptTokens,
 			"completion_tokens": m.CompletionTokens,
+			"cached_tokens":     m.CachedTokens,
 			"reasoning":         m.Reasoning,
 			"tool_log":          m.ToolLog,
 			"error":             m.Error,

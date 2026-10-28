@@ -196,6 +196,9 @@ type MessageRepo interface {
 	Create(ctx context.Context, m *Message) error
 	// Finish 更新助手消息的内容、状态与用量（流式输出结束后调用）。
 	Finish(ctx context.Context, m *Message) error
+	// CacheStats 返回对话里缓存命中的情况：最近一条有缓存信息的回复的命中率，和全部有缓存信息的回复合计的命中率
+	// （百分比，没有数据时为空）。
+	CacheStats(ctx context.Context, userID, conversationID uint64) (last, total *int, err error)
 	// Recent 按时间正序返回对话中最近 limit 条消息。
 	Recent(ctx context.Context, userID, conversationID uint64, limit int) ([]Message, error)
 	// Before 按时间正序返回 ID 小于 beforeID 的最近 limit 条消息（beforeID 为 0 表示从最新开始）。
