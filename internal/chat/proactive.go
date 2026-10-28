@@ -37,6 +37,7 @@ func (s *Service) Proactive(ctx context.Context, u *store.User, reason string, a
 	if err != nil {
 		return nil, err
 	}
+	ctx = llm.WithSession(ctx, sessionID(conv))
 	model, err := s.models.Resolve(ctx, modelUser(u), conv.ModelID)
 	if err != nil {
 		return nil, err
@@ -98,6 +99,7 @@ func (s *Service) RunTask(ctx context.Context, u *store.User, task string) (*Pro
 	if err != nil {
 		return nil, err
 	}
+	ctx = llm.WithSession(ctx, sessionID(conv))
 	model, err := s.models.Resolve(ctx, modelUser(u), conv.ModelID)
 	if err != nil {
 		return nil, err

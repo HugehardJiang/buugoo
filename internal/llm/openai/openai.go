@@ -11,15 +11,26 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	"github.com/HugehardJiang/buugoo/internal/buildinfo"
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/llm"
 	"github.com/HugehardJiang/buugoo/internal/netguard"
 )
 
 const maxRetries = 2
+
+// userAgent 标明请求来自布谷（OpenCode Go 等服务要求客户端用自己的名字，而不是通用的 HTTP 库名）。
+var userAgent = "buugoo/" + strings.TrimPrefix(buildinfo.Version, "v")
+
+// isOpenCode 报告是不是 OpenCode 的接口（要带上会话编号）。
+func isOpenCode(baseURL string) bool {
+	u, err := url.Parse(baseURL)
+	return err == nil && (u.Hostname() == "opencode.ai" || strings.HasSuffix(u.Hostname(), ".opencode.ai"))
+}
 
 type client struct {
 	baseURL string
@@ -95,6 +106,10 @@ func (c client) do(ctx context.Context, path string, body any, retry bool) (*htt
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		req.Header.Set("User-Agent", userAgent)
+		if sid := llm.SessionFrom(ctx); sid != "" && isOpenCode(c.baseURL) {
+			req.Header.Set("x-opencode-session", sid)
+		}
 		resp, err := c.http.Do(req)
 		if err != nil {
 			if ctx.Err() != nil {

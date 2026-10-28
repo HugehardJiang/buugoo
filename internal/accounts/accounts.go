@@ -30,15 +30,17 @@ var userTables = []string{
 
 // Row 是用户列表里的一行。
 type Row struct {
-	ID          uint64     `json:"id"`
-	Username    string     `json:"username"`
-	DisplayName string     `json:"display_name"`
-	IsAdmin     bool       `json:"is_admin"`
-	DisabledAt  *time.Time `json:"disabled_at,omitempty"`
-	Disabled    string     `json:"disabled_reason,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	PlanName    string     `json:"plan_name,omitempty"`
-	PlanExpires *time.Time `json:"plan_expires,omitempty"`
+	ID          uint64 `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	IsAdmin     bool   `json:"is_admin"`
+	// RestrictedModels 表示可以用「仅限授权用户」的模型。
+	RestrictedModels bool       `json:"restricted_models"`
+	DisabledAt       *time.Time `json:"disabled_at,omitempty"`
+	Disabled         string     `json:"disabled_reason,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	PlanName         string     `json:"plan_name,omitempty"`
+	PlanExpires      *time.Time `json:"plan_expires,omitempty"`
 	// Balance 是余额，TodayCost 是今天扣的钱（都是微元）。
 	Balance     int64  `json:"balance"`
 	TodayCost   int64  `json:"today_cost"`
@@ -97,7 +99,7 @@ func (s *Service) List(ctx context.Context, f Filter, limit, offset int) ([]Row,
 	ids := make([]uint64, len(users))
 	for i, u := range users {
 		ids[i], idx[u.ID] = u.ID, i
-		rows[i] = Row{ID: u.ID, Username: u.Username, DisplayName: u.DisplayName, IsAdmin: u.IsAdmin,
+		rows[i] = Row{ID: u.ID, Username: u.Username, DisplayName: u.DisplayName, IsAdmin: u.IsAdmin, RestrictedModels: u.RestrictedModels,
 			DisabledAt: u.DisabledAt, Disabled: u.DisabledReason, CreatedAt: u.CreatedAt}
 	}
 	if len(ids) == 0 {
@@ -198,6 +200,14 @@ func (s *Service) SetAdmin(ctx context.Context, id uint64, admin bool) error {
 	// 权限变了，让他重新登录。
 	return s.db.WithContext(ctx).Model(&store.User{}).Where("id = ?", id).
 		Updates(map[string]any{"is_admin": admin, "token_version": gorm.Expr("token_version + 1")}).Error
+}
+
+// SetRestrictedModels 允许或不允许用户使用「仅限授权用户」的公共模型。
+func (s *Service) SetRestrictedModels(ctx context.Context, id uint64, allowed bool) error {
+	if _, err := s.Get(ctx, id); err != nil {
+		return err
+	}
+	return s.db.WithContext(ctx).Model(&store.User{}).Where("id = ?", id).Update("restricted_models", allowed).Error
 }
 
 // Delete 删除用户和他的全部数据（对话、记忆、文件、会员记录……），不可恢复。

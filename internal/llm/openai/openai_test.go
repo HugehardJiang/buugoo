@@ -319,3 +319,22 @@ func TestWireMessagesAndToolStream(t *testing.T) {
 		}
 	}
 }
+
+func TestUserAgentAndSessionHeader(t *testing.T) {
+	var ua, sid string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ua, sid = r.Header.Get("User-Agent"), r.Header.Get("x-opencode-session")
+		fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"hi"}}]}`)
+	}))
+	defer srv.Close()
+	ctx := llm.WithSession(context.Background(), "buugoo-1-2")
+	if _, err := NewChat(chatCfg(srv.URL)).Chat(ctx, llm.ChatRequest{Messages: []llm.Message{{Role: "user", Content: "hi"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(ua, "buugoo/") || sid != "" {
+		t.Fatalf("ua=%q sid=%q（不是 OpenCode 时不带会话编号）", ua, sid)
+	}
+	if !isOpenCode("https://opencode.ai/inference/go/openai/v1") || isOpenCode(srv.URL) {
+		t.Fatal("isOpenCode")
+	}
+}

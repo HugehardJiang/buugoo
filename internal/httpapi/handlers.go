@@ -20,7 +20,9 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/store"
 )
 
-func modelUser(u *store.User) models.User { return models.User{ID: u.ID, IsAdmin: u.IsAdmin} }
+func modelUser(u *store.User) models.User {
+	return models.User{ID: u.ID, IsAdmin: u.IsAdmin, Restricted: u.RestrictedModels}
+}
 
 // ---------- DTO ----------
 

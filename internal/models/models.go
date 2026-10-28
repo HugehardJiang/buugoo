@@ -49,6 +49,27 @@ func (e *InvalidError) Error() string { return e.Msg }
 type User struct {
 	ID      uint64
 	IsAdmin bool
+	// Restricted 表示管理员授权了这个用户使用「仅限授权用户」的公共模型。
+	Restricted bool
+}
+
+// allowed 报告用户能不能用这个模型：仅限授权用户的公共模型只给管理员和被授权的用户（single 模式不限）。
+func (s *Service) allowed(m *store.ModelConfig, u User) bool {
+	if m.Public() {
+		return !m.Restricted || u.IsAdmin || u.Restricted || s.singleMode()
+	}
+	return m.OwnerID == u.ID
+}
+
+// visibleTo 去掉用户不能用的模型。
+func (s *Service) visibleTo(ms []store.ModelConfig, u User) []store.ModelConfig {
+	out := ms[:0]
+	for _, m := range ms {
+		if s.allowed(&m, u) {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // View 是返回给前端的模型信息（不含明文 Key）。
@@ -70,6 +91,8 @@ type View struct {
 	IsDefault     bool        `json:"is_default"`
 	KeyMask       string      `json:"key_mask"`
 	Editable      bool        `json:"editable"`
+	// Restricted 表示只有授权用户能用（公共模型）。
+	Restricted bool `json:"restricted"`
 }
 
 // Input 是新增或修改模型的参数。修改时 APIKey 为空表示保持不变。
@@ -88,6 +111,8 @@ type Input struct {
 	ContextTokens int `json:"context_tokens"`
 	// Public 为 true 时添加为公共模型（仅管理员；single 模式下总是公共模型）。
 	Public bool `json:"public"`
+	// Restricted 为 true 时这个公共模型只给管理员在用户管理里授权的用户用。
+	Restricted bool `json:"restricted"`
 }
 
 // Resolved 是一轮对话实际使用的模型。
@@ -200,6 +225,7 @@ func (s *Service) view(m *store.ModelConfig, u User, isDefault bool) View {
 		ThinkingModel: m.ThinkingModel, Temperature: m.Temperature, MaxTokens: m.MaxTokens,
 		Vision: m.Vision, Tools: m.Tools, Scope: scope, IsDefault: isDefault, KeyMask: mask, Editable: s.canEdit(m, u),
 		ContextTokens: m.ContextTokens, Context: peekOr(m.ContextTokens, s.contexts.peek(m.BaseURL, m.Model)),
+		Restricted: m.Public() && m.Restricted,
 	}
 }
 
@@ -216,6 +242,7 @@ func (s *Service) List(ctx context.Context, u User) ([]View, error) {
 	if err != nil {
 		return nil, err
 	}
+	ms = s.visibleTo(ms, u)
 	def := s.defaultID(ms, u)
 	var out []View
 	if s.builtinAvailable() {
@@ -266,7 +293,7 @@ func (s *Service) Visible(ctx context.Context, u User, id uint64) (bool, error) 
 	if err != nil {
 		return false, err
 	}
-	return m.Public() || m.OwnerID == u.ID, nil
+	return s.allowed(m, u), nil
 }
 
 // Resolve 返回本轮对话使用的模型。modelID 为空、已删除或无权使用时使用默认模型。
@@ -284,7 +311,7 @@ func (s *Service) Resolve(ctx context.Context, u User, modelID *uint64) (*Resolv
 	if err != nil {
 		return nil, err
 	}
-	return s.resolveID(ctx, u, s.defaultID(ms, u))
+	return s.resolveID(ctx, u, s.defaultID(s.visibleTo(ms, u), u))
 }
 
 func (s *Service) resolveID(ctx context.Context, u User, id uint64) (*Resolved, error) {
@@ -383,6 +410,7 @@ func (s *Service) Create(ctx context.Context, u User, in Input) (View, error) {
 		OwnerID: owner, Name: in.Name, BaseURL: in.BaseURL, APIKey: sealed, Model: in.Model,
 		ThinkingStyle: in.ThinkingStyle, ThinkingModel: in.ThinkingModel,
 		Temperature: in.Temperature, MaxTokens: in.MaxTokens, Vision: in.Vision, Tools: in.Tools, ContextTokens: in.ContextTokens,
+		Restricted: owner == store.PublicOwner && in.Restricted && !s.singleMode(),
 	}
 	if err := s.store.Models().Create(ctx, m); err != nil {
 		return View{}, err
@@ -425,6 +453,7 @@ func (s *Service) Update(ctx context.Context, u User, id uint64, in Input) (View
 	m.ThinkingStyle, m.ThinkingModel = in.ThinkingStyle, in.ThinkingModel
 	m.Temperature, m.MaxTokens, m.ContextTokens = in.Temperature, in.MaxTokens, in.ContextTokens
 	m.Vision, m.Tools = in.Vision, in.Tools
+	m.Restricted = m.Public() && in.Restricted && !s.singleMode()
 	if err := s.store.Models().Update(ctx, m); err != nil {
 		return View{}, err
 	}
@@ -558,6 +587,7 @@ func (s *Service) VisionHelper(ctx context.Context, u User) (*Resolved, error) {
 	if err != nil {
 		return nil, err
 	}
+	ms = s.visibleTo(ms, u)
 	def := s.defaultID(ms, u)
 	var cands []uint64
 	builtinVision := s.builtinAvailable() && s.cfg.LLM.Chat.Vision

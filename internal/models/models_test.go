@@ -310,3 +310,63 @@ func TestContextDetect(t *testing.T) {
 		t.Fatal("应使用缓存")
 	}
 }
+
+// 仅限授权用户的公共模型：没授权的看不到、用不了，设为全站默认时也退回别的模型。
+func TestRestrictedModels(t *testing.T) {
+	ctx := context.Background()
+	svc, _ := newService(t, config.ModeMulti, "builtin-key")
+	admin, plain, vip := User{ID: 1, IsAdmin: true}, User{ID: 2}, User{ID: 3, Restricted: true}
+	in := input("opencode", "oc-key")
+	in.Public, in.Restricted, in.Vision = true, true, true
+	m, err := svc.Create(ctx, admin, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.Restricted {
+		t.Fatal("应标为仅限授权用户")
+	}
+	if err := svc.SetDefault(ctx, admin, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	has := func(u User) bool {
+		list, err := svc.List(ctx, u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, v := range list {
+			if v.ID == m.ID {
+				return true
+			}
+		}
+		return false
+	}
+	if has(plain) || !has(vip) || !has(admin) {
+		t.Fatalf("plain=%v vip=%v admin=%v", has(plain), has(vip), has(admin))
+	}
+	if ok, _ := svc.Visible(ctx, plain, m.ID); ok {
+		t.Fatal("没授权不能用")
+	}
+	id := m.ID
+	r, err := svc.Resolve(ctx, plain, &id)
+	if err != nil || r.ID == m.ID {
+		t.Fatalf("没授权的用户应退回默认模型: %+v %v", r, err)
+	}
+	if r, err := svc.Resolve(ctx, vip, nil); err != nil || r.ID != m.ID {
+		t.Fatalf("授权用户用全站默认: %+v %v", r, err)
+	}
+	// 修改时也能改看图、上下文和授权范围（之前修改不保存这几项）。
+	up := input("opencode", "")
+	up.Vision, up.ContextTokens, up.Restricted = false, 200000, false
+	if _, err := svc.Update(ctx, admin, m.ID, up); err != nil {
+		t.Fatal(err)
+	}
+	list, _ := svc.List(ctx, plain)
+	for _, v := range list {
+		if v.ID == m.ID && (v.Vision || v.ContextTokens != 200000 || v.Restricted) {
+			t.Fatalf("修改没保存: %+v", v)
+		}
+	}
+	if !has(plain) {
+		t.Fatal("取消限制后所有人能用")
+	}
+}

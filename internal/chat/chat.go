@@ -188,7 +188,14 @@ func New(d Deps) *Service {
 	}
 }
 
-func modelUser(u *store.User) models.User { return models.User{ID: u.ID, IsAdmin: u.IsAdmin} }
+// sessionID 是发给模型服务的会话编号：同一段对话一直不变（OpenCode Go 用它做路由和提示词缓存）。
+func sessionID(conv *store.Conversation) string {
+	return fmt.Sprintf("buugoo-%d-%d", conv.UserID, conv.ID)
+}
+
+func modelUser(u *store.User) models.User {
+	return models.User{ID: u.ID, IsAdmin: u.IsAdmin, Restricted: u.RestrictedModels}
+}
 
 func validate(content string, hasFiles bool) (string, error) {
 	content = strings.TrimSpace(content)
@@ -407,6 +414,7 @@ func (s *Service) DeleteMessage(ctx context.Context, u *store.User, convID, msgI
 func (s *Service) respond(ctx context.Context, u *store.User, conv *store.Conversation, model *models.Resolved,
 	content string, atts []store.Attachment, again *regen, sink Sink) (*Result, error) {
 	var err error
+	ctx = llm.WithSession(ctx, sessionID(conv))
 	// 上一轮用的上下文超过了阈值：先压缩，再处理这条消息。压缩失败不影响聊天（超出预算时会舍弃最早的消息）。
 	if conv.CompactPending && s.summarizer != nil {
 		if err := s.compact(ctx, u, conv, model); err != nil && !errors.Is(err, ErrNothingToCompact) && !errors.Is(err, ErrCompacting) {

@@ -11,6 +11,7 @@ interface Row {
   username: string
   display_name: string
   is_admin: boolean
+  restricted_models: boolean
   disabled_at?: string
   disabled_reason?: string
   created_at: string
@@ -28,6 +29,7 @@ interface Detail {
   user: { id: number; username: string; display_name: string; is_admin: boolean; created_at: string }
   disabled_at?: string
   disabled_reason?: string
+  restricted_models?: boolean
   account: BillingAccount
   quota: Quota
   labels: Record<string, string>
@@ -167,6 +169,7 @@ function costTotal(items: { amount: number }[]) {
             <td>
               <span class="name">{{ r.username }}</span>
               <span v-if="r.is_admin" class="badge-pill">管理员</span>
+              <span v-if="r.restricted_models && !r.is_admin" class="badge-pill" title="可以用仅限授权用户的模型">专属模型</span>
               <span v-if="r.disabled_at" class="badge-pill badge-pill--off">已停用</span>
               <span v-if="r.display_name" class="caption"><br />{{ r.display_name }}</span>
             </td>
@@ -235,6 +238,20 @@ function costTotal(items: { amount: number }[]) {
             </button>
           </div>
           <div class="inline">
+            <span class="caption grow">
+              {{ detail.user.is_admin ? '管理员可以用所有模型。' : detail.restricted_models ? '可以用「仅限授权用户」的模型（例如站长的 OpenCode Go）。' : '不能用「仅限授权用户」的模型。' }}
+            </span>
+            <button
+              v-if="!detail.user.is_admin"
+              type="button"
+              class="btn btn-sm"
+              :disabled="busy"
+              @click="act('restricted-models', { allowed: !detail.restricted_models }, detail.restricted_models ? '已取消授权' : '已授权使用专属模型')"
+            >
+              {{ detail.restricted_models ? '取消专属模型授权' : '授权使用专属模型' }}
+            </button>
+          </div>
+          <div class="inline">
             <template v-if="!detail.disabled_at">
               <input v-model="disableReason" class="text-input" placeholder="停用原因（可选，用户看不到）" maxlength="100" aria-label="停用原因" />
               <button type="button" class="btn btn-sm btn-danger-lite" :disabled="busy" @click="act('disable', { disabled: true, reason: disableReason }, '已停用')">停用账号</button>
@@ -293,6 +310,7 @@ h2 { margin: 0 0 12px; }
 .inline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
 .inline .text-input { width: auto; flex: 1; min-width: 120px; min-height: 34px; }
 .inline .num { flex: 0 0 120px; }
+.grow { flex: 1; min-width: 160px; }
 .packs, .logs { margin: 6px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.8; }
 .spacer { flex: 1; }
 @media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr); } }

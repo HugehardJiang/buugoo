@@ -194,6 +194,8 @@ export interface ModelView {
   is_default: boolean
   key_mask: string
   editable: boolean
+  /** 只有授权用户能用（公共模型） */
+  restricted: boolean
 }
 
 export interface ModelInput {
@@ -209,6 +211,7 @@ export interface ModelInput {
   tools: boolean
   context_tokens: number
   public: boolean
+  restricted?: boolean
 }
 
 export interface TestResult {

@@ -35,8 +35,10 @@ type User struct {
 	AvatarSeed   string `gorm:"size:32;not null;default:''"`
 	AvatarYear   int    `gorm:"not null;default:0"`
 	AvatarRegens int    `gorm:"not null;default:0"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// RestrictedModels 为 true 时可以用管理员标为「仅限授权用户」的公共模型（例如用站长 OpenCode Go Key 的模型）。
+	RestrictedModels bool `gorm:"not null;default:false"`
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // OwnerID 是 single 模式下唯一用户的 ID。
@@ -183,8 +185,10 @@ type ModelConfig struct {
 	// ContextTokens 是上下文长度（token），0 表示自动识别。
 	ContextTokens int  `gorm:"not null;default:0"`
 	IsDefault     bool `gorm:"not null;default:false"`
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	// Restricted 为 true 的公共模型只有管理员在用户管理里授权的用户能用。
+	Restricted bool `gorm:"not null;default:false"`
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // Public 报告是否为公共模型。

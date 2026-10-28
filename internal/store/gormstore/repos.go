@@ -293,6 +293,7 @@ func (r modelRepo) Update(ctx context.Context, m *store.ModelConfig) error {
 		"name": m.Name, "base_url": m.BaseURL, "api_key_enc": m.APIKey, "model": m.Model,
 		"thinking_style": m.ThinkingStyle, "thinking_model": m.ThinkingModel,
 		"temperature": m.Temperature, "max_tokens": m.MaxTokens,
+		"vision": m.Vision, "tools": m.Tools, "context_tokens": m.ContextTokens, "restricted": m.Restricted,
 	})
 	if res.Error != nil {
 		return mapErr(res.Error)

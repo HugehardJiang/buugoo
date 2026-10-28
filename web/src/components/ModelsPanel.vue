@@ -32,6 +32,7 @@ const blank = (): ModelInput => ({
   max_tokens: 0,
   context_tokens: 0,
   public: false,
+  restricted: false,
 })
 // 上下文长度在表单里以十万 token 为单位填写，留空表示自动识别。
 const contextUnits = ref('')
@@ -51,7 +52,10 @@ const presets: { label: string; v: Partial<ModelInput> }[] = [
   { label: '阿里云百炼', v: { name: '通义千问', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', thinking_style: 'enable_thinking', thinking_model: '', vision: false, tools: true } },
   { label: '硅基流动', v: { name: '硅基流动', base_url: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen3-32B', thinking_style: 'enable_thinking', thinking_model: '', vision: false, tools: true } },
   { label: 'OpenAI', v: { name: 'OpenAI', base_url: 'https://api.openai.com/v1', model: 'gpt-5-mini', thinking_style: 'reasoning_effort', thinking_model: '', vision: true, tools: true } },
+  // OpenCode Go：所有文本模型都能走这个 OpenAI 兼容接口；模型名见 opencode.ai/docs/go（例如 glm-5.2、kimi-k3、deepseek-v4-pro）。
+  { label: 'OpenCode Go', v: { name: 'OpenCode Go', base_url: 'https://opencode.ai/inference/go/openai/v1', model: 'glm-5.2', thinking_style: 'none', thinking_model: '', vision: false, tools: true } },
 ]
+const isOpenCode = computed(() => /(^|\.)opencode\.ai(\/|:|$)/.test(form.base_url.replace(/^https?:\/\//, '')))
 
 const styles: { v: ThinkingStyle; l: string; hint: string }[] = [
   { v: 'none', l: '不支持思考', hint: '对话中不显示思考等级。' },
@@ -87,7 +91,7 @@ function openForm(m: ModelView | null) {
     Object.assign(form, {
       name: m.name, base_url: m.base_url, model: m.model, thinking_style: m.thinking_style,
       thinking_model: m.thinking_model, temperature: m.temperature, max_tokens: m.max_tokens, public: m.scope === 'public',
-      vision: m.vision, tools: m.tools, context_tokens: m.context_tokens,
+      vision: m.vision, tools: m.tools, context_tokens: m.context_tokens, restricted: m.restricted,
     })
   }
   contextUnits.value = form.context_tokens > 0 ? String(form.context_tokens / 100000) : ''
@@ -208,6 +212,7 @@ defineExpose({ load })
           <strong>{{ m.name }}</strong>
           <span v-if="m.is_default" class="chip-note">默认</span>
           <span v-if="scopeLabel(m)" class="badge-pill">{{ scopeLabel(m) }}</span>
+          <span v-if="m.restricted" class="badge-pill" title="只有管理员在用户管理里授权的用户能用">仅限授权用户</span>
         </div>
         <p class="caption">
           {{ m.model }} · 上下文 {{ wan(m.context.tokens) }}<template v-if="m.thinking_style !== 'none'"> · 可调思考</template><template v-if="m.vision"> · 能看图</template><template v-if="m.tools"> · 可用工具</template> · {{ m.base_url }} · Key {{ m.key_mask || '未填写' }}
@@ -312,6 +317,14 @@ defineExpose({ load })
           <input v-model="form.public" type="checkbox" />
           <span>公共模型：所有用户都能使用，计入每日限额</span>
         </label>
+        <label v-if="isMulti && isAdmin && (form.public || editing?.scope === 'public')" class="check-row">
+          <input v-model="form.restricted" type="checkbox" />
+          <span>仅限授权用户：只有在「管理后台 → 用户管理」里授权了「专属模型」的用户能用（管理员总能用）</span>
+        </label>
+        <p v-if="isOpenCode" class="caption oc-note">
+          OpenCode Go 的模型名见 <a href="https://opencode.ai/docs/go/" target="_blank" rel="noopener noreferrer">官方文档</a>（例如 glm-5.2、kimi-k3、qwen3.8-flash、deepseek-v4-pro）。
+          布谷会自动带上 OpenCode 要求的客户端标识和会话编号。注意：官方说明 Go 套餐是给编程助手用的，用在聊天上有被限制的风险；DeepSeek 模型要先在 OpenCode 控制台的隐私设置里把地区选成 Global。
+        </p>
 
         <p v-if="testResult" class="form-flash" :class="testResult.ok ? 'form-flash--ok' : 'form-flash--error'">
           <template v-if="testResult.ok">连通了（{{ testResult.latency_ms }} ms）：{{ testResult.reply }}</template>
@@ -355,4 +368,5 @@ defineExpose({ load })
 .presets { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
 .preset { cursor: pointer; min-height: 28px; padding: 0 10px; }
 .preset:hover { border-color: var(--color-muted); color: var(--color-ink); }
+.oc-note { margin: 4px 0 10px; line-height: 1.7; }
 </style>

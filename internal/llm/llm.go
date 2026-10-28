@@ -61,6 +61,20 @@ type ToolCallDelta struct {
 	Arguments string
 }
 
+type sessionKey struct{}
+
+// WithSession 在 ctx 里放上会话编号（同一段对话不变）。部分服务（OpenCode Go）要求每段对话带上固定的会话编号，
+// 便于路由和提示词缓存。
+func WithSession(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, sessionKey{}, id)
+}
+
+// SessionFrom 返回 ctx 里的会话编号，没有时为空。
+func SessionFrom(ctx context.Context) string {
+	s, _ := ctx.Value(sessionKey{}).(string)
+	return s
+}
+
 // ChatRequest 是聊天补全请求。零值字段使用 provider 的默认配置。
 type ChatRequest struct {
 	Model       string

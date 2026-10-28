@@ -156,6 +156,8 @@ func New(d Deps) http.Handler {
 	console.GET("/channels", s.consoleChannels)
 	console.GET("/diagnostics", s.consoleDiagnostics)
 	console.POST("/channels/weixin/:id/logout", s.consoleWeixinKick)
+	console.GET("/opencode", s.consoleOpenCode)
+	console.POST("/opencode/import", s.consoleOpenCodeImport)
 	if s.DBMove != nil {
 		console.GET("/database", s.consoleDatabase)
 		console.POST("/database/test", s.consoleDatabaseTest)

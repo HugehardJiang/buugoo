@@ -201,7 +201,9 @@ func (s *Service) Clear(ctx context.Context, u *store.User) error {
 	})
 }
 
-func modelUser(u *store.User) models.User { return models.User{ID: u.ID, IsAdmin: u.IsAdmin} }
+func modelUser(u *store.User) models.User {
+	return models.User{ID: u.ID, IsAdmin: u.IsAdmin, Restricted: u.RestrictedModels}
+}
 
 // Model 返回牛马用的模型：用户选的，没选（或已经不能用）时用默认模型。
 func (s *Service) Model(ctx context.Context, u *store.User) (*models.Resolved, error) {

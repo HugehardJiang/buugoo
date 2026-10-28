@@ -31,6 +31,7 @@ func (s *server) routeBilling(api, priv, console *echo.Group) {
 	m.GET("/users/:id", s.consoleUser)
 	m.POST("/users/:id/disable", s.consoleDisableUser)
 	m.POST("/users/:id/admin", s.consoleSetAdmin)
+	m.POST("/users/:id/restricted-models", s.consoleSetRestrictedModels)
 	m.POST("/users/:id/password", s.consoleResetPassword)
 	m.POST("/users/:id/grant", s.consoleGrant)
 	m.POST("/users/:id/adjust", s.consoleAdjust)
@@ -114,7 +115,7 @@ func (s *server) consoleUser(c echo.Context) error {
 		return err
 	}
 	return c.JSON(http.StatusOK, map[string]any{"user": toUser(u), "disabled_at": u.DisabledAt, "disabled_reason": u.DisabledReason,
-		"account": acc, "quota": st, "labels": s.costLabels(c)})
+		"restricted_models": u.RestrictedModels, "account": acc, "quota": st, "labels": s.costLabels(c)})
 }
 
 func (s *server) consoleDisableUser(c echo.Context) error {
@@ -151,6 +152,24 @@ func (s *server) consoleSetAdmin(c echo.Context) error {
 		return err
 	}
 	s.audit(c, "管理后台修改了管理员", "user", id, "admin", req.Admin)
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (s *server) consoleSetRestrictedModels(c echo.Context) error {
+	id, err := pathID(c)
+	if err != nil {
+		return err
+	}
+	var req struct {
+		Allowed bool `json:"allowed"`
+	}
+	if err := bind(c, &req); err != nil {
+		return err
+	}
+	if err := s.Accounts.SetRestrictedModels(c.Request().Context(), id, req.Allowed); err != nil {
+		return err
+	}
+	s.audit(c, "管理后台修改了受限模型授权", "user", id, "allowed", req.Allowed)
 	return c.NoContent(http.StatusNoContent)
 }
 
