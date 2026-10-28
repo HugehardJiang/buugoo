@@ -18,7 +18,7 @@ const name = computed(() => session.meta?.name ?? '布谷')
 // 「大脑皮层」（记忆与情绪）默认藏起来，用户在设置里确认翻开后才出现在导航中。设置固定在最下面（手机上在最右边）。
 const items = computed(() => [
   { to: '/', route: 'chat', label: '聊天', icon: 'message' as const },
-  ...(session.meta?.reminders ? [{ to: '/tasks', route: 'tasks', label: '定时任务', icon: 'clock' as const }] : []),
+  { to: '/tasks', route: 'tasks', label: session.meta?.reminders ? '提醒与待办' : '待办', icon: 'clock' as const },
   { to: '/memos', route: 'memos', label: '备忘录', icon: 'note' as const },
   ...(memoriesUnlocked.value ? [{ to: '/memories', route: 'memories', label: '大脑皮层', icon: 'brain' as const }] : []),
   ...(session.meta?.uploads ? [{ to: '/files', route: 'files', label: '文件', icon: 'folder' as const }] : []),

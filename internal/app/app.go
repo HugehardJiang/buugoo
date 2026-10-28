@@ -37,6 +37,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/skills"
 	"github.com/HugehardJiang/buugoo/internal/store"
 	"github.com/HugehardJiang/buugoo/internal/store/gormstore"
+	"github.com/HugehardJiang/buugoo/internal/todo"
 	"github.com/HugehardJiang/buugoo/internal/tools"
 	"github.com/HugehardJiang/buugoo/internal/uploads"
 	"github.com/HugehardJiang/buugoo/internal/vector/memstore"
@@ -158,6 +159,8 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	toolsProv.plugins = pluginSvc
 	memoSvc := memo.New(db.Gorm())
 	toolsProv.memos = memoSvc
+	todoSvc := todo.New(db.Gorm(), loc)
+	toolsProv.todos = todoSvc
 	toolsProv.limiter = limiter
 	if cfg.Proactive.Reminders {
 		toolsProv.reminders, toolsProv.loc = db.Reminders(), loc
@@ -226,7 +229,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 		Config: cfg, Store: db, Auth: authSvc, Chat: chatSvc, Memories: memory.NewManager(db.Memories(), vs), Compactor: compactor,
 		Quota: limiter, Models: modelSvc, Reembed: memory.NewReembedder(db.Memories(), emb, vs, log),
 		Uploads: uploadSvc, Emotion: emo, Persona: personas, Channels: hub, Logger: log,
-		Skills: skillSvc, Plugins: pluginSvc, Memos: memoSvc, Billing: billingSvc, Accounts: accountSvc,
+		Skills: skillSvc, Plugins: pluginSvc, Memos: memoSvc, Todos: todoSvc, Billing: billingSvc, Accounts: accountSvc,
 		Agent: agent.New(agent.Deps{DB: db.Gorm(), Users: db.Users(), Reminders: toolsProv.reminders, Models: modelSvc,
 			Quota: limiter, Skills: skillSvc, Plugins: pluginSvc, Config: cfg, Box: box, Logger: log,
 			Runner: func(ctx context.Context, u *store.User) tools.Runner { return toolsProv.python(ctx, u) }}),
@@ -235,7 +238,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 		uploads: uploadSvc, tools: toolsProv, channels: hub, plugins: pluginSvc}
 	if cfg.Proactive.Reminders || cfg.Proactive.Care {
 		deps := proactive.Deps{Store: db, Speaker: chatSvc, Utility: utilLLM, Mood: emo, Config: cfg.Proactive,
-			Name: func() string { return personas.Current().Name }, Location: loc, Logger: log}
+			Name: func() string { return personas.Current().Name }, Location: loc, Logger: log, Todos: todoSvc}
 		if hub != nil {
 			deps.Deliver = hub
 		}

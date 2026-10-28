@@ -163,6 +163,7 @@ async function remove(r: Reminder) {
 
 <template>
   <section id="proactive" class="panel panel--inset">
+    <h2 class="title">提醒与定时任务</h2>
     <div v-if="care" class="row">
       <div class="row__text">
         <p class="row__title">允许{{ name }}主动找我</p>
@@ -260,6 +261,7 @@ async function remove(r: Reminder) {
 </template>
 
 <style scoped>
+.title { margin: 0 0 14px; }
 .row { display: flex; align-items: flex-start; gap: 16px; padding-bottom: 16px; }
 .row__text { flex: 1; min-width: 0; }
 .row__title { margin: 0 0 4px; color: var(--color-ink); font-size: 14px; font-weight: 500; }

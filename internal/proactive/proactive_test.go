@@ -16,6 +16,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/store"
 	"github.com/HugehardJiang/buugoo/internal/store/gormstore"
+	"github.com/HugehardJiang/buugoo/internal/todo"
 )
 
 var shanghai = time.FixedZone("CST", 8*3600)
@@ -309,3 +310,66 @@ func TestCare(t *testing.T) {
 }
 
 func (f *fakeUtil) Model() string { return "fake" }
+
+func TestNudgeTodos(t *testing.T) {
+	ctx := context.Background()
+	db := newDB(t)
+	u, _ := db.Users().EnsureOwner(ctx)
+	svc := todo.New(db.Gorm(), shanghai)
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, shanghai)
+	add := func(title, due string) *store.Todo {
+		t.Helper()
+		td, err := svc.Create(ctx, u.ID, title, "", due)
+		if err != nil {
+			t.Fatal(err)
+		}
+		db.Gorm().Model(td).Update("created_at", now.Add(-48*time.Hour))
+		return td
+	}
+	soon := add("交实验报告", "2026-10-29 15:30") // 一个半小时后截止：该问了
+	add("写论文", "2026-11-05")                  // 还早
+	today := add("取快递", "2026-10-29")         // 今天，10 点后问
+	add("没有截止时间", "")
+	sp, dl := &fakeSpeaker{}, &fakeDeliver{}
+	e := New(Deps{Store: db, Speaker: sp, Deliver: dl, Location: shanghai, Todos: svc})
+	e.now = func() time.Time { return now }
+	e.NudgeTodos(ctx)
+	// 每人每轮只问一项。
+	if len(sp.reasons) != 1 || dl.n != 1 || !strings.Contains(sp.reasons[0], "取快递") {
+		t.Fatalf("reasons=%v", sp.reasons)
+	}
+	e.NudgeTodos(ctx)
+	if len(sp.reasons) != 2 || !strings.Contains(sp.reasons[1], "交实验报告") || !strings.Contains(sp.reasons[1], "10-29 15:30") {
+		t.Fatalf("reasons=%v", sp.reasons)
+	}
+	// 问过的不再问；做完的、改了截止时间的重新计算。
+	e.NudgeTodos(ctx)
+	if len(sp.reasons) != 2 {
+		t.Fatalf("不该重复问: %v", sp.reasons)
+	}
+	later := "2026-10-29 17:00"
+	if _, err := svc.Update(ctx, u.ID, soon.ID, todo.Patch{Due: &later}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SetDone(ctx, u.ID, today.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	e.now = func() time.Time { return now.Add(time.Hour + time.Minute) }
+	e.NudgeTodos(ctx)
+	if len(sp.reasons) != 3 || !strings.Contains(sp.reasons[2], "17:00") {
+		t.Fatalf("改了截止时间应重新问: %v", sp.reasons)
+	}
+	// 刚加上就快到期的（对方心里有数）不问。
+	quick, err := svc.Create(ctx, u.ID, "马上要做", "", "2026-10-29 16:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Gorm().Model(quick).Update("created_at", now.Add(time.Hour))
+	e.NudgeTodos(ctx)
+	if len(sp.reasons) != 3 {
+		t.Fatalf("reasons=%v", sp.reasons)
+	}
+	if got, _ := svc.Get(ctx, u.ID, quick.ID); got.NudgedAt == nil {
+		t.Fatal("不问的也要记下，免得每轮都查")
+	}
+}

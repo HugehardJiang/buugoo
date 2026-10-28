@@ -422,6 +422,27 @@ export interface Pricing {
   peak?: PeakRule
 }
 
+export interface Todo {
+  id: number
+  title: string
+  note: string
+  due_at?: string
+  /** 截止时间（服务器时区），「YYYY-MM-DD」或「YYYY-MM-DD HH:MM」，没有时为空 */
+  due: string
+  all_day: boolean
+  done: boolean
+  done_at?: string
+  created_at: string
+}
+
+export interface TodoInput {
+  title?: string
+  note?: string
+  /** 空字符串表示去掉截止时间 */
+  due?: string
+  done?: boolean
+}
+
 export interface MemoPageInfo {
   id: number
   title: string
@@ -667,6 +688,11 @@ export const api = {
   createMemo: (title: string, content = '') => request<MemoPage>('POST', '/memos', { title, content }),
   updateMemo: (id: number, patch: { title?: string; content?: string }) => request<MemoPage>('PUT', `/memos/${id}`, patch),
   deleteMemo: (id: number) => request<void>('DELETE', `/memos/${id}`),
+  todos: () => request<{ items: Todo[] }>('GET', '/todos'),
+  createTodo: (input: { title: string; note?: string; due?: string }) => request<Todo>('POST', '/todos', input),
+  updateTodo: (id: number, patch: TodoInput) => request<Todo>('PUT', `/todos/${id}`, patch),
+  deleteTodo: (id: number) => request<void>('DELETE', `/todos/${id}`),
+  clearDoneTodos: () => request<{ deleted: number }>('POST', '/todos/clear-done'),
   compactMemories: () => request<CompactReport>('POST', '/memories/compact'),
   extensions: () => request<{ extensions: Extension[] }>('GET', '/me/extensions'),
   toggleExtension: (kind: Extension['kind'], name: string, enabled: boolean) =>

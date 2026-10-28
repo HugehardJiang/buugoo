@@ -36,6 +36,13 @@ type Mood interface {
 	Peek(ctx context.Context, userID uint64) (string, error)
 }
 
+// Todos 是待办清单（todo.Service）：快到截止时间还没做完的，主动问一句。
+type Todos interface {
+	DueSoon(ctx context.Context, now time.Time, limit int) ([]store.Todo, error)
+	MarkNudged(ctx context.Context, id uint64, at time.Time) error
+	FormatDue(t *store.Todo, now time.Time) string
+}
+
 // Engine 定时检查到期的提醒，并在合适的时候主动关心用户。
 type Engine struct {
 	store   store.Store
@@ -43,6 +50,7 @@ type Engine struct {
 	deliver Deliverer
 	util    llm.ChatProvider
 	mood    Mood
+	todos   Todos
 	cfg     config.ProactiveConfig
 	name    func() string
 	loc     *time.Location
@@ -64,7 +72,9 @@ type Deps struct {
 	Deliver Deliverer
 	Utility llm.ChatProvider
 	Mood    Mood
-	Config  config.ProactiveConfig
+	// Todos 不为空时，快到期还没做完的待办会主动问一句。
+	Todos  Todos
+	Config config.ProactiveConfig
 	// Name 返回布谷的名字（人格档案可能随时被修改）。
 	Name     func() string
 	Location *time.Location
@@ -79,7 +89,7 @@ func New(d Deps) *Engine {
 	if d.Location == nil {
 		d.Location = time.Local
 	}
-	return &Engine{store: d.Store, speaker: d.Speaker, deliver: d.Deliver, util: d.Utility, mood: d.Mood, cfg: d.Config,
+	return &Engine{store: d.Store, speaker: d.Speaker, deliver: d.Deliver, util: d.Utility, mood: d.Mood, todos: d.Todos, cfg: d.Config,
 		name: d.Name, loc: d.Location, log: d.Logger.With("component", "proactive"), now: time.Now,
 		attempts: map[uint64]time.Time{}, checked: map[uint64]time.Time{}, running: map[uint64]bool{},
 		slots: make(chan struct{}, maxConcurrentTasks)}
@@ -93,7 +103,10 @@ const (
 	careRecheck        = 6 * time.Hour    // 同一个人多久判断一次要不要主动关心
 	unansweredWait     = 72 * time.Hour   // 主动发的消息没人回时，多久后才再次主动
 	maxConcurrentTasks = 3
-	taskTimeout        = 10 * time.Minute
+	todoTick           = 5 * time.Minute
+	// todoTooLate：过了截止时间这么久还没问（服务器停了），就不再问了。
+	todoTooLate = 12 * time.Hour
+	taskTimeout = 10 * time.Minute
 )
 
 // Run 在后台运行，直到 ctx 取消。
@@ -107,12 +120,16 @@ func (e *Engine) Run(ctx context.Context) {
 	care := time.NewTicker(interval)
 	defer care.Stop()
 	e.FireReminders(ctx)
+	todo := time.NewTicker(todoTick)
+	defer todo.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-remind.C:
 			e.FireReminders(ctx)
+		case <-todo.C:
+			e.NudgeTodos(ctx)
 		case <-care.C:
 			if e.cfg.Care {
 				e.Care(ctx)
@@ -223,6 +240,75 @@ func (e *Engine) fire(ctx context.Context, r store.Reminder) error {
 	}
 	e.log.Info("已发送"+kindLabel(r.Kind), "user_id", u.ID, "reminder_id", r.ID)
 	return nil
+}
+
+// NudgeTodos 对快到截止时间、还没做完的待办，主动问对方一句进展（每项只问一次，免打扰时段不问）。
+func (e *Engine) NudgeTodos(ctx context.Context) {
+	if e.todos == nil {
+		return
+	}
+	now := e.now()
+	if e.inQuiet(now) {
+		return
+	}
+	due, err := e.todos.DueSoon(ctx, now, 50)
+	if err != nil {
+		e.log.Warn("读取待办失败", "err", err)
+		return
+	}
+	asked := map[uint64]bool{} // 每个人这一轮最多问一项，剩下的下一轮再问
+	for i := range due {
+		t := &due[i]
+		if ctx.Err() != nil {
+			return
+		}
+		if asked[t.UserID] {
+			continue
+		}
+		// 太久之前就该问的（服务器停了），或者刚加上不久就到了该问的时间（对方心里有数），不再问。
+		deadline := *t.DueAt
+		if t.AllDay {
+			deadline = deadline.Add(24 * time.Hour) // 只定了日期的，那天结束前都不算晚
+		}
+		if now.Sub(deadline) > todoTooLate || t.CreatedAt.After(now.Add(-time.Hour)) {
+			e.markNudged(ctx, t.ID, now)
+			continue
+		}
+		u, err := e.store.Users().GetByID(ctx, t.UserID)
+		if err != nil || !u.Proactive {
+			e.markNudged(ctx, t.ID, now)
+			continue
+		}
+		when := "截止时间是 " + e.todos.FormatDue(t, now)
+		if deadline.Before(now) {
+			when = "截止时间 " + e.todos.FormatDue(t, now) + " 已经过了"
+		}
+		reason := fmt.Sprintf("对方待办清单里的「%s」%s，还没打勾。像朋友一样问问做得怎么样了、需不需要帮忙，别催得太紧；"+
+			"对方说已经做完的话，用 todo_done 帮对方打勾。", t.Title, when)
+		if t.Note != "" {
+			reason += "（备注：" + t.Note + "）"
+		}
+		asked[t.UserID] = true
+		res, err := e.speaker.Proactive(ctx, u, reason, false)
+		if err != nil {
+			e.log.Warn("询问待办失败", "user_id", u.ID, "todo_id", t.ID, "err", err)
+			if permanent(err) {
+				e.markNudged(ctx, t.ID, now)
+			}
+			continue
+		}
+		e.markNudged(ctx, t.ID, now)
+		if e.deliver != nil {
+			e.deliver.Deliver(context.WithoutCancel(ctx), u, res, true)
+		}
+		e.log.Info("已询问快到期的待办", "user_id", u.ID, "todo_id", t.ID)
+	}
+}
+
+func (e *Engine) markNudged(ctx context.Context, id uint64, now time.Time) {
+	if err := e.todos.MarkNudged(context.WithoutCancel(ctx), id, now); err != nil {
+		e.log.Warn("记录待办询问失败", "todo_id", id, "err", err)
+	}
 }
 
 // inQuiet 报告现在是否在免打扰时段（主动关心不在这时发，提醒不受影响）。

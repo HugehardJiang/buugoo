@@ -11,6 +11,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/mcp"
 	"github.com/HugehardJiang/buugoo/internal/memo"
 	"github.com/HugehardJiang/buugoo/internal/skills"
+	"github.com/HugehardJiang/buugoo/internal/todo"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -60,6 +61,7 @@ type Deps struct {
 	Plugins *mcp.Manager
 	Agent   *agent.Service
 	Memos   *memo.Service
+	Todos   *todo.Service
 	// Billing、Accounts 为空时不提供会员和用户管理（single 模式）。
 	Billing  *billing.Service
 	Accounts *accounts.Service
@@ -230,6 +232,13 @@ func New(d Deps) http.Handler {
 		priv.PUT("/memos/:id", s.updateMemo)
 		priv.DELETE("/memos/:id", s.deleteMemo)
 	}
+	if s.Todos != nil {
+		priv.GET("/todos", s.listTodos)
+		priv.POST("/todos", s.createTodo)
+		priv.PUT("/todos/:id", s.updateTodo)
+		priv.DELETE("/todos/:id", s.deleteTodo)
+		priv.POST("/todos/clear-done", s.clearDoneTodos)
+	}
 
 	// QQ（NapCat）的反向 WebSocket 连接，用访问令牌鉴权。
 	if s.Channels != nil {
@@ -374,6 +383,13 @@ func toAPIError(err error) *apiError {
 	case errors.As(err, &memoErr):
 		return &apiError{Status: http.StatusBadRequest, Code: "invalid_memo", Message: memoErr.Msg}
 	case errors.Is(err, memo.ErrNotFound):
+		return &apiError{Status: http.StatusNotFound, Code: "not_found", Message: err.Error()}
+	}
+	var todoErr *todo.UserError
+	switch {
+	case errors.As(err, &todoErr):
+		return &apiError{Status: http.StatusBadRequest, Code: "invalid_todo", Message: todoErr.Msg}
+	case errors.Is(err, todo.ErrNotFound):
 		return &apiError{Status: http.StatusNotFound, Code: "not_found", Message: err.Error()}
 	}
 	if ee := extensionError(err); ee != nil {

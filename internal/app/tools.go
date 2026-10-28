@@ -16,6 +16,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/skills"
 	"github.com/HugehardJiang/buugoo/internal/store"
+	"github.com/HugehardJiang/buugoo/internal/todo"
 	"github.com/HugehardJiang/buugoo/internal/tools"
 	"github.com/HugehardJiang/buugoo/internal/uploads"
 )
@@ -43,6 +44,8 @@ type toolProvider struct {
 	plugins *mcp.Manager
 	// memos 不为空时提供读写备忘录的工具。
 	memos *memo.Service
+	// todos 不为空时提供待办清单的工具。
+	todos *todo.Service
 	// limiter 不为空时给联网搜索和读网页计量（多用户版）。
 	limiter *quota.Limiter
 }
@@ -203,6 +206,9 @@ func (p *toolProvider) For(ctx context.Context, u *store.User, conv *store.Conve
 	}
 	if p.memos != nil {
 		opts.Extra = append(opts.Extra, memo.Tools(p.memos, u.ID, turnID())...)
+	}
+	if p.todos != nil {
+		opts.Extra = append(opts.Extra, todo.Tools(p.todos, u.ID, turnID(), time.Now)...)
 	}
 	if p.plugins != nil {
 		opts.Extra = append(opts.Extra, p.plugins.Tools(ctx, p.plugins.For(ctx, skills.SplitNames(u.DisabledPlugins)))...)

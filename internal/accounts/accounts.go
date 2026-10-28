@@ -25,7 +25,7 @@ func (e *UserError) Error() string { return e.Msg }
 // userTables 是按 user_id 存数据的表，删除用户时一起删。
 var userTables = []string{
 	"messages", "attachments", "conversations", "memory_usages", "memories", "emotion_events", "emotion_states",
-	"reminders", "channel_bindings", "agent_actions", "agent_messages", "memo_pages", "usage_daily",
+	"reminders", "channel_bindings", "agent_actions", "agent_messages", "memo_pages", "todos", "usage_daily",
 }
 
 // Row 是用户列表里的一行。

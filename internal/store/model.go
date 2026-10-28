@@ -501,6 +501,23 @@ type MemoPage struct {
 	UpdatedAt time.Time
 }
 
+// Todo 是用户待办清单里的一项：一件要持续去做、做完打勾的事，可以有截止时间和备注。
+type Todo struct {
+	ID     uint64 `gorm:"primaryKey"`
+	UserID uint64 `gorm:"index:idx_todo_user;not null"`
+	Title  string `gorm:"size:255;not null"`
+	Note   string `gorm:"type:text"`
+	// DueAt 是截止时间（UTC 保存）；AllDay 表示只定了日期，DueAt 是那天 0 点（本地时间）。
+	DueAt  *time.Time `gorm:"index:idx_todo_due,priority:2"`
+	AllDay bool       `gorm:"not null;default:false"`
+	Done   bool       `gorm:"index:idx_todo_due,priority:1;not null;default:false"`
+	DoneAt *time.Time
+	// NudgedAt 是快到期时布谷主动问过的时间（每项只问一次，改了截止时间会清空）。
+	NudgedAt  *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 // 套餐的种类、计费单位和额度周期。
 const (
 	PlanPeriod   = "period"   // 时长套餐：有效期内每天（或每月）有固定额度
