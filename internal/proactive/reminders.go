@@ -76,7 +76,8 @@ func ReminderTools(repo store.ReminderRepo, userID uint64, loc *time.Location, n
 				}), "required": []string{"content"}},
 			},
 			Label: "设提醒",
-			Hint: "set_reminder / schedule_task / list_reminders / cancel_reminder：对方让你到点提醒用 set_reminder；" +
+			Hint: "set_reminder / schedule_task / list_reminders / cancel_reminder：对方让你到点提醒用 set_reminder。" +
+				"只要你答应了「到时候提醒/叫/喊/催你」，就必须在这一轮真的调用 set_reminder，光嘴上答应提醒是设不上的；对方说的时间含糊（「下午」「晚点」）就自己定一个具体时间并告诉对方；" +
 				"让你到点去做一件事（「每天早上 8 点搜一下科技新闻发我」「每周五晚上帮我总结这周的汇率」）用 schedule_task，到时间你会真的去做（可以搜索、运行代码）再把结果发给对方",
 			Run: func(ctx context.Context, args json.RawMessage) tools.Result {
 				return create(ctx, repo, userID, store.KindRemind, loc, now(), args)

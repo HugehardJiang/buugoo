@@ -210,6 +210,15 @@ func (s *Set) add(def llm.Tool, h handler) {
 	s.handlers[def.Name] = h
 }
 
+// Has 报告这一轮有没有这个工具。
+func (s *Set) Has(name string) bool {
+	if s == nil {
+		return false
+	}
+	_, ok := s.handlers[name]
+	return ok
+}
+
 // Label 返回工具在界面上显示的中文名。
 func (s *Set) Label(name string) string {
 	if s != nil {

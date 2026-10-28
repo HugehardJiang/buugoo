@@ -11,6 +11,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/logx"
 	"io"
 	"log/slog"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -379,7 +380,7 @@ func (s *Service) Send(ctx context.Context, u *store.User, in SendInput, sink Si
 	res := &Result{Conversation: conv, UserMessage: userMsg, Reply: reply, Attachments: atts, Memories: p.prompt.UsedMemories, Model: model}
 
 	t := &turn{s: s, ctx: ctx, model: model, thinking: conv.Thinking, tools: toolset, sink: sink, msgs: p.prompt.Messages,
-		userID: u.ID, convID: conv.ID, replyID: reply.ID}
+		userID: u.ID, convID: conv.ID, replyID: reply.ID, userText: content}
 	genErr := t.run(func() error {
 		if err := sink.Start(conv, userMsg, reply, model); err != nil {
 			return err
@@ -449,6 +450,41 @@ type turn struct {
 	usage         llm.Usage
 	usageReported bool
 	toolTokens    int
+	// reminderNudged 表示已经提醒过模型补设提醒（每轮回复最多一次）。
+	reminderNudged bool
+	// userText 是对方这一条消息的原文（不含附上的〔此刻〕信息）。
+	userText string
+}
+
+// reminderNudge 是模型答应了提醒却没调用工具时补发给它的话。
+const reminderNudge = "〔系统提示，对方看不到〕你刚才答应了到时间提醒对方，但没有调用 set_reminder（或 schedule_task），提醒并没有设上。" +
+	"现在按你刚才说的时间调用工具把它设上。设好后不要再输出任何文字（刚才的回复对方已经看到了）；如果其实不需要设提醒，也什么都不输出。"
+
+var (
+	// askRemindRe 匹配对方让你到点提醒的说法。
+	askRemindRe = regexp.MustCompile(`提醒我|叫我|喊我|催我|叫一下我|闹钟|别让我忘|记得告诉我|到时候告诉我`)
+	// promiseRemindRe 匹配回复里明确答应提醒的说法；looseRemindRe 宽一些，只在对方明确要求提醒时才算。
+	promiseRemindRe = regexp.MustCompile(`(提醒|叫|喊|催)你|叫醒你`)
+	looseRemindRe   = regexp.MustCompile(`告诉你|到时候|到点|准时`)
+	// timeRe 匹配说出来的时间。
+	timeRe = regexp.MustCompile(`\d{1,2}\s*[:：点]|\d+\s*(分钟|小时|个小时)|[一二两三四五六七八九十半]+(分钟|小时|个小时|点)|明天|后天|今晚|今天|早上|上午|中午|下午|晚上|周[一二三四五六日天]|星期|号`)
+)
+
+// forgotReminder 报告这一轮是不是答应了提醒却没设：回复里答应了到某个时间提醒，但这一轮没调用提醒工具。
+func (t *turn) forgotReminder() bool {
+	if t.userText == "" || !t.tools.Has("set_reminder") {
+		return false
+	}
+	for _, r := range t.records {
+		if r.Name == "set_reminder" || r.Name == "schedule_task" {
+			return false
+		}
+	}
+	text := t.text.String()
+	if !timeRe.MatchString(text) {
+		return false
+	}
+	return promiseRemindRe.MatchString(text) || (askRemindRe.MatchString(t.userText) && looseRemindRe.MatchString(text))
 }
 
 // run 执行生成。start 在第一次成功连上模型后调用（此时才开始向客户端推送）。
@@ -479,6 +515,13 @@ func (t *turn) run(start func() error) error {
 		if len(calls) == 0 {
 			if t.text.Len() == 0 {
 				return errors.New("模型返回了空回复")
+			}
+			// 嘴上答应了到点提醒、却没有调用工具（提醒根本没设上）：让模型马上补设，只补一次。
+			if !t.reminderNudged && t.forgotReminder() {
+				t.reminderNudged = true
+				t.msgs = append(t.msgs, llm.Message{Role: llm.RoleAssistant, Content: roundText, Reasoning: roundReasoning},
+					llm.Message{Role: llm.RoleUser, Content: reminderNudge})
+				continue
 			}
 			return nil
 		}

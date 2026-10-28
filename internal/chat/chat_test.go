@@ -3,6 +3,7 @@ package chat
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -132,10 +133,11 @@ func (f *fakeModels) VisionHelper(context.Context, models.User) (*models.Resolve
 type fakeTools struct {
 	out    string
 	images []tools.Image
+	extra  []tools.Extra
 }
 
 func (f fakeTools) For(context.Context, *store.User, *store.Conversation, *models.Resolved, []store.Attachment) *tools.Set {
-	return tools.New(tools.Options{Python: fakeRunner{f.out, f.images}})
+	return tools.New(tools.Options{Python: fakeRunner{f.out, f.images}, Extra: f.extra})
 }
 
 type fakeRunner struct {
@@ -900,5 +902,47 @@ func TestRunTask(t *testing.T) {
 	}
 	if _, msgs, _ = e.svc.History(ctx, e.user, res.Conversation.ID, 0, 10); len(msgs) != n {
 		t.Fatalf("失败时应删掉占位消息: %d != %d", len(msgs), n)
+	}
+}
+
+// 嘴上答应了提醒却没调用 set_reminder 时，服务端让模型补设一次。
+func TestForgottenReminderNudge(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, config.QuotaConfig{})
+	e.models.tools = true
+	var set []string
+	e.svc.tools = fakeTools{extra: []tools.Extra{{
+		Def:   llm.Tool{Name: "set_reminder", Parameters: map[string]any{"type": "object", "properties": map[string]any{}}},
+		Label: "设提醒",
+		Run: func(_ context.Context, args json.RawMessage) tools.Result {
+			set = append(set, string(args))
+			return tools.Result{OK: true, Output: "已设好"}
+		},
+	}}}
+	e.chat.script = []*fakeStream{
+		{chunks: []llm.Chunk{{Delta: "好，明天15:30喊你赶大物慕课作业"}}},
+		{chunks: []llm.Chunk{{ToolCalls: []llm.ToolCallDelta{{Index: 0, ID: "r1", Name: "set_reminder", Arguments: `{"content":"赶大物慕课作业"}`}}}}},
+		{chunks: []llm.Chunk{}},
+	}
+	res, err := e.svc.Send(ctx, e.user, SendInput{Content: "明天下午三点半喊我写大物慕课作业"}, &recordSink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(set) != 1 || res.Reply.Content != "好，明天15:30喊你赶大物慕课作业" {
+		t.Fatalf("set=%v reply=%q", set, res.Reply.Content)
+	}
+	nudge := e.chat.reqs[1].Messages
+	if last := nudge[len(nudge)-1]; last.Role != llm.RoleUser || !strings.Contains(last.Content, "没有调用 set_reminder") {
+		t.Fatalf("应补发提示: %+v", last)
+	}
+
+	// 已经调用过、或者没答应提醒，都不再补发。
+	n := len(e.chat.reqs)
+	e.chat.script = []*fakeStream{{chunks: []llm.Chunk{{Delta: "明天见呀"}}}}
+	if _, err := e.svc.Send(ctx, e.user, SendInput{Content: "明天再聊"}, &recordSink{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.chat.reqs) != n+1 {
+		t.Fatalf("不该补发: %d", len(e.chat.reqs)-n)
 	}
 }
