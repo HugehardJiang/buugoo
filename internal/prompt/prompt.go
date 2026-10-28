@@ -118,7 +118,7 @@ func (b *Builder) Build(in Input) Prompt {
 		fixed[2].Content += "\n\n" + in.ToolHints
 		fixed[2].Tokens = EstimateTokens(fixed[2].Content)
 	}
-	used := EstimateTokens(in.UserMessage) + ImageTokens*len(in.UserImages)
+	used := EstimateTokens(in.UserMessage) + ImageTokens*len(in.UserImages) + EstimateTokens(NowStart+NowEnd)
 	for _, s := range fixed {
 		used += s.Tokens
 	}
@@ -141,26 +141,32 @@ func (b *Builder) Build(in Input) Prompt {
 	p.DroppedMemories = len(in.Memories) - len(memUsed)
 	used += memTokens
 
-	sections := []Section{fixed[0], fixed[1]}
+	// 为了让服务商的提示词缓存（例如 DeepSeek 的硬盘缓存）尽量命中，请求的开头要每轮都一样：
+	// 系统消息只放不常变的部分（人格、回复要求、前情提要），然后是聊天记录；
+	// 每条都会变的情境（时间）、心情和这次想起的记忆附在最后一条用户消息的开头。
+	sysSections := []Section{fixed[0], fixed[2]}
 	if summary != nil {
-		sections = append(sections, *summary)
+		sysSections = append(sysSections, *summary)
 	}
+	nowSections := []Section{fixed[1]}
 	if mood != nil {
-		sections = append(sections, *mood)
+		nowSections = append(nowSections, *mood)
 	}
 	if memText != "" {
-		sections = append(sections, Section{Name: "记忆", Content: memText, Tokens: memTokens})
+		nowSections = append(nowSections, Section{Name: "记忆", Content: memText, Tokens: memTokens})
 	}
-	sections = append(sections, fixed[2])
-	p.Sections = sections
+	p.Sections = append(append([]Section{}, sysSections...), nowSections...)
 
-	var sys strings.Builder
-	for i, s := range sections {
-		if i > 0 {
-			sys.WriteString("\n\n")
+	join := func(secs []Section) string {
+		parts := make([]string, len(secs))
+		for i, s := range secs {
+			parts[i] = s.Content
 		}
-		sys.WriteString(s.Content)
+		return strings.Join(parts, "\n\n")
 	}
+	var sys strings.Builder
+	sys.WriteString(join(sysSections))
+	now := NowStart + "\n" + join(nowSections) + "\n" + NowEnd
 
 	// 历史：从最新往前取，直到预算用完。
 	historyBudget := maxTokens - used
@@ -197,11 +203,17 @@ func (b *Builder) Build(in Input) Prompt {
 		p.HistoryIncluded++
 	}
 	p.DroppedHistory = start
-	msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: in.UserMessage, Images: in.UserImages})
+	msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: now + "\n\n" + in.UserMessage, Images: in.UserImages})
 	p.Messages = msgs
 	p.EstimatedTokens = used
 	return p
 }
+
+// 附在最后一条用户消息开头的「此刻」信息的开头和结尾标记。
+const (
+	NowStart = "〔此刻（系统附上的当前情况，对方看不到）〕"
+	NowEnd   = "〔此刻结束〕"
+)
 
 func (b *Builder) section(name, content string) Section {
 	return Section{Name: name, Content: content, Tokens: EstimateTokens(content)}
@@ -333,6 +345,7 @@ func replyRulesText(name string) string {
 		"- 记忆和对方现在说的不一致时，以对方现在说的为准，可以自然地确认一下\n" +
 		"- 不要编造你不记得的事；对方提到你不记得的事时，坦诚地说不记得，请对方再讲讲\n" +
 		"- 历史消息里〔工具记录〕括起来的是系统附上的、你之前用工具得到的结果，只给你参考，不是对方说的，对方也看不到；回复里不要照抄或提到它\n" +
+		"- 最后一条消息开头〔此刻〕括起来的是系统附上的现在的时间、你此刻的心情和可能相关的记忆，不是对方说的话；自然地用上，回复里不要照抄或提到它\n" +
 		"- 直接输出" + name + "要说的话，不要加名字前缀或旁白"
 }
 

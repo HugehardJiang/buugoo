@@ -130,13 +130,13 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 			if job.Personal {
 				return // 用户自带的 Key，不计入限额
 			}
-			if err := limiter.Record(ctx, job.UserID, quota.Use{Key: quota.KeyUtility, PromptTokens: u.PromptTokens, CompletionTokens: u.CompletionTokens}); err != nil {
+			if err := limiter.Record(ctx, job.UserID, quota.Tokens(quota.KeyUtility, u)); err != nil {
 				log.Error("记录后台用量失败", "user_id", job.UserID, "err", err)
 			}
 		})
 	compactor := memory.NewCompactor(db.Memories(), vs, userEmb, utilLLM, cfg.Memory.Compact, log,
 		func(ctx context.Context, userID uint64, u llm.Usage) {
-			if err := limiter.Record(ctx, userID, quota.Use{Key: quota.KeyUtility, PromptTokens: u.PromptTokens, CompletionTokens: u.CompletionTokens}); err != nil {
+			if err := limiter.Record(ctx, userID, quota.Tokens(quota.KeyUtility, u)); err != nil {
 				log.Error("记录后台用量失败", "user_id", userID, "err", err)
 			}
 		})

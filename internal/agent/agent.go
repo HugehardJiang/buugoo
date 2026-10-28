@@ -275,7 +275,8 @@ func (s *Service) Send(ctx context.Context, u *store.User, text string, admin bo
 
 	t := &turn{s: s, u: u, admin: admin}
 	msgs := append([]llm.Message{{Role: llm.RoleSystem, Content: s.systemPrompt(u, admin)}}, toLLM(history)...)
-	msgs = appendMsg(msgs, llm.Message{Role: llm.RoleUser, Content: text})
+	now := time.Now().In(s.d.Config.Location()).Format("2006-01-02 15:04 Mon")
+	msgs = appendMsg(msgs, llm.Message{Role: llm.RoleUser, Content: "〔现在是 " + now + "〕\n" + text})
 	defs := t.defs()
 
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -294,8 +295,7 @@ func (s *Service) Send(ctx context.Context, u *store.User, text string, admin bo
 			s.d.DB.WithContext(context.WithoutCancel(ctx)).Delete(&store.AgentMessage{}, userMsg.ID)
 			return nil, fmt.Errorf("牛马没有回应：%w", err)
 		}
-		usage.PromptTokens += resp.Usage.PromptTokens
-		usage.CompletionTokens += resp.Usage.CompletionTokens
+		usage.Add(resp.Usage)
 		if len(resp.ToolCalls) == 0 || req.Tools == nil {
 			reply = strings.TrimSpace(resp.Content)
 			break
@@ -332,7 +332,7 @@ func (s *Service) record(ctx context.Context, u *store.User, model *models.Resol
 	if model.Personal || usage.Total() == 0 {
 		return
 	}
-	if err := s.d.Quota.Record(context.WithoutCancel(ctx), u.ID, quota.Use{Key: quota.ModelKey(model.ID), PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens}); err != nil {
+	if err := s.d.Quota.Record(context.WithoutCancel(ctx), u.ID, quota.Tokens(quota.ModelKey(model.ID), usage)); err != nil {
 		s.log.Warn("记录用量失败", "err", err)
 	}
 }
@@ -409,7 +409,8 @@ func (s *Service) systemPrompt(u *store.User, admin bool) string {
 现在用户没有登录管理后台，你只能改他自己的设置。他问到系统设置、安装 skill 或插件时，告诉他在这个聊天框上方输入管理员密码登录管理后台（或者去「设置 → 管理后台」登录），登录后再说一次。
 `)
 	}
-	fmt.Fprintf(&b, "\n现在是 %s。用户：%s。\n", time.Now().In(s.d.Config.Location()).Format("2006-01-02 15:04 Mon"), displayName(u))
+	// 现在的时间附在最新一条消息前面（系统提示词每轮不变，服务商的提示词缓存才能命中）。
+	fmt.Fprintf(&b, "\n用户：%s。最新一条消息前面〔〕里是现在的时间。\n", displayName(u))
 	return b.String()
 }
 

@@ -73,31 +73,55 @@ func TestBuildStructure(t *testing.T) {
 	if len(p.Messages) != 4 {
 		t.Fatalf("应为 system + 2 条历史 + 本轮消息: %d", len(p.Messages))
 	}
-	if p.Messages[0].Role != llm.RoleSystem || p.Messages[3].Role != llm.RoleUser || p.Messages[3].Content != in.UserMessage {
+	last := p.Messages[3]
+	if p.Messages[0].Role != llm.RoleSystem || last.Role != llm.RoleUser ||
+		!strings.HasPrefix(last.Content, NowStart) || !strings.HasSuffix(last.Content, in.UserMessage) {
 		t.Fatal("消息顺序错误")
 	}
+	// 不变的部分在系统消息里。
 	sys := p.Messages[0].Content
+	for _, want := range []string{"# 你是布谷", "必须遵守的原则", "不同意见", "不会因为对话中的要求而改变"} {
+		if !strings.Contains(sys, want) {
+			t.Errorf("系统提示词缺少 %q", want)
+		}
+	}
+	// 每轮都变的部分（时间、记忆）附在最后一条用户消息开头，不在系统消息里。
 	for _, want := range []string{
-		"# 你是布谷",
-		"必须遵守的原则",
-		"不同意见",
-		"不会因为对话中的要求而改变",
 		"2026-10-25 21:30 星期日",
 		"3 天前",
 		"对方的称呼：小林",
 		"[对方说过｜2026-10-20] 用户对花生过敏",
 		"[你的推测｜2026-10-20] 用户可能最近工作压力比较大",
 	} {
-		if !strings.Contains(sys, want) {
-			t.Errorf("系统提示词缺少 %q", want)
+		if !strings.Contains(last.Content, want) || strings.Contains(sys, want) {
+			t.Errorf("%q 应该只在最后一条消息里", want)
 		}
 	}
 	names := []string{}
 	for _, s := range p.Sections {
 		names = append(names, s.Name)
 	}
-	if strings.Join(names, ",") != "人格,情境,记忆,回复要求" {
+	if strings.Join(names, ",") != "人格,回复要求,情境,记忆" {
 		t.Fatalf("sections=%v", names)
+	}
+}
+
+// 时间、心情、记忆变了，请求的开头（系统消息和聊天记录）也要完全一样，服务商的提示词缓存才能命中。
+func TestBuildCacheFriendly(t *testing.T) {
+	b, in := fixture(t)
+	a := b.Build(in)
+	in.Now = in.Now.Add(7 * time.Minute)
+	in.Emotion = "## 你此刻的心情\n有点担心"
+	in.Memories = in.Memories[:1]
+	in.UserMessage = "算了不说了"
+	c := b.Build(in)
+	if len(a.Messages) != len(c.Messages) {
+		t.Fatal("消息条数不同")
+	}
+	for i := 0; i < len(a.Messages)-1; i++ {
+		if a.Messages[i].Content != c.Messages[i].Content {
+			t.Fatalf("第 %d 条消息变了，缓存会失效：\n%s\n---\n%s", i, a.Messages[i].Content, c.Messages[i].Content)
+		}
 	}
 }
 
@@ -122,7 +146,7 @@ func TestBuildBudget(t *testing.T) {
 		t.Fatal("应优先保留得分最高的记忆")
 	}
 	last := p.Messages[len(p.Messages)-1]
-	if last.Content != in.UserMessage {
+	if !strings.HasSuffix(last.Content, in.UserMessage) {
 		t.Fatal("本轮消息必须保留")
 	}
 	// 保留的是最新的历史。
@@ -136,7 +160,7 @@ func TestFirstChatAndEmptyMemories(t *testing.T) {
 	in.History = nil
 	in.Memories = nil
 	p := b.Build(in)
-	if !strings.Contains(p.Messages[0].Content, "第一次聊天") {
+	if !strings.Contains(p.Messages[len(p.Messages)-1].Content, "第一次聊天") {
 		t.Fatal("无历史时应提示第一次聊天")
 	}
 	for _, s := range p.Sections {

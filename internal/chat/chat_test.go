@@ -273,8 +273,8 @@ func TestSendFlowAndMemoryRoundTrip(t *testing.T) {
 		t.Fatalf("应使用相关记忆: %+v", sink2.mems)
 	}
 	req := e.chat.reqs[1]
-	if !strings.Contains(req.Messages[0].Content, "用户对花生过敏") {
-		t.Fatal("系统提示词应包含记忆")
+	if last := req.Messages[len(req.Messages)-1].Content; !strings.Contains(last, "用户对花生过敏") || strings.Contains(req.Messages[0].Content, "用户对花生过敏") {
+		t.Fatal("记忆应附在最后一条消息里（不放进系统提示词，免得缓存失效）")
 	}
 	if len(req.Messages) != 4 || req.Messages[1].Content != "我对花生过敏" {
 		t.Fatalf("应包含上一轮对话历史: %+v", req.Messages)
@@ -720,7 +720,7 @@ func TestConversationSummary(t *testing.T) {
 		t.Fatalf("超过阈值的这一轮照常回复，不应压缩：rounds=%d calls=%d", rounds, len(fs.calls))
 	}
 	st, _ := e.svc.Context(ctx, e.user, convID)
-	if !st.Pending || st.Size != 8000 || st.Percent < 70 || st.CompactAt != 80 {
+	if !st.Pending || st.Size != 8000 || st.Percent < 60 || st.CompactAt != 80 {
 		t.Fatalf("%+v", st)
 	}
 	// 下一条消息处理前先压缩：较早的整理进摘要，最近约 20% 保留原文。
@@ -742,7 +742,7 @@ func TestConversationSummary(t *testing.T) {
 	if hasPrefix(req.Messages, "第1句") {
 		t.Fatal("已整理的消息不应出现")
 	}
-	if !hasPrefix(req.Messages, fmt.Sprintf("第%d句", rounds+1)) || req.Messages[len(req.Messages)-1].Content != "接着说" {
+	if !hasPrefix(req.Messages, fmt.Sprintf("第%d句", rounds+1)) || !strings.HasSuffix(req.Messages[len(req.Messages)-1].Content, "接着说") {
 		t.Fatal("最近的消息应原样保留")
 	}
 	// 手动压缩：只剩最近的消息时没有可压缩的。

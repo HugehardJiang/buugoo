@@ -623,8 +623,7 @@ func (t *turn) consume(stream llm.ChatStream) (string, string, []llm.ToolCall, e
 			return text.String(), reasoning.String(), nil, err
 		}
 		if chunk.Usage != nil {
-			t.usage.PromptTokens += chunk.Usage.PromptTokens
-			t.usage.CompletionTokens += chunk.Usage.CompletionTokens
+			t.usage.Add(*chunk.Usage)
 			t.usageReported = true
 		}
 		calls.Add(chunk.ToolCalls)
@@ -705,7 +704,7 @@ func isCanceled(ctx context.Context, err error) bool {
 func (s *Service) afterReply(ctx context.Context, u *store.User, p *prepared, model *models.Resolved,
 	userMsg, reply *store.Message, atts []store.Attachment, usage llm.Usage) {
 	if !model.Personal {
-		if err := s.quota.Record(ctx, u.ID, quota.Use{Key: quota.ModelKey(model.ID), Messages: 1, PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens}); err != nil {
+		if err := s.quota.Record(ctx, u.ID, quota.Use{Key: quota.ModelKey(model.ID), Messages: 1, PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens, CachedTokens: usage.CachedTokens}); err != nil {
 			s.log.Error("记录用量失败", "user_id", u.ID, "err", err)
 		}
 	}

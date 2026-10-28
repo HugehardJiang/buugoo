@@ -284,3 +284,56 @@ func TestCards(t *testing.T) {
 		t.Errorf("balance = %d", bal)
 	}
 }
+
+// 缓存命中和高峰 / 空闲时段：按 DeepSeek 的价格算。
+func TestCostCacheAndPeak(t *testing.T) {
+	s, _ := setup(t)
+	ctx := context.Background()
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	s.loc = loc
+	flash := Price{Input: 2, CacheInput: 0.04, Output: 8, OffPeak: &Price{Input: 1, CacheInput: 0.02, Output: 4}}
+	if err := s.SetPricing(ctx, Pricing{Mode: quota.ModeQuotaFirst, Prices: map[string]Price{"model:1": flash, "model:2": {Input: 3, Output: 6}},
+		Peak: &PeakRule{Days: []int{5, 1, 2, 3, 4, 1}, Ranges: []string{"09:00-12:00", " 14:00-18:00 "}, Holidays: []string{"2026-10-01~2026-10-03", "2026-12-25"}}}); err != nil {
+		t.Fatal(err)
+	}
+	p := s.Pricing(ctx)
+	if len(p.Peak.Days) != 5 || len(p.Peak.Holidays) != 4 || p.Peak.Holidays[2] != "2026-10-03" {
+		t.Fatalf("peak = %+v", p.Peak)
+	}
+	// 100 万输入里 80 万命中缓存，10 万输出。
+	use := quota.Use{Key: "model:1", PromptTokens: 1_000_000, CachedTokens: 800_000, CompletionTokens: 100_000}
+	at := func(s string) func() time.Time {
+		t, _ := time.ParseInLocation("2006-01-02 15:04", s, loc)
+		return func() time.Time { return t }
+	}
+	for _, c := range []struct {
+		when string
+		want int64
+	}{
+		{"2026-10-28 10:30", 200_000*2 + 800_000*0.04 + 100_000*8}, // 周三上午：高峰
+		{"2026-10-28 12:30", 200_000*1 + 800_000*0.02 + 100_000*4}, // 午休：空闲
+		{"2026-10-28 18:00", 200_000*1 + 800_000*0.02 + 100_000*4}, // 18:00 已经不算高峰
+		{"2026-10-31 10:30", 200_000*1 + 800_000*0.02 + 100_000*4}, // 周六：空闲
+		{"2026-10-02 10:30", 200_000*1 + 800_000*0.02 + 100_000*4}, // 国庆：空闲
+	} {
+		s.now = at(c.when)
+		if got := s.Cost(use); got != c.want {
+			t.Errorf("%s: cost = %d, want %d", c.when, got, c.want)
+		}
+	}
+	// 没设空闲价的项全天一个价；没设缓存价时命中也按输入价。
+	s.now = at("2026-10-31 10:30")
+	if got := s.Cost(quota.Use{Key: "model:2", PromptTokens: 1000, CachedTokens: 500, CompletionTokens: 100}); got != 1000*3+100*6 {
+		t.Errorf("model:2 = %d", got)
+	}
+	for _, bad := range []*PeakRule{
+		{Days: []int{1}, Ranges: []string{"9点到12点"}},
+		{Days: []int{1}, Ranges: []string{"12:00-09:00"}},
+		{Days: []int{1}, Ranges: []string{"09:00-12:00"}, Holidays: []string{"国庆"}},
+		{Days: []int{}, Ranges: []string{"09:00-12:00"}},
+	} {
+		if err := s.SetPricing(ctx, Pricing{Mode: quota.ModeQuotaFirst, Peak: bad}); err == nil {
+			t.Errorf("%+v 应拒绝", bad)
+		}
+	}
+}

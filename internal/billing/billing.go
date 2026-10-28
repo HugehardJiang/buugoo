@@ -19,6 +19,8 @@ import (
 	"math"
 	"math/big"
 	"net/url"
+	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -71,11 +73,23 @@ var _ quota.Billing = (*Service)(nil)
 
 // ---------- 价格与扣费方式 ----------
 
-// Price 是一个计价项的价格：模型按 token（元 / 百万 token，输入和输出分开），搜索和读网页按次（元 / 千次）。
+// Price 是一个计价项的价格：模型按 token（元 / 百万 token：输入分缓存未命中和命中，再加输出），
+// 搜索和读网页按次（元 / 千次）。OffPeak 不为空时，空闲时段按它的价格（见 Pricing.Peak）。
 type Price struct {
-	Input  float64 `json:"input,omitempty"`
-	Output float64 `json:"output,omitempty"`
-	PerK   float64 `json:"per_k,omitempty"`
+	Input float64 `json:"input,omitempty"`
+	// CacheInput 是命中服务商缓存的输入价格，0 表示和 Input 一样。
+	CacheInput float64 `json:"cache_input,omitempty"`
+	Output     float64 `json:"output,omitempty"`
+	PerK       float64 `json:"per_k,omitempty"`
+	OffPeak    *Price  `json:"off_peak,omitempty"`
+}
+
+// PeakRule 是高峰时段：Days 是星期几（0 是星期日），Ranges 是每天的时间段（例如 09:00-12:00），按系统时区；
+// Holidays 里的日期（法定节假日）全天算空闲。其余时段都是空闲时段。
+type PeakRule struct {
+	Days     []int    `json:"days"`
+	Ranges   []string `json:"ranges"`
+	Holidays []string `json:"holidays"`
 }
 
 // Pricing 是全部计费设置。
@@ -84,6 +98,100 @@ type Pricing struct {
 	Mode string `json:"mode"`
 	// Prices 的键是计价项（见 quota.ModelKey、quota.KeyUtility 等）。
 	Prices map[string]Price `json:"prices"`
+	// Peak 不为空时分高峰和空闲两套价格（没设空闲价的项全天一个价）。
+	Peak *PeakRule `json:"peak,omitempty"`
+}
+
+// rangeRe 是时间段的格式。
+var rangeRe = regexp.MustCompile(`^([01]\d|2[0-3]):([0-5]\d)-([01]\d|2[0-4]):([0-5]\d)$`)
+
+// minutes 把 09:30 写成一天里的第几分钟。
+func minutes(hhmm string) int {
+	var h, m int
+	fmt.Sscanf(hhmm, "%d:%d", &h, &m)
+	return h*60 + m
+}
+
+// IsPeak 报告 t 是否在高峰时段。没有设高峰时段时总是 true（按正常价格）。
+func (p Pricing) IsPeak(t time.Time) bool {
+	r := p.Peak
+	if r == nil {
+		return true
+	}
+	if slices.Contains(r.Holidays, t.Format("2006-01-02")) || !slices.Contains(r.Days, int(t.Weekday())) {
+		return false
+	}
+	now := t.Hour()*60 + t.Minute()
+	for _, rg := range r.Ranges {
+		from, to, _ := strings.Cut(rg, "-")
+		if now >= minutes(from) && now < minutes(to) {
+			return true
+		}
+	}
+	return false
+}
+
+// normalize 检查并整理高峰时段：去重、排序，节假日里的「2026-10-01~2026-10-07」展开成每一天。
+func (r *PeakRule) normalize() error {
+	days := map[int]bool{}
+	for _, d := range r.Days {
+		if d < 0 || d > 6 {
+			return userErr("星期几不对")
+		}
+		days[d] = true
+	}
+	r.Days = r.Days[:0]
+	for d := 0; d < 7; d++ {
+		if days[d] {
+			r.Days = append(r.Days, d)
+		}
+	}
+	var ranges []string
+	for _, rg := range r.Ranges {
+		rg = strings.ReplaceAll(strings.TrimSpace(rg), " ", "")
+		if rg == "" {
+			continue
+		}
+		if !rangeRe.MatchString(rg) {
+			return userErr("时间段要写成 09:00-12:00：%s", rg)
+		}
+		from, to, _ := strings.Cut(rg, "-")
+		if minutes(from) >= minutes(to) {
+			return userErr("时间段的开始要早于结束：%s", rg)
+		}
+		ranges = append(ranges, rg)
+	}
+	r.Ranges = ranges
+	set := map[string]bool{}
+	for _, h := range r.Holidays {
+		h = strings.TrimSpace(h)
+		if h == "" {
+			continue
+		}
+		a, b, isRange := strings.Cut(strings.ReplaceAll(h, "～", "~"), "~")
+		from, err := time.Parse("2006-01-02", strings.TrimSpace(a))
+		if err != nil {
+			return userErr("节假日要写成 2026-10-01 或 2026-10-01~2026-10-07：%s", h)
+		}
+		to := from
+		if isRange {
+			if to, err = time.Parse("2006-01-02", strings.TrimSpace(b)); err != nil || to.Before(from) || to.Sub(from) > 60*24*time.Hour {
+				return userErr("节假日的日期范围不对：%s", h)
+			}
+		}
+		for d := from; !d.After(to); d = d.AddDate(0, 0, 1) {
+			set[d.Format("2006-01-02")] = true
+		}
+	}
+	if len(set) > 1000 {
+		return userErr("节假日太多了")
+	}
+	r.Holidays = make([]string, 0, len(set))
+	for d := range set {
+		r.Holidays = append(r.Holidays, d)
+	}
+	slices.Sort(r.Holidays)
+	return nil
 }
 
 const pricingKey = "pricing"
@@ -123,16 +231,32 @@ func (s *Service) SetPricing(ctx context.Context, p Pricing) error {
 		if k == "" || len(k) > 48 {
 			return userErr("计价项不对：%s", k)
 		}
-		for _, x := range []float64{v.Input, v.Output, v.PerK} {
+		xs := []float64{v.Input, v.CacheInput, v.Output, v.PerK}
+		if v.OffPeak != nil {
+			v.OffPeak.OffPeak = nil
+			xs = append(xs, v.OffPeak.Input, v.OffPeak.CacheInput, v.OffPeak.Output, v.OffPeak.PerK)
+			if *v.OffPeak == (Price{}) {
+				v.OffPeak = nil
+			}
+		}
+		for _, x := range xs {
 			if x < 0 || x > 100000 || math.IsNaN(x) || math.IsInf(x, 0) {
 				return userErr("价格要在 0 到 100000 元之间")
 			}
 		}
-		if v != (Price{}) {
+		if v.Input != 0 || v.CacheInput != 0 || v.Output != 0 || v.PerK != 0 || v.OffPeak != nil {
 			clean[k] = v
 		}
 	}
 	p.Prices = clean
+	if p.Peak != nil {
+		if err := p.Peak.normalize(); err != nil {
+			return err
+		}
+		if len(p.Peak.Days) == 0 || len(p.Peak.Ranges) == 0 {
+			return userErr("分时段计价要选上高峰的星期几和时间段")
+		}
+	}
 	b, _ := json.Marshal(p)
 	row := store.BillingSetting{Key: pricingKey, Value: string(b), UpdatedAt: s.now()}
 	if err := s.db.WithContext(ctx).Clauses(clause.OnConflict{UpdateAll: true}).Create(&row).Error; err != nil {
@@ -150,11 +274,20 @@ func (s *Service) Mode() string { return s.Pricing(context.Background()).Mode }
 // Cost 实现 quota.Billing：按价格算出这次调用的金额（微元）。
 // 价格是元 / 百万 token，所以 token 数乘以价格正好是微元；按次的价格是元 / 千次，每次是 1000 倍。
 func (s *Service) Cost(u quota.Use) int64 {
-	p, ok := s.Pricing(context.Background()).Prices[u.Key]
+	pr := s.Pricing(context.Background())
+	p, ok := pr.Prices[u.Key]
 	if !ok {
 		return 0
 	}
-	v := float64(u.PromptTokens)*p.Input + float64(u.CompletionTokens)*p.Output + float64(u.Calls)*p.PerK*1000
+	if p.OffPeak != nil && !pr.IsPeak(s.now().In(s.loc)) {
+		p = *p.OffPeak
+	}
+	cacheRate := p.CacheInput
+	if cacheRate == 0 {
+		cacheRate = p.Input
+	}
+	cached := min(max(u.CachedTokens, 0), u.PromptTokens)
+	v := float64(u.PromptTokens-cached)*p.Input + float64(cached)*cacheRate + float64(u.CompletionTokens)*p.Output + float64(u.Calls)*p.PerK*1000
 	return int64(math.Ceil(v - 1e-9))
 }
 

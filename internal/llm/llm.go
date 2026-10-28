@@ -3,6 +3,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -79,10 +80,45 @@ type ChatRequest struct {
 type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
+	// CachedTokens 是输入里命中了服务商缓存的 token 数（包含在 PromptTokens 里），按更便宜的价格计费。
+	CachedTokens int `json:"cached_tokens,omitempty"`
 }
 
 // Total 返回总 token 数。
 func (u Usage) Total() int { return u.PromptTokens + u.CompletionTokens }
+
+// Add 累加另一次调用的用量。
+func (u *Usage) Add(o Usage) {
+	u.PromptTokens += o.PromptTokens
+	u.CompletionTokens += o.CompletionTokens
+	u.CachedTokens += o.CachedTokens
+}
+
+// UnmarshalJSON 读取各家服务商的用量格式：缓存命中的 token 在 DeepSeek 是 prompt_cache_hit_tokens，
+// 在 OpenAI 格式里是 prompt_tokens_details.cached_tokens。
+func (u *Usage) UnmarshalJSON(b []byte) error {
+	var raw struct {
+		PromptTokens     int  `json:"prompt_tokens"`
+		CompletionTokens int  `json:"completion_tokens"`
+		CachedTokens     int  `json:"cached_tokens"`
+		CacheHit         *int `json:"prompt_cache_hit_tokens"`
+		Details          *struct {
+			CachedTokens int `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	u.PromptTokens, u.CompletionTokens, u.CachedTokens = raw.PromptTokens, raw.CompletionTokens, raw.CachedTokens
+	switch {
+	case raw.CacheHit != nil:
+		u.CachedTokens = *raw.CacheHit
+	case raw.Details != nil && raw.Details.CachedTokens > 0:
+		u.CachedTokens = raw.Details.CachedTokens
+	}
+	u.CachedTokens = min(max(u.CachedTokens, 0), u.PromptTokens)
+	return nil
+}
 
 // ChatResponse 是非流式聊天补全结果。
 type ChatResponse struct {

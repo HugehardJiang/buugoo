@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/HugehardJiang/buugoo/internal/config"
+	"github.com/HugehardJiang/buugoo/internal/llm"
 	"github.com/HugehardJiang/buugoo/internal/store"
 )
 
@@ -40,6 +41,11 @@ func ModelKey(id uint64) string { return "model:" + strconv.FormatUint(id, 10) }
 func SearchKey(provider string) string { return "search:" + provider }
 func FetchKey(provider string) string  { return "fetch:" + provider }
 
+// Tokens 是一次模型调用的用量。
+func Tokens(key string, u llm.Usage) Use {
+	return Use{Key: key, PromptTokens: u.PromptTokens, CompletionTokens: u.CompletionTokens, CachedTokens: u.CachedTokens}
+}
+
 // Use 是一次调用的用量。
 type Use struct {
 	// Key 是计价项；为空时只记用量不扣费。
@@ -47,6 +53,8 @@ type Use struct {
 	Messages         int
 	PromptTokens     int
 	CompletionTokens int
+	// CachedTokens 是 PromptTokens 里命中服务商缓存的部分（按缓存价格计费）。
+	CachedTokens int
 	// Search 为 true 表示这是一次联网搜索（计入搜索次数）；Calls 是按次计价的次数。
 	Search bool
 	Calls  int

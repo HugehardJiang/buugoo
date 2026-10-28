@@ -173,8 +173,21 @@ func StripToolNotes(text string) string { return stripToolNotes(text) }
 
 // stripToolNotes 去掉模型照抄进回复里的工具记录。有结尾标记时去掉整段；没有结尾时去掉开头那行和紧跟着的列表。
 func stripToolNotes(text string) string {
+	// 模型偶尔会把附上的〔此刻〕信息照抄进回复，一并去掉。
+	for {
+		start := strings.Index(text, prompt.NowStart)
+		if start < 0 {
+			break
+		}
+		end := strings.Index(text[start:], prompt.NowEnd)
+		if end < 0 {
+			text = text[:start]
+			break
+		}
+		text = text[:start] + text[start+end+len(prompt.NowEnd):]
+	}
 	if !strings.Contains(text, toolNoteStart) {
-		return text
+		return strings.TrimSpace(text)
 	}
 	for {
 		start := strings.Index(text, toolNoteStart)
@@ -339,7 +352,7 @@ func (s *Service) compact(ctx context.Context, u *store.User, conv *store.Conver
 			}
 			return fmt.Errorf("整理摘要失败：%w", err)
 		}
-		if err := s.quota.Record(ctx, u.ID, quota.Use{Key: quota.KeyUtility, PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens}); err != nil {
+		if err := s.quota.Record(ctx, u.ID, quota.Tokens(quota.KeyUtility, usage)); err != nil {
 			s.log.Error("记录用量失败", "user_id", u.ID, "err", err)
 		}
 		summary = next

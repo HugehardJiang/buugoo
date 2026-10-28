@@ -393,17 +393,30 @@ export interface PricingItem {
   kind: 'tokens' | 'calls'
   group: string
   hint?: string
+  model?: string
 }
 
 export interface Price {
   input?: number
+  // cache_input 是命中缓存的输入价格，不填和 input 一样。
+  cache_input?: number
   output?: number
   per_k?: number
+  // off_peak 是空闲时段的价格（开了分时段计价时才用）。
+  off_peak?: Price
+}
+
+export interface PeakRule {
+  // days 是星期几（0 是星期日）。
+  days: number[]
+  ranges: string[]
+  holidays: string[]
 }
 
 export interface Pricing {
   mode: 'quota_first' | 'pay'
   prices: Record<string, Price>
+  peak?: PeakRule
 }
 
 export interface MemoPageInfo {

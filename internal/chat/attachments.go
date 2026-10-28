@@ -104,7 +104,7 @@ func (s *Service) describeImages(ctx context.Context, u *store.User, model *mode
 			return fmt.Errorf("请「%s」帮忙看图失败：%w", helper.Name, err)
 		}
 		if !helper.Personal {
-			if err := s.quota.Record(ctx, u.ID, quota.Use{Key: quota.ModelKey(helper.ID), PromptTokens: resp.Usage.PromptTokens, CompletionTokens: resp.Usage.CompletionTokens}); err != nil {
+			if err := s.quota.Record(ctx, u.ID, quota.Tokens(quota.ModelKey(helper.ID), resp.Usage)); err != nil {
 				s.log.Error("记录用量失败", "user_id", u.ID, "err", err)
 			}
 		}
