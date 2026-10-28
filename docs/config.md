@@ -100,13 +100,14 @@ Word `.docx`、以及 UTF-8 / GBK 编码的纯文本文件。上传后 24 小时
 | `tools.python.install_timeout` | `5m` | 一次安装的时间上限 |
 | `tools.python.workspace_mb` | 50 | 每段对话工作目录（压缩后）的上限，0 表示不保留文件 |
 | `tools.python.workspace_dir` | `<data_dir>/workspaces` | 对话工作目录的位置 |
-| `tools.search.provider` | `auto` | `auto`：模型是 DeepSeek 时用 DeepSeek 搜索，否则用填了 Key 的博查或 Tavily；`deepseek` / `bocha` / `tavily`：只用指定的；`off`：关闭 |
+| `tools.search.provider` | `auto` | `auto`：优先用 DeepSeek 搜索（见下一项），用不了时用填了 Key 的博查或 Tavily；`deepseek` / `bocha` / `tavily`：只用指定的；`off`：关闭 |
+| `tools.search.deepseek_api_key` | 空 | 专门给搜索和读网页用的 [DeepSeek](https://platform.deepseek.com) Key。填了以后不管聊天用哪个模型都用 DeepSeek 搜索，费用记在这个 Key 上；不填时只有聊天模型是 DeepSeek 才用它自己的 Key |
 | `tools.search.bocha_api_key` | 空 | [博查](https://open.bochaai.com) 的 Key，国内服务器推荐 |
 | `tools.search.tavily_api_key` | 空 | [Tavily](https://app.tavily.com) 的 Key，每月有免费额度，也用于读取网页 |
 | `tools.search.direct_fetch` | true | 搜索服务不能读网页时（如博查），由服务器直接下载网页正文（只能访问公网地址） |
 
 联网搜索不再限定 DeepSeek：模型是 DeepSeek 时默认用它的 Search / Fetch 接口（各 5 元 / 千次，费用记在该模型的 Key 上），
-其他模型用博查或 Tavily。模型需要勾选「支持工具调用」（配置文件中为 `llm.chat.tools`）。
+其他模型用博查或 Tavily；想用其他模型聊天、搜索仍然走 DeepSeek，就填 `tools.search.deepseek_api_key`。模型需要勾选「支持工具调用」（配置文件中为 `llm.chat.tools`）。
 
 运行代码时，当前目录是这段对话专属的工作目录：这段对话里上传过的文件在 `input/`（只读），代码保存的文件之后的运行还能用。
 沙箱中的工作目录是有大小上限的内存盘，运行结束后有变化才打包交回保存，代码不能直接写服务器磁盘；

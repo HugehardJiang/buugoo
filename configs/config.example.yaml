@@ -126,9 +126,11 @@ emotion:
 tools:
   # 聊天中模型可以自己决定联网搜索、读取网页，以及编写并运行 Python 代码来做精确计算。
   search:
-    # auto：当前模型是 DeepSeek 时用 DeepSeek 的搜索（用该模型的 Key），否则用下面填了 Key 的博查或 Tavily
+    # auto：优先用 DeepSeek 的搜索（填了 deepseek_api_key 就用它，没填时只有当前模型是 DeepSeek 才用该模型的 Key），
+    #       用不了时用下面填了 Key 的博查或 Tavily
     # deepseek / bocha / tavily：只用指定的服务；off：关闭
     provider: auto
+    deepseek_api_key: ""   # 专门给搜索和读网页用的 DeepSeek Key（platform.deepseek.com），填了以后用其他模型聊天也能用 DeepSeek 搜索
     bocha_api_key: ""      # 博查（open.bochaai.com），国内服务器推荐；建议用环境变量 BUUGOO_TOOLS__SEARCH__BOCHA_API_KEY
     tavily_api_key: ""     # Tavily（app.tavily.com），每月有免费额度，也能读取网页正文
     # 搜索服务不能读网页时（如博查），由服务器直接下载网页正文（只能访问公网地址）

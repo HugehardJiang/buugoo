@@ -51,7 +51,7 @@ var layout = []section{
 		"~memory.cache.max_users", "~memory.cache.max_bytes", "~memory.cache.ttl", "~scheduler.enabled", "~scheduler.consolidation_spec"}},
 	{"memory", "情绪", []string{"emotion.enabled", "emotion.expressiveness", "emotion.temper", "emotion.patience", "emotion.forgiveness", "emotion.empathy"}},
 
-	{"tools", "联网搜索", []string{"tools.search.provider", "tools.search.bocha_api_key", "tools.search.tavily_api_key", "~tools.search.direct_fetch"}},
+	{"tools", "联网搜索", []string{"tools.search.provider", "tools.search.deepseek_api_key", "tools.search.bocha_api_key", "tools.search.tavily_api_key", "~tools.search.direct_fetch"}},
 	{"tools", "运行代码", []string{"tools.python.runner", "tools.python.packages", "tools.python.allow_install", "tools.python.index_url", "tools.python.workspace_mb",
 		"~tools.python.timeout", "~tools.python.memory_mb", "~tools.python.image", "~tools.python.docker", "~tools.python.python", "~tools.python.lib_dir",
 		"~tools.python.lib_max_mb", "~tools.python.workspace_dir", "~tools.python.install_timeout"}},

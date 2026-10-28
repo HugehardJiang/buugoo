@@ -131,10 +131,11 @@ var meta = map[string]struct {
 	"proactive.min_gap_hours":  {"两次主动关心至少间隔（小时）", "", nil},
 	"proactive.check_interval": {"检查间隔", "多久检查一次要不要主动关心", nil},
 
-	"tools.search.provider":       {"联网搜索服务", "auto：模型是 DeepSeek 时用 DeepSeek，否则用填了 Key 的博查或 Tavily；deepseek：只在模型是 DeepSeek 时搜索；off：关闭", []string{"auto", "deepseek", "bocha", "tavily", "off"}},
-	"tools.search.bocha_api_key":  {"博查 API Key", "在 open.bochaai.com 申请；国内服务器推荐", nil},
-	"tools.search.tavily_api_key": {"Tavily API Key", "在 app.tavily.com 申请，每月有免费额度；也用于读取网页", nil},
-	"tools.search.direct_fetch":   {"直接读取网页", "搜索服务不能读网页时（如博查），由服务器直接下载网页正文（只能访问公网地址）", nil},
+	"tools.search.provider":         {"联网搜索服务", "auto：模型是 DeepSeek 时用 DeepSeek，否则用填了 Key 的博查或 Tavily；deepseek：只在模型是 DeepSeek 时搜索；off：关闭", []string{"auto", "deepseek", "bocha", "tavily", "off"}},
+	"tools.search.deepseek_api_key": {"DeepSeek 搜索 API Key", "在 platform.deepseek.com 申请；填了以后用其他模型聊天也能用 DeepSeek 搜索和读网页（各 5 元 / 千次，记在这个 Key 上）。不填时只有聊天模型是 DeepSeek 才用它的搜索", nil},
+	"tools.search.bocha_api_key":    {"博查 API Key", "在 open.bochaai.com 申请；国内服务器推荐", nil},
+	"tools.search.tavily_api_key":   {"Tavily API Key", "在 app.tavily.com 申请，每月有免费额度；也用于读取网页", nil},
+	"tools.search.direct_fetch":     {"直接读取网页", "搜索服务不能读网页时（如博查），由服务器直接下载网页正文（只能访问公网地址）", nil},
 
 	"tools.python.runner":          {"运行方式", "docker：一次性沙箱容器（所有用户可用）；local：本机 Python（multi 模式仅管理员）；off：关闭", []string{"docker", "local", "off"}},
 	"tools.python.image":           {"Docker 镜像", "", nil},

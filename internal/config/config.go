@@ -329,9 +329,11 @@ const (
 
 // SearchConfig 是联网搜索与读取网页的配置。
 type SearchConfig struct {
-	Provider     string `koanf:"provider"`
-	BochaAPIKey  string `koanf:"bocha_api_key"`
-	TavilyAPIKey string `koanf:"tavily_api_key"`
+	Provider string `koanf:"provider"`
+	// DeepSeekAPIKey 是专门给搜索和读网页用的 DeepSeek Key：填了以后不管聊天用哪个模型，都可以用 DeepSeek 的搜索。
+	DeepSeekAPIKey string `koanf:"deepseek_api_key"`
+	BochaAPIKey    string `koanf:"bocha_api_key"`
+	TavilyAPIKey   string `koanf:"tavily_api_key"`
 	// DirectFetch 为 true 时，搜索服务不能读取网页（例如博查、或没有搜索服务）也由服务器直接下载网页读取正文（只能访问公网）。
 	DirectFetch bool `koanf:"direct_fetch"`
 }

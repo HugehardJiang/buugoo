@@ -20,6 +20,9 @@ type DeepSeek struct {
 	http *http.Client
 }
 
+// DeepSeekBase 是 DeepSeek 官方接口的地址（专用的搜索 Key 用它）。
+const DeepSeekBase = "https://api.deepseek.com"
+
 // NewDeepSeek 在模型地址属于 DeepSeek（api.deepseek.com）且有 Key 时返回客户端，否则返回 nil。
 func NewDeepSeek(modelBaseURL, key string) *DeepSeek {
 	u, err := url.Parse(modelBaseURL)

@@ -92,8 +92,13 @@ func (p *toolProvider) search(model *models.Resolved) (tools.Searcher, tools.Fet
 		}
 	}
 	// 接口的值为 nil 指针时也不能放进 interface，所以逐个判断。
+	// 填了专用的 DeepSeek Key 就用它（聊天用什么模型都行），否则只有聊天模型本身是 DeepSeek 时用它的 Key。
 	deepseek := func() {
-		if ds := tools.NewDeepSeek(model.BaseURL, model.APIKey); ds != nil {
+		ds := tools.NewDeepSeek(tools.DeepSeekBase, sc.DeepSeekAPIKey)
+		if ds == nil && model != nil {
+			ds = tools.NewDeepSeek(model.BaseURL, model.APIKey)
+		}
+		if ds != nil {
 			use(ds)
 		}
 	}
