@@ -113,28 +113,30 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 
 	loc := cfg.Location()
 	limiter := quota.New(cfg.Quota, db.Usage(), loc)
-	// 会员系统只在多用户版：会员按套餐的额度，额度用完再用余额包。
+	// 会员和计费只在多用户版：额度内免费，用完按价格扣余额。
 	var billingSvc *billing.Service
 	var accountSvc *accounts.Service
 	if cfg.Mode == config.ModeMulti {
-		billingSvc = billing.New(db.Gorm(), box)
-		limiter.SetPlans(billingSvc, db.Users(), "可以在「个人中心 → 会员」兑换卡密，开通会员或加购余额")
+		billingSvc = billing.New(db.Gorm(), box, loc)
+		limiter.SetBilling(billingSvc, db.Users(), "可以在「个人中心 → 会员」兑换卡密，开通会员或充值")
 		accountSvc = accounts.New(db.Gorm(), loc)
 	}
 	vs := memstore.New(db.Memories().LoadEmbeddings, cfg.Memory.Cache, log)
-	retriever := memory.NewRetriever(db.Memories(), vs, emb, cfg.Memory.Retrieval, cfg.Memory.Write.AccessBoost)
-	writer := memory.NewWriter(db.Memories(), vs, emb, memory.NewLLMExtractor(utilLLM), cfg.Memory.Write, log,
+	// 检索、写入、整理记忆时调用向量模型的用量记到对应用户身上（重新计算全部向量是管理员的操作，不计）。
+	userEmb := &meteredEmbedding{EmbeddingProvider: emb, lim: limiter, log: log}
+	retriever := memory.NewRetriever(db.Memories(), vs, userEmb, cfg.Memory.Retrieval, cfg.Memory.Write.AccessBoost)
+	writer := memory.NewWriter(db.Memories(), vs, userEmb, memory.NewLLMExtractor(utilLLM), cfg.Memory.Write, log,
 		func(ctx context.Context, job memory.WriteJob, u llm.Usage) {
 			if job.Personal {
 				return // 用户自带的 Key，不计入限额
 			}
-			if err := limiter.Record(ctx, job.UserID, 0, u.PromptTokens, u.CompletionTokens); err != nil {
+			if err := limiter.Record(ctx, job.UserID, quota.Use{Key: quota.KeyUtility, PromptTokens: u.PromptTokens, CompletionTokens: u.CompletionTokens}); err != nil {
 				log.Error("记录后台用量失败", "user_id", job.UserID, "err", err)
 			}
 		})
-	compactor := memory.NewCompactor(db.Memories(), vs, emb, utilLLM, cfg.Memory.Compact, log,
+	compactor := memory.NewCompactor(db.Memories(), vs, userEmb, utilLLM, cfg.Memory.Compact, log,
 		func(ctx context.Context, userID uint64, u llm.Usage) {
-			if err := limiter.Record(ctx, userID, 0, u.PromptTokens, u.CompletionTokens); err != nil {
+			if err := limiter.Record(ctx, userID, quota.Use{Key: quota.KeyUtility, PromptTokens: u.PromptTokens, CompletionTokens: u.CompletionTokens}); err != nil {
 				log.Error("记录后台用量失败", "user_id", userID, "err", err)
 			}
 		})
@@ -156,6 +158,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	toolsProv.plugins = pluginSvc
 	memoSvc := memo.New(db.Gorm())
 	toolsProv.memos = memoSvc
+	toolsProv.limiter = limiter
 	if cfg.Proactive.Reminders {
 		toolsProv.reminders, toolsProv.loc = db.Reminders(), loc
 	}

@@ -90,6 +90,7 @@ var meta = map[string]struct {
 
 	"quota.daily_messages": {"每人每日消息数", "0 不限", nil},
 	"quota.daily_tokens":   {"每人每日 token", "0 不限", nil},
+	"quota.daily_searches": {"每人每日联网搜索", "0 不限。用完后只是不能联网搜索，聊天照常；有余额时按价格扣余额", nil},
 	"quota.exempt_admins":  {"管理员不受限额", "", nil},
 
 	"scheduler.enabled":            {"启用定时任务", "", nil},

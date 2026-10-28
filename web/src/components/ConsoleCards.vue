@@ -43,7 +43,7 @@ const statusLabel = { unused: '未使用', used: '已使用', disabled: '已停�
 
 onMounted(async () => {
   try {
-    plans.value = (await props.call<{ plans: Plan[] }>('GET', '/plans')).plans
+    plans.value = (await props.call<{ plans: Plan[] }>('GET', '/plans')).plans.filter((p) => p.kind !== 'pack')
   } catch (e) {
     error.value = e instanceof ApiError ? e.message : '加载失败'
     return

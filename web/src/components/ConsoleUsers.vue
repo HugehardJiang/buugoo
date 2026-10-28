@@ -2,7 +2,7 @@
 // 管理后台 → 用户管理：搜索、筛选、查看用量和会员，开通套餐、调整余额、重置密码、设管理员、停用、删除。
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ApiError, type BillingAccount, type Plan, type Quota } from '../api'
-import { amount, dateTime, mtok, shortWhen, TOKEN_UNIT } from '../format'
+import { dateTime, mtok, shortWhen, yuan, YUAN } from '../format'
 import Modal from './Modal.vue'
 import { toast } from '../toast'
 
@@ -16,8 +16,8 @@ interface Row {
   created_at: string
   plan_name?: string
   plan_expires?: string
-  pack_messages: number
-  pack_tokens: number
+  balance: number
+  today_cost: number
   today_messages: number
   today_tokens: number
   total_messages: number
@@ -30,6 +30,7 @@ interface Detail {
   disabled_reason?: string
   account: BillingAccount
   quota: Quota
+  labels: Record<string, string>
 }
 
 const props = defineProps<{ call: <T>(method: string, path: string, body?: unknown) => Promise<T> }>()
@@ -46,7 +47,8 @@ const plans = ref<Plan[]>([])
 const detail = ref<Detail | null>(null)
 const busy = ref(false)
 const grant = reactive({ plan_id: 0, note: '' })
-const adjust = reactive({ unit: 'messages', amount: 0, note: '' })
+// 调整余额以元填写，正数加、负数扣。
+const adjust = reactive({ yuan: 0, note: '' })
 const newPassword = ref('')
 const disableReason = ref('')
 const confirmDelete = ref('')
@@ -55,7 +57,7 @@ const showDelete = ref(false)
 onMounted(async () => {
   await load()
   try {
-    plans.value = (await props.call<{ plans: Plan[] }>('GET', '/plans')).plans
+    plans.value = (await props.call<{ plans: Plan[] }>('GET', '/plans')).plans.filter((p) => p.kind !== 'pack')
     grant.plan_id = plans.value[0]?.id ?? 0
   } catch {
     // 套餐加载失败不影响用户列表
@@ -91,7 +93,7 @@ async function open(id: number) {
     detail.value = await props.call<Detail>('GET', `/users/${id}`)
     newPassword.value = ''
     disableReason.value = ''
-    adjust.amount = 0
+    adjust.yuan = 0
     adjust.note = ''
     grant.note = ''
   } catch (e) {
@@ -130,10 +132,15 @@ async function remove() {
   }
 }
 
-function usageText(r: { messages: number; tokens: number; messages_limit: number; tokens_limit: number }) {
+function usageText(r: Quota) {
   const m = r.messages_limit ? `${r.messages}/${r.messages_limit} 条` : `${r.messages} 条`
   const t = r.tokens_limit ? `${mtok(r.tokens)}/${mtok(r.tokens_limit)} 百万 token` : `${mtok(r.tokens)} 百万 token`
-  return `${m} · ${t}`
+  const s = r.searches_limit ? `${r.searches}/${r.searches_limit} 次搜索` : `${r.searches} 次搜索`
+  return `${m} · ${t} · ${s}`
+}
+
+function costTotal(items: { amount: number }[]) {
+  return items.reduce((n, c) => n + c.amount, 0)
 }
 </script>
 
@@ -164,12 +171,8 @@ function usageText(r: { messages: number; tokens: number; messages_limit: number
               <span v-if="r.display_name" class="caption"><br />{{ r.display_name }}</span>
             </td>
             <td><template v-if="r.plan_name">{{ r.plan_name }}<span class="caption"><br />{{ shortWhen(r.plan_expires!) }} 到期</span></template><span v-else class="caption">免费</span></td>
-            <td class="caption">
-              <template v-if="r.pack_messages">{{ amount('messages', r.pack_messages) }}<br /></template>
-              <template v-if="r.pack_tokens">{{ amount('tokens', r.pack_tokens) }}</template>
-              <template v-if="!r.pack_messages && !r.pack_tokens">—</template>
-            </td>
-            <td class="caption">{{ r.today_messages }} 条<br />{{ mtok(r.today_tokens) }} 百万 token</td>
+            <td :class="{ caption: !r.balance, neg: r.balance < 0 }">{{ r.balance ? yuan(r.balance) : '—' }}</td>
+            <td class="caption">{{ r.today_messages }} 条<br />{{ mtok(r.today_tokens) }} 百万 token<template v-if="r.today_cost"><br />花了 {{ yuan(r.today_cost) }}</template></td>
             <td class="caption">{{ r.total_messages }} 条<br />{{ mtok(r.total_tokens) }} 百万 token</td>
             <td class="caption">{{ r.last_active || '—' }}</td>
             <td class="caption">{{ shortWhen(r.created_at) }}</td>
@@ -193,8 +196,12 @@ function usageText(r: { messages: number; tokens: number; messages_limit: number
             <p>当前周期用量：{{ usageText(detail.quota) }}<span class="caption">（{{ detail.quota.period === 'month' ? '每月' : '每天' }}重置）</span></p>
             <p v-if="detail.account.subscription">会员：<strong>{{ detail.account.subscription.plan_name }}</strong>，{{ dateTime(detail.account.subscription.expires_at) }} 到期</p>
             <p v-else class="caption">没有开通时长套餐</p>
-            <ul v-if="detail.account.packs.length" class="packs">
-              <li v-for="p in detail.account.packs" :key="p.id">{{ p.name }}：剩 {{ amount(p.unit, p.remaining) }} / {{ amount(p.unit, p.total) }}<span class="caption">{{ p.expires_at ? `，${dateTime(p.expires_at)} 过期` : '' }}</span></li>
+            <p>余额：<strong :class="{ neg: detail.account.balance < 0 }">{{ yuan(detail.account.balance) }}</strong>
+              <span class="caption">· 今天花了 {{ yuan(costTotal(detail.account.today)) }} · 本月 {{ yuan(costTotal(detail.account.month)) }}</span></p>
+            <ul v-if="detail.account.month.length" class="packs">
+              <li v-for="c in detail.account.month" :key="c.key">
+                {{ detail.labels[c.key] ?? c.key }}：{{ yuan(c.amount) }}<span class="caption"> · {{ c.tokens ? `${mtok(c.tokens)} 百万 token` : `${c.calls} 次` }}</span>
+              </li>
             </ul>
           </div>
           <div class="box">
@@ -208,10 +215,12 @@ function usageText(r: { messages: number; tokens: number; messages_limit: number
             </div>
             <h3>调整余额</h3>
             <div class="inline">
-              <select v-model="adjust.unit" class="text-input" aria-label="单位"><option value="messages">条消息</option><option value="tokens">百万 token</option></select>
-              <input v-model.number="adjust.amount" class="text-input num" type="number" step="any" :placeholder="adjust.unit === 'tokens' ? '+2 或 -0.5' : '+100 或 -50'" aria-label="数量" />
+              <div class="with-unit">
+                <input v-model.number="adjust.yuan" class="text-input num" type="number" step="any" placeholder="+10 或 -2.5" aria-label="金额（元）" />
+                <span class="caption">元</span>
+              </div>
               <input v-model="adjust.note" class="text-input" placeholder="备注（可选）" maxlength="50" aria-label="备注" />
-              <button type="button" class="btn btn-sm" :disabled="busy || !adjust.amount" @click="act('adjust', { ...adjust, amount: adjust.unit === 'tokens' ? Math.round(adjust.amount * TOKEN_UNIT) : adjust.amount }, '已调整')">调整</button>
+              <button type="button" class="btn btn-sm" :disabled="busy || !adjust.yuan" @click="act('adjust', { amount: Math.round(adjust.yuan * YUAN), note: adjust.note }, '已调整')">调整</button>
             </div>
           </div>
         </div>
@@ -261,6 +270,8 @@ function usageText(r: { messages: number; tokens: number; messages_limit: number
 </template>
 
 <style scoped>
+.neg { color: var(--color-danger); }
+.with-unit { display: flex; align-items: center; gap: 6px; }
 h2 { margin: 0 0 12px; }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .filters .text-input { flex: 1; min-width: 180px; min-height: 36px; }

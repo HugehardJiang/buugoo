@@ -30,22 +30,23 @@ var userTables = []string{
 
 // Row 是用户列表里的一行。
 type Row struct {
-	ID           uint64     `json:"id"`
-	Username     string     `json:"username"`
-	DisplayName  string     `json:"display_name"`
-	IsAdmin      bool       `json:"is_admin"`
-	DisabledAt   *time.Time `json:"disabled_at,omitempty"`
-	Disabled     string     `json:"disabled_reason,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
-	PlanName     string     `json:"plan_name,omitempty"`
-	PlanExpires  *time.Time `json:"plan_expires,omitempty"`
-	PackMessages int64      `json:"pack_messages"`
-	PackTokens   int64      `json:"pack_tokens"`
-	TodayMsgs    int        `json:"today_messages"`
-	TodayTokens  int        `json:"today_tokens"`
-	TotalMsgs    int        `json:"total_messages"`
-	TotalTokens  int64      `json:"total_tokens"`
-	LastActive   string     `json:"last_active,omitempty"` // 最后有用量的日期
+	ID          uint64     `json:"id"`
+	Username    string     `json:"username"`
+	DisplayName string     `json:"display_name"`
+	IsAdmin     bool       `json:"is_admin"`
+	DisabledAt  *time.Time `json:"disabled_at,omitempty"`
+	Disabled    string     `json:"disabled_reason,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	PlanName    string     `json:"plan_name,omitempty"`
+	PlanExpires *time.Time `json:"plan_expires,omitempty"`
+	// Balance 是余额，TodayCost 是今天扣的钱（都是微元）。
+	Balance     int64  `json:"balance"`
+	TodayCost   int64  `json:"today_cost"`
+	TodayMsgs   int    `json:"today_messages"`
+	TodayTokens int    `json:"today_tokens"`
+	TotalMsgs   int    `json:"total_messages"`
+	TotalTokens int64  `json:"total_tokens"`
+	LastActive  string `json:"last_active,omitempty"` // 最后有用量的日期
 }
 
 // Service 管理用户。
@@ -109,19 +110,19 @@ func (s *Service) List(ctx context.Context, f Filter, limit, offset int) ([]Row,
 		t := sub.ExpiresAt
 		r.PlanName, r.PlanExpires = sub.PlanName, &t
 	}
-	var packs []struct {
+	var wallets []store.Wallet
+	s.db.WithContext(ctx).Where("user_id IN ?", ids).Find(&wallets)
+	for _, w := range wallets {
+		rows[idx[w.UserID]].Balance = w.Balance
+	}
+	var costs []struct {
 		UserID uint64
-		Unit   string
 		Total  int64
 	}
-	s.db.WithContext(ctx).Model(&store.CreditPack{}).Select("user_id, unit, COALESCE(SUM(remaining), 0) AS total").
-		Where("user_id IN ? AND remaining > 0 AND (expires_at IS NULL OR expires_at > ?)", ids, now).Group("user_id, unit").Scan(&packs)
-	for _, p := range packs {
-		if p.Unit == store.UnitTokens {
-			rows[idx[p.UserID]].PackTokens = p.Total
-		} else {
-			rows[idx[p.UserID]].PackMessages = p.Total
-		}
+	s.db.WithContext(ctx).Model(&store.CostDaily{}).Select("user_id, COALESCE(SUM(amount), 0) AS total").
+		Where("user_id IN ? AND day = ?", ids, now.In(s.loc).Format("2006-01-02")).Group("user_id").Scan(&costs)
+	for _, c := range costs {
+		rows[idx[c.UserID]].TodayCost = c.Total
 	}
 	var usage []struct {
 		UserID   uint64

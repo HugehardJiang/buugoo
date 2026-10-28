@@ -21,6 +21,15 @@ func (UsageDaily) TableName() string { return "usage_daily" }
 // TableName 固定表名。
 func (AppMeta) TableName() string { return "app_meta" }
 
+// TableName 固定表名。
+func (Wallet) TableName() string { return "wallets" }
+
+// TableName 固定表名。
+func (CostDaily) TableName() string { return "cost_dailies" }
+
+// TableName 固定表名。
+func (BillingSetting) TableName() string { return "billing_settings" }
+
 // Store 聚合所有 Repository，屏蔽 MySQL 与 SQLite 的差异。
 type Store interface {
 	Users() UserRepo
@@ -242,6 +251,8 @@ type UsageRepo interface {
 	Get(ctx context.Context, userID uint64, day string) (UsageDaily, error)
 	// Add 原子地累加某天的用量。
 	Add(ctx context.Context, userID uint64, day string, messages, promptTokens, completionTokens int) error
+	// AddSearches 原子地累加某天的联网搜索次数。
+	AddSearches(ctx context.Context, userID uint64, day string, n int) error
 	// Sum 返回 [fromDay, toDay] 之间（含两头）的用量合计，Day 为空。
 	Sum(ctx context.Context, userID uint64, fromDay, toDay string) (UsageDaily, error)
 }

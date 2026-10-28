@@ -237,10 +237,12 @@ persona:
   # 关掉的预设性格（用户在「设置 → 性格」中选），可选 gentle、snarky、strategist、bubbly、alive
   disabled_presets: []
 
-# 每个用户的每日用量限额，0 表示不限制（官网部署建议设置，防止 API 费用失控）
+# 每个用户的每日免费额度，0 表示不限制（官网部署建议设置，防止 API 费用失控）。
+# 多用户版开通了时长套餐的用户按套餐额度；额度用完后按管理后台「运营 → 计费」里的价格扣余额。
 quota:
   daily_messages: 0
   daily_tokens: 0
+  daily_searches: 0      # 联网搜索次数，用完后只是不能搜索，聊天照常
   exempt_admins: true
 
 scheduler:

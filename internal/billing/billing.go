@@ -1,20 +1,26 @@
-// Package billing 是会员系统：套餐（时长套餐、余额包）、用户的订阅与余额、卡密、记录。
+// Package billing 是会员和计费系统：套餐（时长套餐、充值）、用户的订阅与余额、价格、消费、卡密、记录。
+//
+// 计费：管理员给每个模型（以及辅助模型、向量模型、联网搜索）设价格，用户用完免费额度或套餐额度后，
+// 每次调用按实际的 token 数或调用次数从余额里扣（金额以微元为单位存整数，不会有浮点误差累积）。
 //
 // 安全上的考虑：
 //   - 卡密只存 HMAC（密钥由主加密密钥派生），不存原文，数据库泄露也拿不到能用的卡密；
 //   - 卡密有约 80 位随机性，兑换接口另外按 IP 和账号限速，暴力猜测不可行；
 //   - 兑换用带条件的 UPDATE（只有未使用的才会被标记），同一张卡并发兑换也只会成功一次；
-//   - 余额扣减也用带条件的 UPDATE，不会扣成负数。
+//   - 余额的加减都是数据库里的原子更新。
 package billing
 
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -39,19 +45,156 @@ func (e *UserError) Error() string { return e.Msg }
 
 func userErr(format string, a ...any) error { return &UserError{fmt.Sprintf(format, a...)} }
 
-// Service 是会员系统。
+// Yuan 是 1 元对应的微元数。
+const Yuan = 1_000_000
+
+// Service 是会员和计费系统。
 type Service struct {
 	db  *gorm.DB
 	box *secret.Box
+	loc *time.Location
 	now func() time.Time
+
+	mu      sync.RWMutex
+	pricing *Pricing // 缓存，修改时更新
 }
 
-// New 创建会员系统。box 用来计算卡密的 HMAC。
-func New(db *gorm.DB, box *secret.Box) *Service {
-	return &Service{db: db, box: box, now: time.Now}
+// New 创建会员和计费系统。box 用来计算卡密的 HMAC，loc 是按天统计消费用的时区。
+func New(db *gorm.DB, box *secret.Box, loc *time.Location) *Service {
+	if loc == nil {
+		loc = time.Local
+	}
+	return &Service{db: db, box: box, loc: loc, now: time.Now}
 }
 
-var _ quota.Plans = (*Service)(nil)
+var _ quota.Billing = (*Service)(nil)
+
+// ---------- 价格与扣费方式 ----------
+
+// Price 是一个计价项的价格：模型按 token（元 / 百万 token，输入和输出分开），搜索和读网页按次（元 / 千次）。
+type Price struct {
+	Input  float64 `json:"input,omitempty"`
+	Output float64 `json:"output,omitempty"`
+	PerK   float64 `json:"per_k,omitempty"`
+}
+
+// Pricing 是全部计费设置。
+type Pricing struct {
+	// Mode 是扣费方式：quota_first（先用免费额度和套餐额度，用完扣余额）或 pay（没有免费额度，套餐之外全部扣余额）。
+	Mode string `json:"mode"`
+	// Prices 的键是计价项（见 quota.ModelKey、quota.KeyUtility 等）。
+	Prices map[string]Price `json:"prices"`
+}
+
+const pricingKey = "pricing"
+
+// Pricing 返回当前的计费设置。
+func (s *Service) Pricing(ctx context.Context) Pricing {
+	s.mu.RLock()
+	p := s.pricing
+	s.mu.RUnlock()
+	if p != nil {
+		return *p
+	}
+	out := Pricing{Mode: quota.ModeQuotaFirst, Prices: map[string]Price{}}
+	var row store.BillingSetting
+	if err := s.db.WithContext(ctx).Where("`key` = ?", pricingKey).First(&row).Error; err == nil {
+		_ = json.Unmarshal([]byte(row.Value), &out)
+	}
+	if out.Prices == nil {
+		out.Prices = map[string]Price{}
+	}
+	if out.Mode != quota.ModePay {
+		out.Mode = quota.ModeQuotaFirst
+	}
+	s.mu.Lock()
+	s.pricing = &out
+	s.mu.Unlock()
+	return out
+}
+
+// SetPricing 保存计费设置，立即生效。
+func (s *Service) SetPricing(ctx context.Context, p Pricing) error {
+	if p.Mode != quota.ModeQuotaFirst && p.Mode != quota.ModePay {
+		return userErr("扣费方式不对")
+	}
+	clean := map[string]Price{}
+	for k, v := range p.Prices {
+		if k == "" || len(k) > 48 {
+			return userErr("计价项不对：%s", k)
+		}
+		for _, x := range []float64{v.Input, v.Output, v.PerK} {
+			if x < 0 || x > 100000 || math.IsNaN(x) || math.IsInf(x, 0) {
+				return userErr("价格要在 0 到 100000 元之间")
+			}
+		}
+		if v != (Price{}) {
+			clean[k] = v
+		}
+	}
+	p.Prices = clean
+	b, _ := json.Marshal(p)
+	row := store.BillingSetting{Key: pricingKey, Value: string(b), UpdatedAt: s.now()}
+	if err := s.db.WithContext(ctx).Clauses(clause.OnConflict{UpdateAll: true}).Create(&row).Error; err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.pricing = &p
+	s.mu.Unlock()
+	return nil
+}
+
+// Mode 实现 quota.Billing。
+func (s *Service) Mode() string { return s.Pricing(context.Background()).Mode }
+
+// Cost 实现 quota.Billing：按价格算出这次调用的金额（微元）。
+// 价格是元 / 百万 token，所以 token 数乘以价格正好是微元；按次的价格是元 / 千次，每次是 1000 倍。
+func (s *Service) Cost(u quota.Use) int64 {
+	p, ok := s.Pricing(context.Background()).Prices[u.Key]
+	if !ok {
+		return 0
+	}
+	v := float64(u.PromptTokens)*p.Input + float64(u.CompletionTokens)*p.Output + float64(u.Calls)*p.PerK*1000
+	return int64(math.Ceil(v - 1e-9))
+}
+
+// Charge 实现 quota.Billing：从余额里扣钱，记进当天的消费。
+func (s *Service) Charge(ctx context.Context, userID uint64, u quota.Use, amount int64) error {
+	day := s.now().In(s.loc).Format("2006-01-02")
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := addBalance(tx, userID, -amount); err != nil {
+			return err
+		}
+		row := store.CostDaily{UserID: userID, Day: day, Key: u.Key, Amount: amount, Calls: max(u.Calls, 1),
+			Tokens: int64(u.PromptTokens + u.CompletionTokens), UpdatedAt: s.now()}
+		return tx.Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "user_id"}, {Name: "day"}, {Name: "key"}},
+			DoUpdates: clause.Assignments(map[string]any{
+				"amount": gorm.Expr("amount + ?", row.Amount), "calls": gorm.Expr("calls + ?", row.Calls),
+				"tokens": gorm.Expr("tokens + ?", row.Tokens), "updated_at": row.UpdatedAt,
+			}),
+		}).Create(&row).Error
+	})
+}
+
+// addBalance 原子地改余额（没有钱包时新建）。
+func addBalance(tx *gorm.DB, userID uint64, delta int64) error {
+	w := store.Wallet{UserID: userID, Balance: delta, UpdatedAt: time.Now()}
+	return tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "user_id"}},
+		DoUpdates: clause.Assignments(map[string]any{"balance": gorm.Expr("balance + ?", delta), "updated_at": w.UpdatedAt}),
+	}).Create(&w).Error
+}
+
+// Balance 返回用户的余额（微元）。
+func (s *Service) Balance(ctx context.Context, userID uint64) (int64, error) {
+	var w store.Wallet
+	err := s.db.WithContext(ctx).Where("user_id = ?", userID).First(&w).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, nil
+	}
+	return w.Balance, err
+}
 
 // ---------- 套餐 ----------
 
@@ -61,14 +204,17 @@ type PlanInput struct {
 	Description string `json:"description"`
 	Price       string `json:"price"`
 	Kind        string `json:"kind"`
-	Unit        string `json:"unit"`
 	Days        int    `json:"days"`
 	Cycle       string `json:"cycle"`
-	Quota       int64  `json:"quota"`
-	ValidDays   int    `json:"valid_days"`
-	BuyURL      string `json:"buy_url"`
-	Visible     bool   `json:"visible"`
-	Sort        int    `json:"sort"`
+	// 时长套餐每周期的额度，0 表示这一项不限。
+	QuotaMessages int64 `json:"quota_messages"`
+	QuotaTokens   int64 `json:"quota_tokens"`
+	QuotaSearches int64 `json:"quota_searches"`
+	// Amount 是充值到账的金额（微元）。
+	Amount  int64  `json:"amount"`
+	BuyURL  string `json:"buy_url"`
+	Visible bool   `json:"visible"`
+	Sort    int    `json:"sort"`
 }
 
 func (in *PlanInput) validate() error {
@@ -81,10 +227,6 @@ func (in *PlanInput) validate() error {
 		return userErr("价格最多 30 个字")
 	case utf8.RuneCountInString(in.Description) > 2000:
 		return userErr("介绍最多 2000 字")
-	case in.Unit != store.UnitMessages && in.Unit != store.UnitTokens:
-		return userErr("计费单位只能是消息条数或 token")
-	case in.Quota <= 0 || in.Quota > 1e12:
-		return userErr("额度要大于 0")
 	}
 	switch in.Kind {
 	case store.PlanPeriod:
@@ -94,14 +236,21 @@ func (in *PlanInput) validate() error {
 		if in.Cycle != store.CycleDay && in.Cycle != store.CycleMonth {
 			return userErr("额度周期只能是每天或每月")
 		}
-		in.ValidDays = 0
-	case store.PlanPack:
-		if in.ValidDays < 0 || in.ValidDays > 3660 {
-			return userErr("有效期要在 0（永久）到 3660 天之间")
+		for _, q := range []int64{in.QuotaMessages, in.QuotaTokens, in.QuotaSearches} {
+			if q < 0 || q > 1e13 {
+				return userErr("额度不对")
+			}
 		}
-		in.Days, in.Cycle = 0, ""
+		in.Amount = 0
+	case store.PlanRecharge:
+		if in.Amount <= 0 || in.Amount > 1e6*Yuan {
+			return userErr("充值金额要大于 0，最多 100 万元")
+		}
+		in.Days, in.Cycle, in.QuotaMessages, in.QuotaTokens, in.QuotaSearches = 0, "", 0, 0, 0
+	case store.PlanPack:
+		return userErr("余额包已经停用，请改用「充值」套餐")
 	default:
-		return userErr("套餐种类只能是时长套餐或余额包")
+		return userErr("套餐种类只能是时长套餐或充值")
 	}
 	if in.BuyURL != "" {
 		u, err := url.Parse(in.BuyURL)
@@ -113,15 +262,17 @@ func (in *PlanInput) validate() error {
 }
 
 func (in *PlanInput) apply(p *store.Plan) {
-	p.Name, p.Description, p.Price, p.Kind, p.Unit = in.Name, in.Description, in.Price, in.Kind, in.Unit
-	p.Days, p.Cycle, p.Quota, p.ValidDays, p.BuyURL, p.Visible, p.Sort = in.Days, in.Cycle, in.Quota, in.ValidDays, in.BuyURL, in.Visible, in.Sort
+	p.Name, p.Description, p.Price, p.Kind = in.Name, in.Description, in.Price, in.Kind
+	p.Days, p.Cycle, p.QuotaMessages, p.QuotaTokens, p.QuotaSearches = in.Days, in.Cycle, in.QuotaMessages, in.QuotaTokens, in.QuotaSearches
+	p.Amount, p.BuyURL, p.Visible, p.Sort = in.Amount, in.BuyURL, in.Visible, in.Sort
+	p.Unit, p.Quota, p.ValidDays = "", 0, 0
 }
 
-// Plans 返回套餐。onlyVisible 为 true 时只返回显示给用户的。
+// Plans 返回套餐。onlyVisible 为 true 时只返回显示给用户的（停用的余额包不返回）。
 func (s *Service) Plans(ctx context.Context, onlyVisible bool) ([]store.Plan, error) {
 	q := s.db.WithContext(ctx).Order("sort, id")
 	if onlyVisible {
-		q = q.Where("visible = ?", true)
+		q = q.Where("visible = ? AND kind <> ?", true, store.PlanPack)
 	}
 	var out []store.Plan
 	return out, q.Find(&out).Error
@@ -176,11 +327,14 @@ func (s *Service) UpdatePlan(ctx context.Context, id uint64, in PlanInput) (*sto
 
 // SetVisible 显示或隐藏套餐。
 func (s *Service) SetVisible(ctx context.Context, id uint64, on bool) error {
-	res := s.db.WithContext(ctx).Model(&store.Plan{}).Where("id = ?", id).Update("visible", on)
-	if res.Error == nil && res.RowsAffected == 0 {
-		return ErrNotFound
+	p, err := s.Plan(ctx, id)
+	if err != nil {
+		return err
 	}
-	return res.Error
+	if on && p.Kind == store.PlanPack {
+		return userErr("余额包已经停用，不能再显示")
+	}
+	return s.db.WithContext(ctx).Model(&store.Plan{}).Where("id = ?", id).Update("visible", on).Error
 }
 
 // DeletePlan 删除套餐。还有没兑换的卡密时不能删（否则那些卡兑换不了），可以先隐藏。
@@ -201,75 +355,34 @@ func (s *Service) DeletePlan(ctx context.Context, id uint64) error {
 
 // ---------- 权益 ----------
 
-// Entitlement 实现 quota.Plans：当前有效的时长套餐和余额合计。
+// Entitlement 实现 quota.Billing：当前有效的时长套餐和余额。
 func (s *Service) Entitlement(ctx context.Context, userID uint64) (quota.Entitlement, error) {
-	now := s.now()
 	var ent quota.Entitlement
 	var sub store.Subscription
-	err := s.db.WithContext(ctx).Where("user_id = ? AND expires_at > ?", userID, now).Order("expires_at DESC").First(&sub).Error
+	err := s.db.WithContext(ctx).Where("user_id = ? AND expires_at > ?", userID, s.now()).Order("expires_at DESC").First(&sub).Error
 	switch {
 	case err == nil:
-		ent.Active, ent.PlanName, ent.Unit, ent.Cycle, ent.Quota, ent.ExpiresAt = true, sub.PlanName, sub.Unit, sub.Cycle, sub.Quota, sub.ExpiresAt
+		ent.Active, ent.PlanName, ent.Cycle, ent.ExpiresAt = true, sub.PlanName, sub.Cycle, sub.ExpiresAt
+		ent.QuotaMessages, ent.QuotaTokens, ent.QuotaSearches = sub.QuotaMessages, sub.QuotaTokens, sub.QuotaSearches
 	case !errors.Is(err, gorm.ErrRecordNotFound):
 		return ent, err
 	}
-	var sums []struct {
-		Unit  string
-		Total int64
-	}
-	if err := s.db.WithContext(ctx).Model(&store.CreditPack{}).Select("unit, COALESCE(SUM(remaining), 0) AS total").
-		Where("user_id = ? AND remaining > 0 AND (expires_at IS NULL OR expires_at > ?)", userID, now).Group("unit").Scan(&sums).Error; err != nil {
-		return ent, err
-	}
-	for _, x := range sums {
-		if x.Unit == store.UnitTokens {
-			ent.PackTokens = x.Total
-		} else {
-			ent.PackMessages = x.Total
-		}
-	}
-	return ent, nil
+	ent.Balance, err = s.Balance(ctx, userID)
+	return ent, err
 }
 
-// Deduct 实现 quota.Plans：从最早过期的余额包开始扣。
-func (s *Service) Deduct(ctx context.Context, userID uint64, unit string, n int64) error {
-	now := s.now()
-	for n > 0 {
-		var p store.CreditPack
-		err := s.db.WithContext(ctx).Where("user_id = ? AND unit = ? AND remaining > 0 AND (expires_at IS NULL OR expires_at > ?)", userID, unit, now).
-			Order(clause.OrderBy{Expression: clause.Expr{SQL: "CASE WHEN expires_at IS NULL THEN 1 ELSE 0 END, expires_at, id"}}).First(&p).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil // 扣完了
-		}
-		if err != nil {
-			return err
-		}
-		take := min(n, p.Remaining)
-		res := s.db.WithContext(ctx).Model(&store.CreditPack{}).Where("id = ? AND remaining >= ?", p.ID, take).
-			Update("remaining", gorm.Expr("remaining - ?", take))
-		if res.Error != nil {
-			return res.Error
-		}
-		if res.RowsAffected == 1 {
-			n -= take
-		} // 被别的请求抢先扣了，重新查一次
-	}
-	return nil
-}
-
-// grant 在事务里给用户开通套餐：时长套餐在当前有效期之后续上（换了套餐就按新套餐的额度），余额包加一笔。
+// grant 在事务里给用户开通套餐：时长套餐在当前有效期之后续上（换了套餐就按新套餐的额度），充值加到余额。
 func (s *Service) grant(tx *gorm.DB, userID uint64, p *store.Plan) (string, error) {
 	now := s.now()
-	if p.Kind == store.PlanPack {
-		pack := &store.CreditPack{UserID: userID, PlanID: p.ID, Name: p.Name, Unit: p.Unit, Total: p.Quota, Remaining: p.Quota}
-		if p.ValidDays > 0 {
-			t := now.AddDate(0, 0, p.ValidDays)
-			pack.ExpiresAt = &t
-		}
-		if err := tx.Create(pack).Error; err != nil {
+	switch p.Kind {
+	case store.PlanRecharge:
+		if err := addBalance(tx, userID, p.Amount); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("获得余额包「%s」%s", p.Name, amount(p.Unit, p.Quota)), nil
+		return fmt.Sprintf("充值「%s」¥%s", p.Name, quota.Yuan(p.Amount)), nil
+	case store.PlanPeriod:
+	default:
+		return "", userErr("这个套餐（旧的余额包）已经停用了，请联系管理员")
 	}
 	var sub store.Subscription
 	err := tx.Where("user_id = ? AND expires_at > ?", userID, now).Order("expires_at DESC").First(&sub).Error
@@ -279,19 +392,14 @@ func (s *Service) grant(tx *gorm.DB, userID uint64, p *store.Plan) (string, erro
 	case err != nil:
 		return "", err
 	}
-	sub.PlanID, sub.PlanName, sub.Unit, sub.Cycle, sub.Quota = p.ID, p.Name, p.Unit, p.Cycle, p.Quota
+	sub.PlanID, sub.PlanName, sub.Cycle = p.ID, p.Name, p.Cycle
+	sub.QuotaMessages, sub.QuotaTokens, sub.QuotaSearches = p.QuotaMessages, p.QuotaTokens, p.QuotaSearches
+	sub.Unit, sub.Quota = "", 0
 	sub.ExpiresAt = sub.ExpiresAt.AddDate(0, 0, p.Days)
 	if err := tx.Save(&sub).Error; err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("开通「%s」%d 天，到期 %s", p.Name, p.Days, sub.ExpiresAt.Format("2006-01-02 15:04")), nil
-}
-
-func amount(unit string, n int64) string {
-	if unit == store.UnitTokens {
-		return " " + quota.MTokens(n) + " 百万 token"
-	}
-	return fmt.Sprintf(" %d 条消息", n)
 }
 
 func (s *Service) log(tx *gorm.DB, userID uint64, kind, detail string) error {
@@ -301,7 +409,7 @@ func (s *Service) log(tx *gorm.DB, userID uint64, kind, detail string) error {
 	return tx.Create(&store.BillingLog{UserID: userID, Kind: kind, Detail: detail}).Error
 }
 
-// Grant 由管理员给用户开通套餐。
+// Grant 由管理员给用户开通套餐（充值套餐就是加余额）。
 func (s *Service) Grant(ctx context.Context, userID, planID uint64, note string) (string, error) {
 	p, err := s.Plan(ctx, planID)
 	if err != nil {
@@ -318,26 +426,28 @@ func (s *Service) Grant(ctx context.Context, userID, planID uint64, note string)
 	return msg, err
 }
 
-// Adjust 由管理员调整用户的余额：delta 为正时加一笔永久余额，为负时从余额包里扣。
-func (s *Service) Adjust(ctx context.Context, userID uint64, unit string, delta int64, note string) error {
-	if unit != store.UnitMessages && unit != store.UnitTokens {
-		return userErr("单位只能是消息条数或 token")
+// Adjust 由管理员调整用户的余额（delta 为微元，正数加、负数扣，可以扣成负数）。
+func (s *Service) Adjust(ctx context.Context, userID uint64, delta int64, note string) error {
+	if delta == 0 || delta > 1e6*Yuan || delta < -1e6*Yuan {
+		return userErr("调整的金额不对")
 	}
-	if delta == 0 || delta > 1e12 || delta < -1e12 {
-		return userErr("调整的数量不对")
-	}
+	verb := "增加"
 	if delta < 0 {
-		if err := s.Deduct(ctx, userID, unit, -delta); err != nil {
-			return err
-		}
-		return s.log(s.db.WithContext(ctx), userID, "adjust", "管理员扣除"+amount(unit, -delta)+noteSuffix(note))
+		verb = "扣除"
 	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&store.CreditPack{UserID: userID, Name: "管理员调整", Unit: unit, Total: delta, Remaining: delta}).Error; err != nil {
+		if err := addBalance(tx, userID, delta); err != nil {
 			return err
 		}
-		return s.log(tx, userID, "adjust", "管理员增加"+amount(unit, delta)+noteSuffix(note))
+		return s.log(tx, userID, "adjust", fmt.Sprintf("管理员%s余额 ¥%s%s", verb, quota.Yuan(abs(delta)), noteSuffix(note)))
 	})
+}
+
+func abs(n int64) int64 {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 func noteSuffix(note string) string {
@@ -347,17 +457,37 @@ func noteSuffix(note string) string {
 	return ""
 }
 
+// CostItem 是一段时间里在一个计价项上花的钱。
+type CostItem struct {
+	Key    string `json:"key"`
+	Amount int64  `json:"amount"`
+	Calls  int    `json:"calls"`
+	Tokens int64  `json:"tokens"`
+}
+
+// Costs 返回用户在 [fromDay, toDay] 之间按计价项合计的消费（金额从大到小）。
+func (s *Service) Costs(ctx context.Context, userID uint64, fromDay, toDay string) ([]CostItem, error) {
+	out := []CostItem{}
+	err := s.db.WithContext(ctx).Model(&store.CostDaily{}).
+		Select("`key`, SUM(amount) AS amount, SUM(calls) AS calls, SUM(tokens) AS tokens").
+		Where("user_id = ? AND day >= ? AND day <= ?", userID, fromDay, toDay).Group("`key`").Order("amount DESC").Scan(&out).Error
+	return out, err
+}
+
 // Account 是一个用户的会员情况。
 type Account struct {
 	Subscription *store.Subscription `json:"subscription,omitempty"`
-	Packs        []store.CreditPack  `json:"packs"`
-	Logs         []store.BillingLog  `json:"logs"`
+	Balance      int64               `json:"balance"`
+	// Today、Month 是今天、本月按计价项合计的消费。
+	Today []CostItem         `json:"today"`
+	Month []CostItem         `json:"month"`
+	Logs  []store.BillingLog `json:"logs"`
 }
 
-// Account 返回用户的会员情况：有效的时长套餐、还有余额的余额包、最近的记录。
+// Account 返回用户的会员情况：有效的时长套餐、余额、今天和本月的消费、最近的记录。
 func (s *Service) Account(ctx context.Context, userID uint64, logs int) (*Account, error) {
 	now := s.now()
-	a := &Account{Packs: []store.CreditPack{}, Logs: []store.BillingLog{}}
+	a := &Account{Logs: []store.BillingLog{}}
 	var sub store.Subscription
 	err := s.db.WithContext(ctx).Where("user_id = ? AND expires_at > ?", userID, now).Order("expires_at DESC").First(&sub).Error
 	switch {
@@ -366,8 +496,15 @@ func (s *Service) Account(ctx context.Context, userID uint64, logs int) (*Accoun
 	case !errors.Is(err, gorm.ErrRecordNotFound):
 		return nil, err
 	}
-	if err := s.db.WithContext(ctx).Where("user_id = ? AND remaining > 0 AND (expires_at IS NULL OR expires_at > ?)", userID, now).
-		Order("id").Find(&a.Packs).Error; err != nil {
+	if a.Balance, err = s.Balance(ctx, userID); err != nil {
+		return nil, err
+	}
+	local := now.In(s.loc)
+	day := local.Format("2006-01-02")
+	if a.Today, err = s.Costs(ctx, userID, day, day); err != nil {
+		return nil, err
+	}
+	if a.Month, err = s.Costs(ctx, userID, local.Format("2006-01")+"-01", day); err != nil {
 		return nil, err
 	}
 	if err := s.db.WithContext(ctx).Where("user_id = ?", userID).Order("id DESC").Limit(logs).Find(&a.Logs).Error; err != nil {
@@ -378,7 +515,7 @@ func (s *Service) Account(ctx context.Context, userID uint64, logs int) (*Accoun
 
 // DeleteUserData 删除用户的会员数据（删除用户时调用，tx 为外层事务）。
 func DeleteUserData(tx *gorm.DB, userID uint64) error {
-	for _, m := range []any{&store.Subscription{}, &store.CreditPack{}, &store.BillingLog{}} {
+	for _, m := range []any{&store.Subscription{}, &store.CreditPack{}, &store.BillingLog{}, &store.Wallet{}, &store.CostDaily{}} {
 		if err := tx.Where("user_id = ?", userID).Delete(m).Error; err != nil {
 			return err
 		}
@@ -454,6 +591,9 @@ func (s *Service) Generate(ctx context.Context, in GenerateInput) (*Generated, e
 	p, err := s.Plan(ctx, in.PlanID)
 	if err != nil {
 		return nil, err
+	}
+	if p.Kind == store.PlanPack {
+		return nil, userErr("余额包已经停用，请改用「充值」套餐")
 	}
 	in.Prefix = normalize(in.Prefix)
 	in.Note = strings.TrimSpace(in.Note)

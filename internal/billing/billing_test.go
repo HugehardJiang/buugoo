@@ -27,7 +27,7 @@ func setup(t *testing.T) (*Service, *gormstore.DB) {
 		t.Fatal(err)
 	}
 	box, _ := secret.New(make([]byte, 32))
-	return New(db.Gorm(), box), db
+	return New(db.Gorm(), box, time.Local), db
 }
 
 func newUser(t *testing.T, db *gormstore.DB, name string) *store.User {
@@ -43,11 +43,12 @@ func TestPlanValidation(t *testing.T) {
 	s, _ := setup(t)
 	ctx := context.Background()
 	bad := []PlanInput{
-		{Name: "", Kind: store.PlanPeriod, Unit: store.UnitMessages, Days: 30, Cycle: store.CycleDay, Quota: 100},
-		{Name: "月卡", Kind: store.PlanPeriod, Unit: store.UnitMessages, Days: 0, Cycle: store.CycleDay, Quota: 100},
-		{Name: "月卡", Kind: store.PlanPeriod, Unit: "yuan", Days: 30, Cycle: store.CycleDay, Quota: 100},
-		{Name: "包", Kind: store.PlanPack, Unit: store.UnitTokens, Quota: 0},
-		{Name: "包", Kind: store.PlanPack, Unit: store.UnitTokens, Quota: 10, BuyURL: "javascript:alert(1)"},
+		{Name: "", Kind: store.PlanPeriod, Days: 30, Cycle: store.CycleDay, QuotaMessages: 100},
+		{Name: "月卡", Kind: store.PlanPeriod, Days: 0, Cycle: store.CycleDay, QuotaMessages: 100},
+		{Name: "月卡", Kind: store.PlanPeriod, Days: 30, Cycle: store.CycleDay, QuotaTokens: -1},
+		{Name: "充值", Kind: store.PlanRecharge, Amount: 0},
+		{Name: "充值", Kind: store.PlanRecharge, Amount: 10 * Yuan, BuyURL: "javascript:alert(1)"},
+		{Name: "旧包", Kind: store.PlanPack},
 	}
 	for _, in := range bad {
 		if _, err := s.CreatePlan(ctx, in); err == nil {
@@ -60,11 +61,12 @@ func TestRedeemAndQuota(t *testing.T) {
 	s, db := setup(t)
 	ctx := context.Background()
 	u := newUser(t, db, "alice")
-	month, err := s.CreatePlan(ctx, PlanInput{Name: "月卡", Kind: store.PlanPeriod, Unit: store.UnitMessages, Days: 30, Cycle: store.CycleDay, Quota: 3, Visible: true})
+	month, err := s.CreatePlan(ctx, PlanInput{Name: "月卡", Kind: store.PlanPeriod, Days: 30, Cycle: store.CycleDay,
+		QuotaMessages: 3, QuotaSearches: 1, Visible: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	pack, _ := s.CreatePlan(ctx, PlanInput{Name: "加油包", Kind: store.PlanPack, Unit: store.UnitMessages, Quota: 2, ValidDays: 7})
+	topup, _ := s.CreatePlan(ctx, PlanInput{Name: "充 10 元", Kind: store.PlanRecharge, Amount: 10 * Yuan})
 
 	gen, err := s.Generate(ctx, GenerateInput{PlanID: month.ID, Count: 3, Prefix: "bg", Note: "测试渠道"})
 	if err != nil {
@@ -119,47 +121,81 @@ func TestRedeemAndQuota(t *testing.T) {
 		t.Fatalf("account = %+v", a)
 	}
 
-	// 接到限额器：会员每天 3 条，用完后用余额包。
+	// 价格：模型 1 每百万 token 输入 2 元、输出 8 元；DeepSeek 搜索每千次 5 元。
+	if err := s.SetPricing(ctx, Pricing{Mode: quota.ModeQuotaFirst, Prices: map[string]Price{
+		quota.ModelKey(1): {Input: 2, Output: 8}, quota.SearchKey("deepseek"): {PerK: 5},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetPricing(ctx, Pricing{Mode: "free"}); err == nil {
+		t.Error("扣费方式不对应拒绝")
+	}
+
+	// 接到限额器：会员每天 3 条，用完后没余额就停。
 	limiter := quota.New(config.QuotaConfig{DailyMessages: 1}, db.Usage(), time.Local)
-	limiter.SetPlans(s, db.Users(), "去兑换卡密")
+	limiter.SetBilling(s, db.Users(), "去充值")
+	use := quota.Use{Key: quota.ModelKey(1), Messages: 1, PromptTokens: 1000, CompletionTokens: 500}
 	for i := 0; i < 3; i++ {
 		if err := limiter.Check(ctx, u); err != nil {
 			t.Fatalf("第 %d 条：%v", i+1, err)
 		}
-		if err := limiter.Record(ctx, u.ID, 1, 10, 10); err != nil {
+		if err := limiter.Record(ctx, u.ID, use); err != nil {
 			t.Fatal(err)
 		}
 	}
 	var qe *quota.ExceededError
-	if err := limiter.Check(ctx, u); !errors.As(err, &qe) || qe.Limit != 3 || !strings.Contains(err.Error(), "去兑换卡密") {
+	if err := limiter.Check(ctx, u); !errors.As(err, &qe) || qe.Limit != 3 || !strings.Contains(err.Error(), "去充值") {
 		t.Fatalf("第 4 条应超限：%v", err)
 	}
-	if _, err := s.Grant(ctx, u.ID, pack.ID, "补偿"); err != nil {
+	if bal, _ := s.Balance(ctx, u.ID); bal != 0 {
+		t.Fatalf("额度内不应扣钱：%d", bal)
+	}
+	// 充值 10 元后继续：每条 1000×2 + 500×8 = 6000 微元。
+	if _, err := s.Grant(ctx, u.ID, topup.ID, "补偿"); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 2; i++ {
-		if err := limiter.Check(ctx, u); err != nil {
-			t.Fatalf("余额包第 %d 条：%v", i+1, err)
-		}
-		_ = limiter.Record(ctx, u.ID, 1, 10, 10)
+	if err := limiter.Check(ctx, u); err != nil {
+		t.Fatalf("充值后：%v", err)
 	}
-	if err := limiter.Check(ctx, u); err == nil {
-		t.Fatal("余额包用完后应超限")
+	_ = limiter.Record(ctx, u.ID, use)
+	if bal, _ := s.Balance(ctx, u.ID); bal != 10*Yuan-6000 {
+		t.Fatalf("balance = %d", bal)
+	}
+	// 搜索：套餐里 1 次免费，第 2 次按每次 5 元/千次 = 5000 微元扣。
+	for i := 0; i < 2; i++ {
+		if err := limiter.CheckSearch(ctx, u.ID); err != nil {
+			t.Fatal(err)
+		}
+		_ = limiter.Record(ctx, u.ID, quota.Use{Key: quota.SearchKey("deepseek"), Search: true, Calls: 1})
+	}
+	if bal, _ := s.Balance(ctx, u.ID); bal != 10*Yuan-11000 {
+		t.Fatalf("搜索后 balance = %d", bal)
+	}
+	a, _ = s.Account(ctx, u.ID, 10)
+	var spent int64
+	for _, c := range a.Today {
+		spent += c.Amount
+	}
+	if spent != 11000 || len(a.Today) != 2 {
+		t.Fatalf("今天的消费 = %+v", a.Today)
 	}
 	st, _ := limiter.Status(ctx, u)
-	if !st.Member.Active || st.MessagesLimit != 3 || st.Member.PackMessages != 0 {
+	if !st.Member.Active || st.MessagesLimit != 3 || st.SearchesLimit != 1 || !st.Paying || st.Member.Balance != 10*Yuan-11000 {
 		t.Errorf("status = %+v", st)
 	}
 
-	// 管理员调整余额、停用账号。
-	if err := s.Adjust(ctx, u.ID, store.UnitMessages, 5, "活动"); err != nil {
+	// 管理员调整余额（可以扣成负数）、停用账号。
+	if err := s.Adjust(ctx, u.ID, 5*Yuan, "活动"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Adjust(ctx, u.ID, store.UnitMessages, -2, ""); err != nil {
+	if err := s.Adjust(ctx, u.ID, -20*Yuan, ""); err != nil {
 		t.Fatal(err)
 	}
-	if ent, _ := s.Entitlement(ctx, u.ID); ent.PackMessages != 3 {
-		t.Errorf("pack = %d", ent.PackMessages)
+	if bal, _ := s.Balance(ctx, u.ID); bal != -5*Yuan-11000 {
+		t.Errorf("balance = %d", bal)
+	}
+	if err := limiter.Check(ctx, u); err == nil {
+		t.Error("余额为负、额度用完时应超限")
 	}
 	now := time.Now()
 	u.DisabledAt = &now
@@ -168,11 +204,39 @@ func TestRedeemAndQuota(t *testing.T) {
 	}
 }
 
+// 旧的余额包停用：不能再生成卡密，已经发出去的卡兑换不了，也不会显示给用户。
+func TestLegacyPackDisabled(t *testing.T) {
+	s, db := setup(t)
+	ctx := context.Background()
+	u := newUser(t, db, "carol")
+	old := store.Plan{Name: "旧加油包", Kind: store.PlanPack, Unit: store.UnitMessages, Quota: 10, Visible: true}
+	db.Gorm().Create(&old)
+	box, _ := secret.New(make([]byte, 32))
+	db.Gorm().Create(&store.CardKey{CodeHash: box.HMAC("OLDCARD1234567890"), Hint: "x", PlanID: old.ID, Batch: "b", Status: store.CardUnused})
+	if _, err := s.Generate(ctx, GenerateInput{PlanID: old.ID, Count: 1}); err == nil {
+		t.Error("旧余额包不应能生成卡密")
+	}
+	if _, err := s.Redeem(ctx, u.ID, "OLDCARD1234567890"); err == nil {
+		t.Error("旧余额包的卡不应能兑换")
+	}
+	var card store.CardKey
+	db.Gorm().First(&card)
+	if card.Status != store.CardUnused {
+		t.Error("兑换失败时卡密应保持未使用")
+	}
+	if ps, _ := s.Plans(ctx, true); len(ps) != 0 {
+		t.Errorf("用户不应看到旧余额包：%+v", ps)
+	}
+	if err := s.SetVisible(ctx, old.ID, true); err == nil {
+		t.Error("旧余额包不应能再显示")
+	}
+}
+
 func TestCards(t *testing.T) {
 	s, db := setup(t)
 	ctx := context.Background()
 	u := newUser(t, db, "bob")
-	p, _ := s.CreatePlan(ctx, PlanInput{Name: "流量包", Kind: store.PlanPack, Unit: store.UnitTokens, Quota: 1000})
+	p, _ := s.CreatePlan(ctx, PlanInput{Name: "充值 50", Kind: store.PlanRecharge, Amount: 50 * Yuan})
 	if _, err := s.Generate(ctx, GenerateInput{PlanID: p.ID, Count: 2, Length: 8}); err == nil {
 		t.Error("太短的卡密应拒绝")
 	}
@@ -182,7 +246,7 @@ func TestCards(t *testing.T) {
 	}
 	gen, _ := s.Generate(ctx, GenerateInput{PlanID: p.ID, Count: 5, Note: "闲鱼"})
 	list, total, err := s.Cards(ctx, CardFilter{Batch: gen.Batch}, 50, 0)
-	if err != nil || total != 5 || list[0].PlanName != "流量包" || !strings.Contains(list[0].Hint, "****") {
+	if err != nil || total != 5 || list[0].PlanName != "充值 50" || !strings.Contains(list[0].Hint, "****") {
 		t.Fatalf("%+v %d %v", list, total, err)
 	}
 	// 停用的卡兑换不了，恢复后可以。
@@ -195,8 +259,8 @@ func TestCards(t *testing.T) {
 		t.Errorf("停用的卡 = %v", err)
 	}
 	s.SetCardsDisabled(ctx, ids, false)
-	if _, err := s.Redeem(ctx, u.ID, gen.Codes[4]); err != nil {
-		t.Fatal(err)
+	if msg, err := s.Redeem(ctx, u.ID, gen.Codes[4]); err != nil || !strings.Contains(msg, "¥50") {
+		t.Fatalf("%q %v", msg, err)
 	}
 	// 有没兑换的卡时不能删套餐；删除卡密时用过的保留。
 	if err := s.DeletePlan(ctx, p.ID); err == nil {
@@ -215,8 +279,8 @@ func TestCards(t *testing.T) {
 	if err := s.DeletePlan(ctx, p.ID); err != nil {
 		t.Error(err)
 	}
-	// 套餐删了，已经兑换的余额还在。
-	if ent, _ := s.Entitlement(ctx, u.ID); ent.PackTokens != 1000 {
-		t.Errorf("tokens = %d", ent.PackTokens)
+	// 套餐删了，已经充进去的余额还在。
+	if bal, _ := s.Balance(ctx, u.ID); bal != 50*Yuan {
+		t.Errorf("balance = %d", bal)
 	}
 }

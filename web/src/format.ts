@@ -1,4 +1,5 @@
 // 时间与文本格式化工具。
+import type { Plan } from './api'
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
 import { mathPlugin } from './math'
@@ -73,13 +74,35 @@ export function mtok(n: number): string {
   return String(+v.toFixed(Math.abs(v) < 1 ? 3 : 2))
 }
 
+// YUAN 是 1 元对应的微元数（金额都以微元存整数）。
+export const YUAN = 1_000_000
+
+// yuan 把微元写成「¥12.5」，小于 1 分的保留到 0.0001 元。
+export function yuan(micro: number): string {
+  const v = micro / YUAN
+  const digits = Math.abs(v) >= 1 || v === 0 ? 2 : 4
+  return `${v < 0 ? '-' : ''}¥${(+Math.abs(v).toFixed(digits)).toString()}`
+}
+
 export function amount(unit: string, n: number): string {
   if (unit === 'tokens') return `${mtok(n)} 百万 token`
+  if (unit === 'searches') return `${n} 次搜索`
   return `${n >= 10000 ? `${+(n / 10000).toFixed(1)} 万` : n} 条消息`
 }
 
-// planSummary 是套餐内容的一句话：30 天 · 每天 200 条消息；或 100 万 token · 90 天内有效。
-export function planSummary(p: { kind: string; unit: string; days: number; cycle: string; quota: number; valid_days: number }): string {
-  if (p.kind === 'period') return `${p.days} 天 · 每${p.cycle === 'month' ? '月' : '天'} ${amount(p.unit, p.quota)}`
-  return `${amount(p.unit, p.quota)} · ${p.valid_days > 0 ? `${p.valid_days} 天内有效` : '永久有效'}`
+// planQuotas 列出时长套餐每周期的各项额度（0 是不限，不列出来）。
+export function planQuotas(p: { quota_messages: number; quota_tokens: number; quota_searches: number }): string[] {
+  const out: string[] = []
+  if (p.quota_messages) out.push(amount('messages', p.quota_messages))
+  if (p.quota_tokens) out.push(amount('tokens', p.quota_tokens))
+  if (p.quota_searches) out.push(amount('searches', p.quota_searches))
+  return out
+}
+
+// planSummary 是套餐内容的一句话：30 天 · 每天 200 条消息、2 百万 token；或 充值 ¥10。
+export function planSummary(p: Pick<Plan, 'kind' | 'days' | 'cycle' | 'quota_messages' | 'quota_tokens' | 'quota_searches' | 'amount'>): string {
+  if (p.kind === 'recharge') return `充值 ${yuan(p.amount)} 到余额`
+  if (p.kind === 'pack') return '旧余额包（已停用）'
+  const q = planQuotas(p)
+  return `${p.days} 天 · 每${p.cycle === 'month' ? '月' : '天'} ${q.length ? q.join('、') : '不限量'}`
 }

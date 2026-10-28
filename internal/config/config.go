@@ -386,8 +386,10 @@ type PersonaConfig struct {
 
 // QuotaConfig 是每个用户的每日用量限额，0 表示不限制。
 type QuotaConfig struct {
-	DailyMessages int  `koanf:"daily_messages"`
-	DailyTokens   int  `koanf:"daily_tokens"`
+	DailyMessages int `koanf:"daily_messages"`
+	DailyTokens   int `koanf:"daily_tokens"`
+	// DailySearches 是每人每天免费的联网搜索次数，0 表示不限。
+	DailySearches int  `koanf:"daily_searches"`
 	ExemptAdmins  bool `koanf:"exempt_admins"`
 }
 
@@ -748,7 +750,7 @@ func (c *Config) Validate() error {
 	if c.Chat.KeepRecent < 5 || c.Chat.KeepRecent >= c.Chat.CompactAt {
 		errs = append(errs, errors.New("chat.keep_recent 必须不小于 5，并且小于 chat.compact_at"))
 	}
-	if c.Quota.DailyMessages < 0 || c.Quota.DailyTokens < 0 {
+	if c.Quota.DailyMessages < 0 || c.Quota.DailyTokens < 0 || c.Quota.DailySearches < 0 {
 		errs = append(errs, errors.New("quota 不能为负数"))
 	}
 	for _, p := range []string{c.LLM.Chat.Provider, c.LLM.Utility.Provider} {

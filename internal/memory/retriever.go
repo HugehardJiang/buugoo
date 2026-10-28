@@ -8,6 +8,7 @@ import (
 
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/llm"
+	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/store"
 	"github.com/HugehardJiang/buugoo/internal/vector"
 )
@@ -51,7 +52,7 @@ func (r *Retriever) Retrieve(ctx context.Context, userID uint64, query string) (
 
 // RetrieveMore 和 Retrieve 一样，但多取 extra 条（记忆影响更强的性格用）。
 func (r *Retriever) RetrieveMore(ctx context.Context, userID uint64, query string, extra int) ([]Scored, error) {
-	q, err := r.EmbedQuery(ctx, query)
+	q, err := r.EmbedQuery(quota.WithUser(ctx, userID), query) // 向量模型的用量记到这个用户身上
 	if err != nil {
 		return nil, err
 	}

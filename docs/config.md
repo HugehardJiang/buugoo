@@ -44,7 +44,8 @@ Docker 用 `.env`）。
 - 记忆上限：`memory.compact.max_memories`（默认 300）。一个人的记忆超过这么多条时自动整理：相近的合并、
   旧的零碎记忆概括成几条，压到七成左右；`memory.compact.similarity`（默认 0.8）是当成「相近」的相似度。
   设为 0 关闭自动整理（设置页「大脑皮层 → 整理记忆」仍可手动整理），见 [memory.md](memory.md)。
-- 官网防止费用失控：`quota.daily_messages`、`quota.daily_tokens`。开通会员的用户按套餐额度计算，见 README「会员与卡密」。
+- 官网防止费用失控：`quota.daily_messages`、`quota.daily_tokens`、`quota.daily_searches`（每日免费额度）。
+  开通会员的用户按套餐额度计算，额度用完后按价格扣余额，见 README「会员、余额与卡密」。
 
 ## 加密与安全
 

@@ -13,6 +13,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/memo"
 	"github.com/HugehardJiang/buugoo/internal/models"
 	"github.com/HugehardJiang/buugoo/internal/proactive"
+	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/skills"
 	"github.com/HugehardJiang/buugoo/internal/store"
 	"github.com/HugehardJiang/buugoo/internal/tools"
@@ -42,6 +43,8 @@ type toolProvider struct {
 	plugins *mcp.Manager
 	// memos 不为空时提供读写备忘录的工具。
 	memos *memo.Service
+	// limiter 不为空时给联网搜索和读网页计量（多用户版）。
+	limiter *quota.Limiter
 }
 
 func newToolProvider(cfg *config.Config, log *slog.Logger) *toolProvider {
@@ -170,6 +173,10 @@ func (p *toolProvider) workspace(ctx context.Context, u *store.User, conv *store
 func (p *toolProvider) For(ctx context.Context, u *store.User, conv *store.Conversation, model *models.Resolved, pending []store.Attachment) *tools.Set {
 	opts := tools.Options{}
 	opts.Search, opts.Fetch = p.search(model)
+	// 用户自己的 DeepSeek 模型用它自己的 Key 搜索，不花站长的钱，不计量。
+	if !(model != nil && model.Personal && p.cfg.Tools.Search.DeepSeekAPIKey == "" && providerName(opts.Search) == "deepseek") {
+		opts.Search, opts.Fetch = meterSearch(opts.Search, opts.Fetch, u.ID, p.limiter, p.log)
+	}
 	var runner tools.Runner
 	var ws tools.Workspace
 	if r := p.python(ctx, u); r != nil {

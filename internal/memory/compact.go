@@ -13,6 +13,7 @@ import (
 
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/llm"
+	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/store"
 	"github.com/HugehardJiang/buugoo/internal/vector"
 )
@@ -96,6 +97,7 @@ func (c *Compactor) Auto(userID uint64) {
 // Compact 压缩一个人的记忆。manual 为 true 时（设置页手动整理）只合并相近的记忆；
 // 自动压缩时如果还超过上限，再把零碎的旧记忆概括成几条，压到上限的七成左右。
 func (c *Compactor) Compact(ctx context.Context, userID uint64, manual bool) (CompactReport, error) {
+	ctx = quota.WithUser(ctx, userID) // 向量模型的用量记到这个用户身上
 	mu, _ := c.locks.LoadOrStore(userID, &sync.Mutex{})
 	if !mu.(*sync.Mutex).TryLock() {
 		return CompactReport{}, ErrCompactBusy

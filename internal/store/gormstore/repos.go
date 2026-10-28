@@ -574,12 +574,26 @@ func (r usageRepo) Get(ctx context.Context, userID uint64, day string) (store.Us
 
 func (r usageRepo) Sum(ctx context.Context, userID uint64, fromDay, toDay string) (store.UsageDaily, error) {
 	var out struct {
-		Messages, PromptTokens, CompletionTokens int
+		Messages, PromptTokens, CompletionTokens, Searches int
 	}
 	err := r.db.WithContext(ctx).Model(&store.UsageDaily{}).
-		Select("COALESCE(SUM(messages), 0) AS messages, COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, COALESCE(SUM(completion_tokens), 0) AS completion_tokens").
+		Select("COALESCE(SUM(messages), 0) AS messages, COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, "+
+			"COALESCE(SUM(completion_tokens), 0) AS completion_tokens, COALESCE(SUM(searches), 0) AS searches").
 		Where("user_id = ? AND day >= ? AND day <= ?", userID, fromDay, toDay).Scan(&out).Error
-	return store.UsageDaily{UserID: userID, Messages: out.Messages, PromptTokens: out.PromptTokens, CompletionTokens: out.CompletionTokens}, mapErr(err)
+	return store.UsageDaily{UserID: userID, Messages: out.Messages, PromptTokens: out.PromptTokens, CompletionTokens: out.CompletionTokens,
+		Searches: out.Searches}, mapErr(err)
+}
+
+func (r usageRepo) AddSearches(ctx context.Context, userID uint64, day string, n int) error {
+	row := store.UsageDaily{UserID: userID, Day: day, Searches: n}
+	err := r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "user_id"}, {Name: "day"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"searches":   gorm.Expr("searches + ?", n),
+			"updated_at": time.Now().UTC(),
+		}),
+	}).Create(&row).Error
+	return mapErr(err)
 }
 
 func (r usageRepo) Add(ctx context.Context, userID uint64, day string, messages, promptTokens, completionTokens int) error {

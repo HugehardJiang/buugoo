@@ -16,6 +16,7 @@ import (
 
 	"github.com/HugehardJiang/buugoo/internal/accounts"
 	"github.com/HugehardJiang/buugoo/internal/billing"
+	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/store"
 )
 
@@ -39,6 +40,8 @@ func (s *server) routeBilling(api, priv, console *echo.Group) {
 	m.PUT("/plans/:id", s.consoleUpdatePlan)
 	m.POST("/plans/:id/visible", s.consolePlanVisible)
 	m.DELETE("/plans/:id", s.consoleDeletePlan)
+	m.GET("/pricing", s.consolePricing)
+	m.PUT("/pricing", s.consoleSetPricing)
 	m.GET("/cards", s.consoleCards)
 	m.POST("/cards/generate", s.consoleGenerateCards)
 	m.POST("/cards/disable", s.consoleDisableCards(true))
@@ -111,7 +114,7 @@ func (s *server) consoleUser(c echo.Context) error {
 		return err
 	}
 	return c.JSON(http.StatusOK, map[string]any{"user": toUser(u), "disabled_at": u.DisabledAt, "disabled_reason": u.DisabledReason,
-		"account": acc, "quota": st})
+		"account": acc, "quota": st, "labels": s.costLabels(c)})
 }
 
 func (s *server) consoleDisableUser(c echo.Context) error {
@@ -199,8 +202,7 @@ func (s *server) consoleAdjust(c echo.Context) error {
 		return err
 	}
 	var req struct {
-		Unit   string `json:"unit"`
-		Amount int64  `json:"amount"`
+		Amount int64  `json:"amount"` // 微元，正数加、负数扣
 		Note   string `json:"note"`
 	}
 	if err := bind(c, &req); err != nil {
@@ -210,10 +212,10 @@ func (s *server) consoleAdjust(c echo.Context) error {
 	if _, err := s.Accounts.Get(ctx, id); err != nil {
 		return err
 	}
-	if err := s.Billing.Adjust(ctx, id, req.Unit, req.Amount, req.Note); err != nil {
+	if err := s.Billing.Adjust(ctx, id, req.Amount, req.Note); err != nil {
 		return err
 	}
-	s.audit(c, "管理后台调整了用户余额", "user", id, "unit", req.Unit, "amount", req.Amount)
+	s.audit(c, "管理后台调整了用户余额", "user", id, "amount_yuan", quota.Yuan(req.Amount))
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -420,20 +422,23 @@ type planDTO struct {
 	Description string `json:"description"`
 	Price       string `json:"price"`
 	Kind        string `json:"kind"`
-	Unit        string `json:"unit"`
 	Days        int    `json:"days"`
 	Cycle       string `json:"cycle"`
-	Quota       int64  `json:"quota"`
-	ValidDays   int    `json:"valid_days"`
-	BuyURL      string `json:"buy_url"`
+	// 时长套餐每周期的额度（0 表示不限）；充值套餐到账的金额（微元）。
+	QuotaMessages int64  `json:"quota_messages"`
+	QuotaTokens   int64  `json:"quota_tokens"`
+	QuotaSearches int64  `json:"quota_searches"`
+	Amount        int64  `json:"amount"`
+	BuyURL        string `json:"buy_url"`
 	// 下面两项只给管理后台。
 	Visible *bool `json:"visible,omitempty"`
 	Sort    *int  `json:"sort,omitempty"`
 }
 
 func toPlanDTO(p store.Plan, console bool) planDTO {
-	d := planDTO{ID: p.ID, Name: p.Name, Description: p.Description, Price: p.Price, Kind: p.Kind, Unit: p.Unit,
-		Days: p.Days, Cycle: p.Cycle, Quota: p.Quota, ValidDays: p.ValidDays, BuyURL: p.BuyURL}
+	d := planDTO{ID: p.ID, Name: p.Name, Description: p.Description, Price: p.Price, Kind: p.Kind,
+		Days: p.Days, Cycle: p.Cycle, QuotaMessages: p.QuotaMessages, QuotaTokens: p.QuotaTokens, QuotaSearches: p.QuotaSearches,
+		Amount: p.Amount, BuyURL: p.BuyURL}
 	if console {
 		d.Visible, d.Sort = &p.Visible, &p.Sort
 	}
@@ -459,7 +464,7 @@ func (s *server) myBilling(c echo.Context) error {
 	for i, p := range ps {
 		plans[i] = toPlanDTO(p, false)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"account": acc, "quota": st, "plans": plans})
+	return c.JSON(http.StatusOK, map[string]any{"account": acc, "quota": st, "plans": plans, "labels": s.costLabels(c)})
 }
 
 // redeemGuard 记每个账号连续兑换失败的次数，输错太多次锁一段时间（防止撞卡密）。

@@ -14,6 +14,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/mcp"
 	"github.com/HugehardJiang/buugoo/internal/persona"
 	"github.com/HugehardJiang/buugoo/internal/proactive"
+	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/settings"
 	"github.com/HugehardJiang/buugoo/internal/skills"
 	"github.com/HugehardJiang/buugoo/internal/store"
@@ -239,6 +240,8 @@ var specs = []spec{
 			}
 			if st, err := e.s.d.Quota.Status(ctx, u); err == nil {
 				out["quota_today"] = st
+				// member.balance 是微元，另外给一个按元写好的，免得看错。
+				out["balance"] = "¥" + quota.Yuan(st.Member.Balance)
 			}
 			return jsonText(out), nil
 		},

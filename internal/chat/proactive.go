@@ -12,6 +12,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/memory"
 	"github.com/HugehardJiang/buugoo/internal/models"
 	"github.com/HugehardJiang/buugoo/internal/prompt"
+	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/store"
 )
 
@@ -68,7 +69,7 @@ func (s *Service) Proactive(ctx context.Context, u *store.User, reason string, a
 	}
 	text := strings.TrimSpace(resp.Content)
 	if !model.Personal {
-		if err := s.quota.Record(ctx, u.ID, 0, resp.Usage.PromptTokens, resp.Usage.CompletionTokens); err != nil {
+		if err := s.quota.Record(ctx, u.ID, quota.Use{Key: quota.ModelKey(model.ID), PromptTokens: resp.Usage.PromptTokens, CompletionTokens: resp.Usage.CompletionTokens}); err != nil {
 			s.log.Error("记录用量失败", "user_id", u.ID, "err", err)
 		}
 	}
@@ -141,7 +142,7 @@ func (s *Service) RunTask(ctx context.Context, u *store.User, task string) (*Pro
 	}
 	reply.PromptTokens, reply.CompletionTokens = usage.PromptTokens, usage.CompletionTokens
 	if !model.Personal {
-		if err := s.quota.Record(bg, u.ID, 0, usage.PromptTokens, usage.CompletionTokens); err != nil {
+		if err := s.quota.Record(bg, u.ID, quota.Use{Key: quota.ModelKey(model.ID), PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens}); err != nil {
 			s.log.Error("记录用量失败", "user_id", u.ID, "err", err)
 		}
 	}

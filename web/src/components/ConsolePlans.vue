@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // 管理后台 → 会员套餐：新建、修改、显示或隐藏、删除套餐。改套餐只影响之后的兑换，已经开通的不变。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ApiError, type Plan } from '../api'
-import { planSummary, TOKEN_UNIT } from '../format'
+import { planSummary, TOKEN_UNIT, YUAN } from '../format'
 import Modal from './Modal.vue'
 import { toast } from '../toast'
 
@@ -16,7 +16,31 @@ const saving = ref(false)
 const formError = ref('')
 const removing = ref<Plan | null>(null)
 
-const blank = (): Plan => ({ id: 0, name: '', description: '', price: '', kind: 'period', unit: 'messages', days: 30, cycle: 'day', quota: 200, valid_days: 0, buy_url: '', visible: true, sort: 0 })
+const blank = (): Plan => ({
+  id: 0, name: '', description: '', price: '', kind: 'period', days: 30, cycle: 'day',
+  quota_messages: 200, quota_tokens: 0, quota_searches: 0, amount: 10 * YUAN, buy_url: '', visible: true, sort: 0,
+})
+
+// 表单里按好填的单位：token 以百万计，金额以元计；空着表示不限。
+const form = reactive({ messages: '' as number | '', mtokens: '' as number | '', searches: '' as number | '', yuan: 10 as number | '' })
+
+function fillForm(p: Plan) {
+  form.messages = p.quota_messages || ''
+  form.mtokens = p.quota_tokens ? +(p.quota_tokens / TOKEN_UNIT).toFixed(3) : ''
+  form.searches = p.quota_searches || ''
+  form.yuan = p.amount ? +(p.amount / YUAN).toFixed(4) : 10
+}
+
+// toPlan 把表单换算回接口用的单位。
+function toPlan(p: Plan): Plan {
+  return {
+    ...p, days: Number(p.days), sort: Number(p.sort ?? 0),
+    quota_messages: Math.round(Number(form.messages) || 0),
+    quota_tokens: Math.round((Number(form.mtokens) || 0) * TOKEN_UNIT),
+    quota_searches: Math.round(Number(form.searches) || 0),
+    amount: Math.round((Number(form.yuan) || 0) * YUAN),
+  }
+}
 
 onMounted(load)
 
@@ -31,25 +55,19 @@ async function load() {
 
 function openNew() {
   editing.value = blank()
+  fillForm(editing.value)
   isNew.value = true
   formError.value = ''
 }
 
 function openEdit(p: Plan) {
   editing.value = { ...p }
+  fillForm(p)
   isNew.value = false
   formError.value = ''
 }
 
-// token 套餐的额度以百万 token 填写。
-const quotaShown = computed({
-  get: () => (editing.value?.unit === 'tokens' ? +(editing.value.quota / TOKEN_UNIT).toFixed(3) : editing.value?.quota ?? 0),
-  set: (v: number) => {
-    if (editing.value) editing.value.quota = editing.value.unit === 'tokens' ? Math.round(Number(v) * TOKEN_UNIT) : Number(v)
-  },
-})
-
-const preview = computed(() => (editing.value ? planSummary(editing.value) : ''))
+const preview = computed(() => (editing.value ? planSummary(toPlan(editing.value)) : ''))
 
 async function save() {
   const p = editing.value
@@ -57,7 +75,7 @@ async function save() {
   saving.value = true
   formError.value = ''
   try {
-    const body = { ...p, days: Number(p.days), quota: Number(p.quota), valid_days: Number(p.valid_days), sort: Number(p.sort ?? 0) }
+    const body = toPlan(p)
     if (isNew.value) await props.call('POST', '/plans', body)
     else await props.call('PUT', `/plans/${p.id}`, body)
     toast(isNew.value ? `已新建「${p.name}」` : `已保存「${p.name}」`)
@@ -101,8 +119,8 @@ async function confirmRemove() {
       <button type="button" class="btn btn-sm btn-primary" @click="openNew">新建套餐</button>
     </div>
     <p class="muted intro">
-      时长套餐在有效期内每天（或每月）给固定额度，代替免费额度；余额包一次给一笔额度，周期额度用完后再用它。
-      显示的套餐会出现在用户「个人中心 → 会员」里，可以附上购买链接（发卡平台、店铺等），用户买到卡密后在那里兑换。
+      时长套餐在有效期内每天（或每月）给固定额度：消息、token、联网搜索各自限，不填的不限；额度用完后按「计费」里的价格扣余额。
+      充值套餐兑换后把钱加到余额里。显示的套餐会出现在用户「个人中心 → 会员」里，可以附上购买链接（发卡平台、店铺等），用户买到卡密后在那里兑换。
     </p>
     <p v-if="error" class="form-flash form-flash--error">{{ error }}</p>
     <div v-else-if="plans === null" class="skeleton skel" aria-hidden="true" />
@@ -112,15 +130,15 @@ async function confirmRemove() {
         <div class="plan__main">
           <p class="plan__name">
             {{ p.name }}
-            <span class="badge-pill">{{ p.kind === 'period' ? '时长套餐' : '余额包' }}</span>
+            <span class="badge-pill">{{ { period: '时长套餐', recharge: '充值', pack: '旧余额包 · 已停用' }[p.kind] }}</span>
             <span v-if="p.price" class="price">{{ p.price }}</span>
           </p>
           <p class="caption">{{ planSummary(p) }}<template v-if="p.buy_url"> · 有购买链接</template></p>
           <p v-if="p.description" class="caption desc">{{ p.description }}</p>
         </div>
         <div class="plan__ctl">
-          <label class="check-row"><input type="checkbox" :checked="p.visible" @change="toggle(p)" /> 显示给用户</label>
-          <button type="button" class="btn btn-sm" @click="openEdit(p)">修改</button>
+          <label v-if="p.kind !== 'pack'" class="check-row"><input type="checkbox" :checked="p.visible" @change="toggle(p)" /> 显示给用户</label>
+          <button v-if="p.kind !== 'pack'" type="button" class="btn btn-sm" @click="openEdit(p)">修改</button>
           <button type="button" class="btn btn-sm btn-danger-lite" @click="removing = p">删除</button>
         </div>
       </li>
@@ -142,41 +160,47 @@ async function confirmRemove() {
           <span class="field__label">种类</span>
           <div class="type-switch" role="group">
             <button type="button" :class="{ 'is-active': editing.kind === 'period' }" @click="editing.kind = 'period'">时长套餐</button>
-            <button type="button" :class="{ 'is-active': editing.kind === 'pack' }" @click="editing.kind = 'pack'">余额包</button>
+            <button type="button" :class="{ 'is-active': editing.kind === 'recharge' }" @click="editing.kind = 'recharge'">充值</button>
           </div>
         </div>
-        <div class="form-row">
-          <div class="field">
-            <label class="field__label" for="pl-u">计费单位</label>
-            <select id="pl-u" v-model="editing.unit" class="text-input">
-              <option value="messages">消息条数</option>
-              <option value="tokens">token（按百万计）</option>
-            </select>
-          </div>
-          <div class="field">
-            <label class="field__label" for="pl-q">{{ editing.kind === 'period' ? '每周期额度' : '总额度' }}</label>
-            <div class="with-unit">
-              <input id="pl-q" v-model.number="quotaShown" class="text-input" type="number" :min="editing.unit === 'tokens' ? 0.001 : 1" :step="editing.unit === 'tokens' ? 'any' : 1" required />
-              <span class="caption">{{ editing.unit === 'tokens' ? '百万 token' : '条' }}</span>
+        <template v-if="editing.kind === 'period'">
+          <div class="form-row">
+            <div class="field">
+              <label class="field__label" for="pl-d">时长（天）</label>
+              <input id="pl-d" v-model.number="editing.days" class="text-input" type="number" min="1" max="3660" required />
+            </div>
+            <div class="field">
+              <label class="field__label" for="pl-c">额度周期</label>
+              <select id="pl-c" v-model="editing.cycle" class="text-input">
+                <option value="day">每天</option>
+                <option value="month">每个自然月</option>
+              </select>
             </div>
           </div>
-        </div>
-        <div v-if="editing.kind === 'period'" class="form-row">
-          <div class="field">
-            <label class="field__label" for="pl-d">时长（天）</label>
-            <input id="pl-d" v-model.number="editing.days" class="text-input" type="number" min="1" max="3660" required />
+          <p class="field__label">每周期的额度（空着表示不限）</p>
+          <div class="quota-grid">
+            <div class="with-unit">
+              <input v-model.number="form.messages" class="text-input" type="number" min="0" step="1" placeholder="不限" aria-label="消息条数" />
+              <span class="caption">条消息</span>
+            </div>
+            <div class="with-unit">
+              <input v-model.number="form.mtokens" class="text-input" type="number" min="0" step="any" placeholder="不限" aria-label="token" />
+              <span class="caption">百万 token</span>
+            </div>
+            <div class="with-unit">
+              <input v-model.number="form.searches" class="text-input" type="number" min="0" step="1" placeholder="不限" aria-label="联网搜索次数" />
+              <span class="caption">次搜索</span>
+            </div>
           </div>
-          <div class="field">
-            <label class="field__label" for="pl-c">额度周期</label>
-            <select id="pl-c" v-model="editing.cycle" class="text-input">
-              <option value="day">每天</option>
-              <option value="month">每个自然月</option>
-            </select>
-          </div>
-        </div>
+          <p class="caption hint">哪一项先用完就停在哪一项：消息或 token 用完后有余额就接着扣余额；搜索次数用完只是不能联网搜索，聊天照常。</p>
+        </template>
         <div v-else class="field">
-          <label class="field__label" for="pl-v">有效期（天，0 表示永久）</label>
-          <input id="pl-v" v-model.number="editing.valid_days" class="text-input" type="number" min="0" max="3660" />
+          <label class="field__label" for="pl-a">到账金额</label>
+          <div class="with-unit">
+            <input id="pl-a" v-model.number="form.yuan" class="text-input" type="number" min="0.01" step="any" required />
+            <span class="caption">元</span>
+          </div>
+          <p class="field__hint">可以和价格不一样，例如卖 ¥10 到账 ¥11。</p>
         </div>
         <p class="caption preview">用户会看到：{{ preview }}</p>
         <div class="field">
@@ -230,6 +254,9 @@ async function confirmRemove() {
 .plan__ctl { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 6px 10px; }
 .plan__ctl .check-row { margin: 0; white-space: nowrap; }
 .preview { margin: -6px 0 14px; }
+.quota-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 6px 0 8px; }
+.hint { margin: 0 0 14px; }
+@media (max-width: 560px) { .quota-grid { grid-template-columns: minmax(0, 1fr); } }
 .textarea.small { min-height: 70px; }
 @media (max-width: 640px) { .plan { flex-direction: column; } .plan__ctl { justify-content: flex-start; } }
 </style>

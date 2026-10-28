@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// 个人中心 → 会员：现在的套餐和余额、这个周期用了多少，可以买的套餐（带购买链接），兑换卡密。
+// 个人中心 → 会员：现在的套餐、余额和消费、这个周期用了多少，可以买的套餐（带购买链接），兑换卡密。
 import { computed, onMounted, ref } from 'vue'
 import { api, ApiError, type BillingAccount, type Plan, type Quota } from '../api'
-import { amount, dateTime, mtok, planSummary } from '../format'
+import { dateTime, mtok, planSummary, yuan } from '../format'
 import { toast } from '../toast'
 
 const account = ref<BillingAccount | null>(null)
@@ -13,6 +13,11 @@ const code = ref('')
 const redeeming = ref(false)
 const redeemError = ref('')
 const showLogs = ref(false)
+const showCosts = ref(false)
+const labels = ref<Record<string, string>>({})
+
+const todayCost = computed(() => (account.value?.today ?? []).reduce((n, c) => n + c.amount, 0))
+const monthCost = computed(() => (account.value?.month ?? []).reduce((n, c) => n + c.amount, 0))
 
 const usage = computed(() => {
   const q = quota.value
@@ -20,6 +25,7 @@ const usage = computed(() => {
   const out: { label: string; used: number; limit: number; unit: string }[] = []
   if (q.messages_limit) out.push({ label: '消息', used: q.messages, limit: q.messages_limit, unit: 'messages' })
   if (q.tokens_limit) out.push({ label: '百万 token', used: q.tokens, limit: q.tokens_limit, unit: 'tokens' })
+  if (q.searches_limit) out.push({ label: '联网搜索', used: q.searches, limit: q.searches_limit, unit: 'searches' })
   return out
 })
 
@@ -31,6 +37,7 @@ async function load() {
     account.value = r.account
     quota.value = r.quota
     plans.value = r.plans
+    labels.value = r.labels ?? {}
     loadError.value = ''
   } catch (e) {
     loadError.value = e instanceof ApiError ? e.message : '加载失败'
@@ -67,34 +74,37 @@ function pct(used: number, limit: number) {
         <div class="status__plan">
           <p class="caption">当前</p>
           <p v-if="account.subscription" class="plan-name">{{ account.subscription.plan_name }}</p>
-          <p v-else class="plan-name">免费用户</p>
+          <p v-else class="plan-name">{{ quota.free ? '免费用户' : '按量付费' }}</p>
           <p v-if="account.subscription" class="caption">{{ dateTime(account.subscription.expires_at) }} 到期</p>
           <p v-if="quota.exempt" class="caption">管理员不受限额限制</p>
+          <p class="balance-label caption">余额</p>
+          <p class="balance" :class="{ neg: account.balance < 0 }">{{ yuan(account.balance) }}</p>
+          <p class="caption">今天花了 {{ yuan(todayCost) }} · 本月 {{ yuan(monthCost) }}</p>
         </div>
         <div class="status__usage">
-          <p class="caption">{{ quota.period === 'month' ? '本月' : '今天' }}已用</p>
+          <p class="caption">{{ quota.period === 'month' ? '本月' : '今天' }}的额度</p>
           <template v-if="usage.length">
             <div v-for="u in usage" :key="u.label" class="meter">
               <div class="meter__label"><span>{{ u.label }}</span><span>{{ u.unit === 'tokens' ? `${mtok(u.used)} / ${mtok(u.limit)}` : `${u.used} / ${u.limit}` }}</span></div>
               <div class="workspace-progress"><i :style="{ width: `${pct(u.used, u.limit)}%` }" /></div>
             </div>
           </template>
-          <p v-else class="caption">不限</p>
-          <p v-if="quota.reset_at" class="caption">{{ dateTime(quota.reset_at) }} 重置</p>
+          <p v-else class="caption">{{ quota.free ? '不限' : '没有免费额度，每次使用按价格扣余额' }}</p>
+          <p v-if="quota.reset_at && usage.length" class="caption">{{ dateTime(quota.reset_at) }} 重置</p>
+          <p v-if="quota.paying && !quota.exempt" class="paying">{{ quota.free ? '额度用完了，' : '' }}现在每次使用都按价格从余额里扣</p>
         </div>
       </div>
-      <div v-if="account.packs.length" class="packs">
-        <p class="caption">余额包（周期额度用完后再用）</p>
-        <ul>
-          <li v-for="p in account.packs" :key="p.id">
-            <span>{{ p.name }}</span>
-            <span>剩 {{ amount(p.unit, p.remaining) }}<span class="caption">{{ p.expires_at ? ` · ${dateTime(p.expires_at)} 过期` : '' }}</span></span>
-          </li>
-        </ul>
-      </div>
+
+      <button v-if="account.month.length" type="button" class="link caption" @click="showCosts = !showCosts">{{ showCosts ? '收起消费明细' : '查看本月消费明细' }}</button>
+      <ul v-if="showCosts" class="costs">
+        <li v-for="c in account.month" :key="c.key">
+          <span>{{ labels[c.key] ?? c.key }}<span class="caption"> · {{ c.tokens ? `${mtok(c.tokens)} 百万 token` : `${c.calls} 次` }}</span></span>
+          <span>{{ yuan(c.amount) }}</span>
+        </li>
+      </ul>
 
       <form class="redeem" @submit.prevent="redeem">
-        <label class="field__label" for="redeem-code">兑换卡密</label>
+        <label class="field__label" for="redeem-code">兑换卡密（开通套餐或充值）</label>
         <div class="redeem__row">
           <input id="redeem-code" v-model="code" class="text-input mono" autocomplete="off" spellcheck="false" placeholder="BG-XXXX-XXXX-XXXX-XXXX" maxlength="80" />
           <button class="btn btn-primary" :disabled="!code.trim() || redeeming">{{ redeeming ? '正在兑换' : '兑换' }}</button>
@@ -115,10 +125,10 @@ function pct(used: number, limit: number) {
             <a v-if="p.buy_url" :href="p.buy_url" target="_blank" rel="noopener noreferrer" class="btn btn-sm buy">去购买</a>
           </article>
         </div>
-        <p class="caption">买到卡密后在上面兑换。续费同一个套餐会接着现在的到期时间往后加。</p>
+        <p class="caption">买到卡密后在上面兑换。续费同一个时长套餐会接着现在的到期时间往后加；充值的钱一直有效。</p>
       </div>
 
-      <button v-if="account.logs.length" type="button" class="link caption" @click="showLogs = !showLogs">{{ showLogs ? '收起记录' : '查看兑换记录' }}</button>
+      <button v-if="account.logs.length" type="button" class="link caption" @click="showLogs = !showLogs">{{ showLogs ? '收起记录' : '查看兑换和充值记录' }}</button>
       <ul v-if="showLogs" class="logs">
         <li v-for="l in account.logs" :key="l.id"><span class="caption">{{ dateTime(l.created_at) }}</span> {{ l.detail }}</li>
       </ul>
@@ -135,9 +145,12 @@ h2 { margin: 0 0 14px; }
 .plan-name { font-family: var(--font-display); font-size: 22px; color: var(--color-ink); }
 .meter { margin-bottom: 8px; }
 .meter__label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
-.packs { padding: 12px 0; border-bottom: 1px solid var(--color-divider); }
-.packs ul { margin: 6px 0 0; padding: 0; list-style: none; }
-.packs li { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 14px; }
+.balance-label { margin-top: 12px !important; }
+.balance { font-family: var(--font-display); font-size: 26px; color: var(--color-ink); }
+.neg { color: var(--color-danger) !important; }
+.paying { margin-top: 8px !important; font-size: 13px; color: var(--color-accent-active); }
+.costs { margin: 8px 0 0; padding: 0; list-style: none; }
+.costs li { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 14px; border-bottom: 1px solid var(--color-divider); }
 .redeem { padding: 16px 0; }
 .redeem__row { display: flex; gap: 8px; margin-top: 6px; }
 .redeem__row .text-input { flex: 1; min-width: 0; }

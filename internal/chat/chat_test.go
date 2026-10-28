@@ -219,7 +219,7 @@ func newEnv(t *testing.T, q config.QuotaConfig) *env {
 	writer := memory.NewWriter(db.Memories(), vs, fakeEmb{}, memory.NewLLMExtractor(fc), cfg.Memory.Write, nil,
 		func(ctx context.Context, job memory.WriteJob, u llm.Usage) {
 			if !job.Personal {
-				_ = limiter.Record(ctx, job.UserID, 0, u.PromptTokens, u.CompletionTokens)
+				_ = limiter.Record(ctx, job.UserID, quota.Use{Key: quota.KeyUtility, PromptTokens: u.PromptTokens, CompletionTokens: u.CompletionTokens})
 			}
 		})
 	p, _ := persona.Load("")

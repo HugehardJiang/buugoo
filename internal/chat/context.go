@@ -9,6 +9,7 @@ import (
 
 	"github.com/HugehardJiang/buugoo/internal/models"
 	"github.com/HugehardJiang/buugoo/internal/prompt"
+	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/store"
 )
 
@@ -338,7 +339,7 @@ func (s *Service) compact(ctx context.Context, u *store.User, conv *store.Conver
 			}
 			return fmt.Errorf("整理摘要失败：%w", err)
 		}
-		if err := s.quota.Record(ctx, u.ID, 0, usage.PromptTokens, usage.CompletionTokens); err != nil {
+		if err := s.quota.Record(ctx, u.ID, quota.Use{Key: quota.KeyUtility, PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens}); err != nil {
 			s.log.Error("记录用量失败", "user_id", u.ID, "err", err)
 		}
 		summary = next

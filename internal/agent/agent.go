@@ -332,7 +332,7 @@ func (s *Service) record(ctx context.Context, u *store.User, model *models.Resol
 	if model.Personal || usage.Total() == 0 {
 		return
 	}
-	if err := s.d.Quota.Record(context.WithoutCancel(ctx), u.ID, 0, usage.PromptTokens, usage.CompletionTokens); err != nil {
+	if err := s.d.Quota.Record(context.WithoutCancel(ctx), u.ID, quota.Use{Key: quota.ModelKey(model.ID), PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens}); err != nil {
 		s.log.Warn("记录用量失败", "err", err)
 	}
 }

@@ -156,6 +156,11 @@ function percent(used: number, limit: number) {
               <dd>{{ limitText('tokens', quota.tokens, quota.tokens_limit) }}</dd>
               <div v-if="quota.tokens_limit" class="workspace-progress"><i :style="{ width: percent(quota.tokens, quota.tokens_limit) + '%' }" /></div>
             </div>
+            <div v-if="quota.searches_limit" class="metric">
+              <dt>联网搜索</dt>
+              <dd>{{ quota.searches }} / {{ quota.searches_limit }} 次</dd>
+              <div class="workspace-progress"><i :style="{ width: percent(quota.searches, quota.searches_limit) + '%' }" /></div>
+            </div>
           </dl>
           <p class="caption">按 {{ quota.day }} 统计，token 以百万为单位<template v-if="!quota.messages_limit && !quota.tokens_limit">，当前不限量</template><template v-else-if="quota.exempt">，管理员不受限额限制</template>。</p>
         </section>

@@ -12,6 +12,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/emotion"
 	"github.com/HugehardJiang/buugoo/internal/llm"
+	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/store"
 	"github.com/HugehardJiang/buugoo/internal/vector"
 )
@@ -142,6 +143,7 @@ func (w *Writer) OnWritten(fn func(userID uint64)) { w.onWritten = fn }
 
 // Process 同步执行一个写入任务，返回新写入的记忆。
 func (w *Writer) Process(ctx context.Context, job WriteJob) ([]store.Memory, error) {
+	ctx = quota.WithUser(ctx, job.UserID) // 向量模型的用量记到这个用户身上
 	unlock := w.lockUser(job.UserID)
 	defer unlock()
 

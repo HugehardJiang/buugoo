@@ -9,6 +9,7 @@ import ConsoleCards from '../components/ConsoleCards.vue'
 import ConsoleDiagnostics from '../components/ConsoleDiagnostics.vue'
 import ConsoleExtensions from '../components/ConsoleExtensions.vue'
 import ConsolePlans from '../components/ConsolePlans.vue'
+import ConsolePricing from '../components/ConsolePricing.vue'
 import ConsoleUsers from '../components/ConsoleUsers.vue'
 import Modal from '../components/Modal.vue'
 import SettingField, { type Field } from '../components/SettingField.vue'
@@ -116,7 +117,7 @@ watch(
   (d) => {
     if (!d) return
     if (tab.value === 'persona' && !persona.value) loadPersona()
-    if (!['persona', 'channels', 'extensions', 'users', 'plans', 'cards', 'diagnostics'].includes(tab.value) && !d.groups.some((g) => g.key === tab.value)) tab.value = 'models'
+    if (!['persona', 'channels', 'extensions', 'users', 'plans', 'pricing', 'cards', 'diagnostics'].includes(tab.value) && !d.groups.some((g) => g.key === tab.value)) tab.value = 'models'
   },
 )
 
@@ -350,6 +351,7 @@ onMounted(() => {
                 <p class="toc__title">运营</p>
                 <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'users' }" @click="openTab('users')">用户管理</button>
                 <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'plans' }" @click="openTab('plans')">会员套餐</button>
+                <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'pricing' }" @click="openTab('pricing')">计费</button>
                 <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'cards' }" @click="openTab('cards')">卡密</button>
               </template>
               <p class="toc__title">其他</p>
@@ -386,12 +388,13 @@ onMounted(() => {
 
           <ConsoleExtensions v-else-if="!searching && tab === 'extensions'" :call="call" :token="token" />
 
-          <template v-else-if="!searching && ['users', 'plans', 'cards'].includes(tab)">
+          <template v-else-if="!searching && ['users', 'plans', 'pricing', 'cards'].includes(tab)">
             <p v-if="data.default_password" class="form-flash form-flash--error">
               管理员密码还是默认的 1228，为了安全，用户管理、会员和卡密暂时不能用。请先在服务器上改掉配置文件里的 <code>admin.password</code> 并重启服务。
             </p>
             <ConsoleUsers v-else-if="tab === 'users'" :call="call" />
             <ConsolePlans v-else-if="tab === 'plans'" :call="call" />
+            <ConsolePricing v-else-if="tab === 'pricing'" :call="call" />
             <ConsoleCards v-else :call="call" :token="token" />
           </template>
 

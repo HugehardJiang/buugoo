@@ -328,7 +328,7 @@ func multiConfig(c *config.Config) {
 // resetMySQL 清空共享 MySQL 测试库中的数据（其他包的测试也会写入）。
 func resetMySQL(t *testing.T, ta *testApp) {
 	t.Helper()
-	for _, q := range []string{"DELETE FROM card_keys", "DELETE FROM billing_logs", "DELETE FROM credit_packs", "DELETE FROM subscriptions", "DELETE FROM plans",
+	for _, q := range []string{"DELETE FROM card_keys", "DELETE FROM billing_logs", "DELETE FROM wallets", "DELETE FROM cost_dailies", "DELETE FROM billing_settings", "DELETE FROM credit_packs", "DELETE FROM subscriptions", "DELETE FROM plans",
 		"DELETE FROM emotion_events", "DELETE FROM emotion_states", "DELETE FROM attachments", "DELETE FROM memory_usages", "DELETE FROM memories", "DELETE FROM messages", "DELETE FROM conversations",
 		"DELETE FROM model_configs", "DELETE FROM usage_daily", "DELETE FROM invites", "DELETE FROM users",
 		"DELETE FROM app_meta WHERE meta_key = 'models.embedding'"} {

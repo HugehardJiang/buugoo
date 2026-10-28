@@ -68,8 +68,8 @@ func TestBillingAPI(t *testing.T) {
 		t.Fatalf("普通用户访问套餐管理: %d", resp.StatusCode)
 	}
 
-	resp, b := console("POST", "/api/v1/console/plans", map[string]any{"name": "月卡", "price": "¥9.9", "kind": "period", "unit": "messages",
-		"days": 30, "cycle": "day", "quota": 3, "visible": true, "buy_url": "https://shop.example.com/m"})
+	resp, b := console("POST", "/api/v1/console/plans", map[string]any{"name": "月卡", "price": "¥9.9", "kind": "period",
+		"days": 30, "cycle": "day", "quota_messages": 3, "visible": true, "buy_url": "https://shop.example.com/m"})
 	if resp.StatusCode != 200 {
 		t.Fatalf("create plan: %d %s", resp.StatusCode, b)
 	}
@@ -92,7 +92,7 @@ func TestBillingAPI(t *testing.T) {
 		t.Fatalf("卡密列表: %s", list)
 	}
 	// 新建时就隐藏的套餐，用户看不到。
-	console("POST", "/api/v1/console/plans", map[string]any{"name": "内部套餐", "kind": "pack", "unit": "tokens", "quota": 100, "visible": false})
+	console("POST", "/api/v1/console/plans", map[string]any{"name": "内部套餐", "kind": "recharge", "amount": 1000000, "visible": false})
 	_, b = console("GET", "/api/v1/console/plans", nil)
 	if !strings.Contains(string(b), `"name":"内部套餐"`) || !strings.Contains(string(b), `"visible":false`) {
 		t.Fatalf("console plans: %s", b)
@@ -129,6 +129,44 @@ func TestBillingAPI(t *testing.T) {
 		t.Fatalf("users: %s", b)
 	}
 	id := strings.TrimSpace(strings.Split(strings.Split(string(b), `"id":`)[1], ",")[0])
+
+	// 计费设置：列出要设价格的项，保存后立即生效；普通用户不能改。
+	_, b = console("GET", "/api/v1/console/pricing", nil)
+	if !strings.Contains(string(b), `"key":"search:deepseek"`) || !strings.Contains(string(b), `"key":"utility"`) || !strings.Contains(string(b), `"mode":"quota_first"`) {
+		t.Fatalf("pricing: %s", b)
+	}
+	if resp, b := console("PUT", "/api/v1/console/pricing", map[string]any{"mode": "pay", "prices": map[string]any{"model:0": map[string]any{"input": 2, "output": 8}}}); resp.StatusCode != 200 || !strings.Contains(string(b), `"mode":"pay"`) {
+		t.Fatalf("set pricing: %d %s", resp.StatusCode, b)
+	}
+	if resp, _ := ta.do(t, "PUT", "/api/v1/console/pricing", tok, map[string]any{"mode": "quota_first"}); resp.StatusCode != 401 {
+		t.Fatalf("普通用户改计费设置: %d", resp.StatusCode)
+	}
+	// 管理员给用户加 5 元，用户看到余额。
+	if resp, b := console("POST", "/api/v1/console/users/"+id+"/adjust", map[string]any{"amount": 5000000, "note": "活动"}); resp.StatusCode != 204 {
+		t.Fatalf("adjust: %d %s", resp.StatusCode, b)
+	}
+	_, b = ta.do(t, "GET", "/api/v1/billing", tok, nil)
+	if !strings.Contains(string(b), `"balance":5000000`) {
+		t.Fatalf("余额: %s", b)
+	}
+	// 套餐额度用完后，聊天按价格扣余额（全部按量扣费模式，月卡的 3 条已经用完）。
+	for i := 0; i < 4; i++ {
+		ta.do(t, "POST", "/api/v1/chat", tok, map[string]any{"content": "你好", "stream": false})
+	}
+	_, b = ta.do(t, "GET", "/api/v1/billing", tok, nil)
+	var bill struct {
+		Account struct {
+			Balance int64
+			Today   []struct {
+				Key    string
+				Amount int64
+			}
+		}
+	}
+	_ = json.Unmarshal(b, &bill)
+	if bill.Account.Balance >= 5000000 || len(bill.Account.Today) == 0 || bill.Account.Today[0].Key != "model:0" {
+		t.Fatalf("应按价格扣余额: %s", b)
+	}
 	if resp, b := console("POST", "/api/v1/console/users/"+id+"/disable", map[string]any{"disabled": true, "reason": "测试"}); resp.StatusCode != 204 {
 		t.Fatalf("disable: %d %s", resp.StatusCode, b)
 	}

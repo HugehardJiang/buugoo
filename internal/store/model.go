@@ -380,7 +380,9 @@ type UsageDaily struct {
 	Messages         int    `gorm:"not null;default:0"`
 	PromptTokens     int    `gorm:"not null;default:0"`
 	CompletionTokens int    `gorm:"not null;default:0"`
-	UpdatedAt        time.Time
+	// Searches 是联网搜索的次数（读网页不算）。
+	Searches  int `gorm:"not null;default:0"`
+	UpdatedAt time.Time
 }
 
 // TotalTokens 返回当日总 token 数。
@@ -499,8 +501,9 @@ type MemoPage struct {
 
 // 套餐的种类、计费单位和额度周期。
 const (
-	PlanPeriod = "period" // 时长套餐：有效期内每天（或每月）有固定额度
-	PlanPack   = "pack"   // 余额包：一次给一笔额度，用完为止
+	PlanPeriod   = "period"   // 时长套餐：有效期内每天（或每月）有固定额度
+	PlanRecharge = "recharge" // 充值：兑换后往余额里加一笔钱
+	PlanPack     = "pack"     // 旧的余额包（条数 / token），已停用，不能再新建和兑换
 
 	UnitMessages = "messages"
 	UnitTokens   = "tokens"
@@ -521,8 +524,14 @@ type Plan struct {
 	// 时长套餐：Days 天，每个 Cycle（天或自然月）Quota 额度。
 	Days  int    `gorm:"not null;default:0"`
 	Cycle string `gorm:"size:16;not null;default:''"`
-	// Quota 是时长套餐每周期的额度，或余额包的总额度。
+	// Quota 是旧版的单项额度（只在迁移和旧余额包里用）。
 	Quota int64 `gorm:"not null;default:0"`
+	// 时长套餐每周期的额度：消息条数、token、联网搜索次数，0 表示这一项不限。
+	QuotaMessages int64 `gorm:"not null;default:0"`
+	QuotaTokens   int64 `gorm:"not null;default:0"`
+	QuotaSearches int64 `gorm:"not null;default:0"`
+	// Amount 是充值套餐到账的金额（微元，1 元 = 1000000）。
+	Amount int64 `gorm:"not null;default:0"`
 	// ValidDays 是余额包的有效天数，0 表示永久。
 	ValidDays int    `gorm:"not null;default:0"`
 	BuyURL    string `gorm:"size:512;not null;default:''"`
@@ -534,16 +543,20 @@ type Plan struct {
 
 // Subscription 是用户开通的时长套餐（记下开通时的额度，之后改套餐不影响已开通的）。
 type Subscription struct {
-	ID        uint64    `gorm:"primaryKey" json:"-"`
-	UserID    uint64    `gorm:"index;not null" json:"-"`
-	PlanID    uint64    `gorm:"not null" json:"plan_id"`
-	PlanName  string    `gorm:"size:64;not null" json:"plan_name"`
-	Unit      string    `gorm:"size:16;not null" json:"unit"`
-	Cycle     string    `gorm:"size:16;not null" json:"cycle"`
-	Quota     int64     `gorm:"not null" json:"quota"`
-	ExpiresAt time.Time `json:"expires_at"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"-"`
+	ID       uint64 `gorm:"primaryKey" json:"-"`
+	UserID   uint64 `gorm:"index;not null" json:"-"`
+	PlanID   uint64 `gorm:"not null" json:"plan_id"`
+	PlanName string `gorm:"size:64;not null" json:"plan_name"`
+	Unit     string `gorm:"size:16;not null" json:"unit"`
+	Cycle    string `gorm:"size:16;not null" json:"cycle"`
+	Quota    int64  `gorm:"not null" json:"-"`
+	// 每周期的额度（开通时从套餐复制），0 表示不限。
+	QuotaMessages int64     `gorm:"not null;default:0" json:"quota_messages"`
+	QuotaTokens   int64     `gorm:"not null;default:0" json:"quota_tokens"`
+	QuotaSearches int64     `gorm:"not null;default:0" json:"quota_searches"`
+	ExpiresAt     time.Time `json:"expires_at"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"-"`
 }
 
 // CreditPack 是用户的一笔余额（余额包），用完或过期为止。
@@ -594,4 +607,30 @@ type BillingLog struct {
 	Kind      string    `gorm:"size:16;not null" json:"kind"`
 	Detail    string    `gorm:"size:500;not null" json:"detail"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// Wallet 是用户的余额（微元，1 元 = 1000000）。额度用完后按价格从这里扣，可能被扣到略低于 0。
+type Wallet struct {
+	UserID    uint64 `gorm:"primaryKey;autoIncrement:false"`
+	Balance   int64  `gorm:"not null;default:0"`
+	UpdatedAt time.Time
+}
+
+// CostDaily 是用户每天在每一项上花的钱（扣余额的部分）。Key 是计价项（见 billing 包）。
+type CostDaily struct {
+	ID        uint64 `gorm:"primaryKey"`
+	UserID    uint64 `gorm:"uniqueIndex:idx_cost_user_day_key,priority:1;not null"`
+	Day       string `gorm:"size:10;uniqueIndex:idx_cost_user_day_key,priority:2;not null"`
+	Key       string `gorm:"size:48;uniqueIndex:idx_cost_user_day_key,priority:3;not null"`
+	Amount    int64  `gorm:"not null;default:0"`
+	Calls     int    `gorm:"not null;default:0"`
+	Tokens    int64  `gorm:"not null;default:0"`
+	UpdatedAt time.Time
+}
+
+// BillingSetting 是计费设置（价格、扣费方式），保存后立即生效。
+type BillingSetting struct {
+	Key       string `gorm:"primaryKey;size:64"`
+	Value     string `gorm:"type:text"`
+	UpdatedAt time.Time
 }

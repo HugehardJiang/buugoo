@@ -246,9 +246,15 @@ export interface Quota {
   day: string
   messages: number
   tokens: number
+  searches: number
   messages_limit: number
   tokens_limit: number
+  searches_limit: number
   exempt: boolean
+  // free 为 false 表示没有免费额度（按量扣费模式下没有套餐）；paying 为 true 表示额度用完了，正在扣余额。
+  free: boolean
+  paying: boolean
+  mode?: 'quota_first' | 'pay'
   period?: 'day' | 'month'
   reset_at?: string
   member?: Member
@@ -340,12 +346,16 @@ export interface Plan {
   name: string
   description: string
   price: string
-  kind: 'period' | 'pack'
-  unit: 'messages' | 'tokens'
+  // pack 是已经停用的旧余额包，只在管理后台里显示。
+  kind: 'period' | 'recharge' | 'pack'
   days: number
   cycle: 'day' | 'month' | ''
-  quota: number
-  valid_days: number
+  // 时长套餐每周期的额度，0 表示不限。
+  quota_messages: number
+  quota_tokens: number
+  quota_searches: number
+  // 充值到账的金额（微元）。
+  amount: number
   buy_url: string
   visible?: boolean
   sort?: number
@@ -354,18 +364,46 @@ export interface Plan {
 export interface Member {
   active: boolean
   plan_name?: string
-  unit?: string
   cycle?: string
-  quota?: number
+  quota_messages?: number
+  quota_tokens?: number
+  quota_searches?: number
   expires_at?: string
-  pack_messages: number
-  pack_tokens: number
+  balance: number
+}
+
+export interface CostItem {
+  key: string
+  amount: number
+  calls: number
+  tokens: number
 }
 
 export interface BillingAccount {
-  subscription?: { plan_name: string; unit: string; cycle: string; quota: number; expires_at: string }
-  packs: { id: number; name: string; unit: string; total: number; remaining: number; expires_at: string | null }[]
+  subscription?: { plan_name: string; cycle: string; quota_messages: number; quota_tokens: number; quota_searches: number; expires_at: string }
+  balance: number
+  today: CostItem[]
+  month: CostItem[]
   logs: { id: number; kind: string; detail: string; created_at: string }[]
+}
+
+export interface PricingItem {
+  key: string
+  label: string
+  kind: 'tokens' | 'calls'
+  group: string
+  hint?: string
+}
+
+export interface Price {
+  input?: number
+  output?: number
+  per_k?: number
+}
+
+export interface Pricing {
+  mode: 'quota_first' | 'pay'
+  prices: Record<string, Price>
 }
 
 export interface MemoPageInfo {
@@ -605,7 +643,7 @@ export const api = {
   weixinLogout: () => request<void>('POST', '/channels/weixin/logout'),
   bindCode: () => request<{ code: string; expires_at: string }>('POST', '/channels/code'),
   unbind: (id: number) => request<void>('DELETE', `/channels/bindings/${id}`),
-  billing: () => request<{ account: BillingAccount; quota: Quota; plans: Plan[] }>('GET', '/billing'),
+  billing: () => request<{ account: BillingAccount; quota: Quota; plans: Plan[]; labels: Record<string, string> }>('GET', '/billing'),
   redeem: (code: string) => request<{ message: string }>('POST', '/billing/redeem', { code }),
   diagnostics: () => request<{ server: Record<string, unknown>; recent: DiagEntry[] }>('GET', '/diagnostics'),
   memos: () => request<{ pages: MemoPageInfo[] }>('GET', '/memos'),
