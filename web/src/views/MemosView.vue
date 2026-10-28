@@ -153,7 +153,6 @@ function finishEdit() {
   <main class="main">
     <header class="topbar">
       <div class="topbar__titles">
-        <span class="eyebrow">MEMO · 备忘录</span>
         <h1>备忘录</h1>
       </div>
     </header>

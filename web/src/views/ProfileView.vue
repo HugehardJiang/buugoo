@@ -108,7 +108,6 @@ function percent(used: number, limit: number) {
   <main class="main">
     <header class="topbar">
       <div class="topbar__titles">
-        <span class="eyebrow">ME · 个人中心</span>
         <h1>个人中心</h1>
       </div>
     </header>

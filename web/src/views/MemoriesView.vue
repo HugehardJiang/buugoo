@@ -92,7 +92,6 @@ onMounted(() => {
   <main class="main">
     <header class="topbar">
       <div class="topbar__titles">
-        <span class="eyebrow">CORTEX · 大脑皮层</span>
         <h1>{{ name }}的大脑皮层</h1>
       </div>
       <div class="head-actions">

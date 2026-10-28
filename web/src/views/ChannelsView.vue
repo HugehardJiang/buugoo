@@ -7,7 +7,6 @@ import ChannelsPanel from '../components/ChannelsPanel.vue'
   <main class="main">
     <header class="topbar">
       <div class="topbar__titles">
-        <span class="eyebrow">CHANNELS · 聊天软件</span>
         <h1>聊天软件</h1>
       </div>
     </header>

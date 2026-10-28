@@ -113,7 +113,6 @@ onMounted(async () => {
   <main class="main">
     <header class="topbar">
       <div class="topbar__titles">
-        <span class="eyebrow">SETTINGS · 设置</span>
         <h1>设置</h1>
       </div>
     </header>

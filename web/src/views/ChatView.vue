@@ -666,7 +666,6 @@ onBeforeUnmount(() => {
       <header class="topbar">
         <button class="icon-btn menu-btn" aria-label="对话列表" @click="drawer = true"><Icon name="menu" /></button>
         <div class="topbar__titles">
-          <span class="eyebrow">CHAT · 和{{ name }}聊天</span>
           <h1 class="conv-title">{{ title }}</h1>
         </div>
         <div v-if="current" class="topbar__actions">

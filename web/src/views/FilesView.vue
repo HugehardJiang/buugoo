@@ -168,7 +168,6 @@ onMounted(() => load())
   <main class="main">
     <header class="topbar">
       <div class="topbar__titles">
-        <span class="eyebrow">FILES · 文件</span>
         <h1>文件</h1>
       </div>
     </header>

@@ -7,7 +7,6 @@ import ProactivePanel from '../components/ProactivePanel.vue'
   <main class="main">
     <header class="topbar">
       <div class="topbar__titles">
-        <span class="eyebrow">TASKS · 定时任务</span>
         <h1>提醒与定时任务</h1>
       </div>
     </header>

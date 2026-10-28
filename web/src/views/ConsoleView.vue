@@ -298,7 +298,6 @@ onMounted(() => {
   <main class="main">
     <header class="topbar">
       <div class="topbar__titles">
-        <span class="eyebrow">CONSOLE · 管理后台</span>
         <h1>管理后台</h1>
       </div>
       <button v-if="data" class="btn btn-ghost" @click="logout">退出管理后台</button>
