@@ -22,7 +22,7 @@ func TestUpgradeFromV1(t *testing.T) {
 	}
 	defer s.Close()
 	opts := *gormigrate.DefaultOptions
-	opts.TableName = migrationsTable
+	opts.TableName = MigrationsTable
 	opts.UseTransaction = false
 	if err := gormigrate.New(s.db, &opts, migrations()[:1]).Migrate(); err != nil {
 		t.Fatal(err)

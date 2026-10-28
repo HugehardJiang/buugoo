@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"github.com/spf13/cobra"
 
 	"github.com/HugehardJiang/buugoo/internal/app"
@@ -32,7 +33,13 @@ func newServeCmd(g *globalOpts) *cobra.Command {
 			}
 			defer a.Close()
 			setupBackground(a)
-			return a.Run(ctx)
+			if err := a.Run(ctx); errors.Is(err, app.ErrRestart) {
+				// 退出码不为 0：systemd（Restart=on-failure）和 Docker（restart: unless-stopped）会马上把服务重新拉起来。
+				return &exitError{code: 75, err: err}
+			} else if err != nil {
+				return err
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&listen, "listen", "", "覆盖配置中的监听地址，例如 0.0.0.0:8080")

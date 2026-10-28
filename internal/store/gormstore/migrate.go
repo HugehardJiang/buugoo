@@ -16,7 +16,8 @@ import (
 //   - 已发布的迁移不得修改，只能追加新的迁移；
 //   - 迁移必须能同时在 MySQL 与 SQLite 上运行，优先使用 GORM Migrator 而非手写 SQL。
 
-const migrationsTable = "schema_migrations"
+// MigrationsTable 是记录已执行迁移的表。
+const MigrationsTable = "schema_migrations"
 
 func migrations() []*gormigrate.Migration {
 	return []*gormigrate.Migration{
@@ -46,7 +47,7 @@ func (s *DB) migrator(ctx context.Context) *gormigrate.Gormigrate {
 		db = db.Set("gorm:table_options", "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci").Session(&gorm.Session{})
 	}
 	opts := *gormigrate.DefaultOptions
-	opts.TableName = migrationsTable
+	opts.TableName = MigrationsTable
 	// MySQL 的 DDL 会隐式提交，包在事务里也无法回滚；为了两种数据库行为一致，
 	// 统一不使用事务，由每个迁移自身保证可重复执行（AutoMigrate 本身是幂等的）。
 	// 更新前的自动备份负责兜底。
@@ -71,9 +72,9 @@ type MigrationStatus struct {
 // Status 返回所有迁移的执行状态。
 func (s *DB) Status(ctx context.Context) ([]MigrationStatus, error) {
 	applied := map[string]bool{}
-	if s.db.Migrator().HasTable(migrationsTable) {
+	if s.db.Migrator().HasTable(MigrationsTable) {
 		var ids []string
-		if err := s.db.WithContext(ctx).Table(migrationsTable).Pluck("id", &ids).Error; err != nil {
+		if err := s.db.WithContext(ctx).Table(MigrationsTable).Pluck("id", &ids).Error; err != nil {
 			return nil, fmt.Errorf("读取迁移记录: %w", err)
 		}
 		for _, id := range ids {

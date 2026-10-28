@@ -20,6 +20,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/channels"
 	"github.com/HugehardJiang/buugoo/internal/chat"
 	"github.com/HugehardJiang/buugoo/internal/config"
+	"github.com/HugehardJiang/buugoo/internal/dbmove"
 	"github.com/HugehardJiang/buugoo/internal/emotion"
 	"github.com/HugehardJiang/buugoo/internal/httpapi"
 	"github.com/HugehardJiang/buugoo/internal/llm"
@@ -61,11 +62,25 @@ type App struct {
 	proactive *proactive.Engine
 	channels  *channels.Hub
 	plugins   *mcp.Manager
+	// restart 收到消息时停止服务并返回 ErrRestart（迁移数据库后重启）。
+	restart chan struct{}
 
 	// UpdateCheck 在服务启动后于后台执行（检查新版本），可为空。
 	UpdateCheck func(ctx context.Context)
 	// OnStart 在后台组件启动后、HTTP 服务开始监听前调用（注册定时任务等），可为空。
 	OnStart func(ctx context.Context, a *App) error
+}
+
+// ErrRestart 表示服务要重启（例如数据库迁移到 MySQL 之后）。
+var ErrRestart = errors.New("服务需要重启以使用新的数据库")
+
+// Supervised 报告服务是不是由 systemd 或 Docker 管着（退出后会被自动拉起来）。
+func Supervised() bool {
+	if os.Getenv("INVOCATION_ID") != "" { // systemd 启动的进程都有这个环境变量
+		return true
+	}
+	_, err := os.Stat("/.dockerenv")
+	return err == nil
 }
 
 // New 打开数据库、执行迁移并组装所有组件。
@@ -225,7 +240,16 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 			}
 		}
 	}
+	restart := make(chan struct{}, 1)
+	mover := dbmove.New(db, cfg, log)
 	handler := httpapi.New(httpapi.Deps{
+		DBMove: mover, Supervised: Supervised(),
+		Restart: func() {
+			select {
+			case restart <- struct{}{}:
+			default:
+			}
+		},
 		Config: cfg, Store: db, Auth: authSvc, Chat: chatSvc, Memories: memory.NewManager(db.Memories(), vs), Compactor: compactor,
 		Quota: limiter, Models: modelSvc, Reembed: memory.NewReembedder(db.Memories(), emb, vs, log),
 		Uploads: uploadSvc, Emotion: emo, Persona: personas, Channels: hub, Logger: log,
@@ -235,7 +259,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 			Runner: func(ctx context.Context, u *store.User) tools.Runner { return toolsProv.python(ctx, u) }}),
 	})
 	a := &App{Config: cfg, Log: log, DB: db, Auth: authSvc, Chat: chatSvc, Models: modelSvc, Writer: writer, Handler: handler,
-		uploads: uploadSvc, tools: toolsProv, channels: hub, plugins: pluginSvc}
+		uploads: uploadSvc, tools: toolsProv, channels: hub, plugins: pluginSvc, restart: restart}
 	if cfg.Proactive.Reminders || cfg.Proactive.Care {
 		deps := proactive.Deps{Store: db, Speaker: chatSvc, Utility: utilLLM, Mood: emo, Config: cfg.Proactive,
 			Name: func() string { return personas.Current().Name }, Location: loc, Logger: log, Todos: todoSvc}
@@ -301,9 +325,12 @@ func (a *App) Run(ctx context.Context) error {
 	go func() { errCh <- srv.Serve(ln) }()
 
 	var serveErr error
+	restarting := false
 	select {
 	case <-ctx.Done():
 	case serveErr = <-errCh:
+	case <-a.restart:
+		restarting = true
 	}
 
 	a.Log.Info("正在停止服务…")
@@ -328,6 +355,9 @@ func (a *App) Run(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 	a.Log.Info("服务已停止")
+	if restarting {
+		errs = append(errs, ErrRestart)
+	}
 	return errors.Join(errs...)
 }
 

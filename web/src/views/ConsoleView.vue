@@ -5,6 +5,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ApiError } from '../api'
 import { getConsoleToken, setConsoleToken } from '../consoleToken'
 import ConsoleChannels from '../components/ConsoleChannels.vue'
+import ConsoleDatabase from '../components/ConsoleDatabase.vue'
 import ConsoleCards from '../components/ConsoleCards.vue'
 import ConsoleDiagnostics from '../components/ConsoleDiagnostics.vue'
 import ConsoleExtensions from '../components/ConsoleExtensions.vue'
@@ -117,7 +118,7 @@ watch(
   (d) => {
     if (!d) return
     if (tab.value === 'persona' && !persona.value) loadPersona()
-    if (!['persona', 'channels', 'extensions', 'users', 'plans', 'pricing', 'cards', 'diagnostics'].includes(tab.value) && !d.groups.some((g) => g.key === tab.value)) tab.value = 'models'
+    if (!['persona', 'channels', 'extensions', 'users', 'plans', 'pricing', 'cards', 'diagnostics', 'database'].includes(tab.value) && !d.groups.some((g) => g.key === tab.value)) tab.value = 'models'
   },
 )
 
@@ -357,6 +358,7 @@ onMounted(() => {
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'persona' }" @click="openTab('persona')">人格档案</button>
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'extensions' }" @click="openTab('extensions')">技能与插件</button>
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'channels' }" @click="openTab('channels')">聊天软件连接</button>
+              <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'database' }" @click="openTab('database')">数据库迁移</button>
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'diagnostics' }" @click="openTab('diagnostics')">诊断</button>
             </nav>
 
@@ -398,6 +400,8 @@ onMounted(() => {
           </template>
 
           <ConsoleDiagnostics v-else-if="!searching && tab === 'diagnostics'" :call="call" />
+
+          <ConsoleDatabase v-else-if="!searching && tab === 'database'" :call="call" />
 
           <template v-else>
             <p v-if="error" class="form-flash form-flash--error">{{ error }}</p>

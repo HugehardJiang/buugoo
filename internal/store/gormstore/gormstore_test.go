@@ -42,7 +42,7 @@ func forEachDriver(t *testing.T, fn func(t *testing.T, s *DB)) {
 				t.Fatal(err)
 			}
 		}
-		if err := s.db.Migrator().DropTable(migrationsTable); err != nil {
+		if err := s.db.Migrator().DropTable(MigrationsTable); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.Migrate(context.Background()); err != nil {

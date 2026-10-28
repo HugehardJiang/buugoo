@@ -8,6 +8,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/accounts"
 	"github.com/HugehardJiang/buugoo/internal/agent"
 	"github.com/HugehardJiang/buugoo/internal/billing"
+	"github.com/HugehardJiang/buugoo/internal/dbmove"
 	"github.com/HugehardJiang/buugoo/internal/mcp"
 	"github.com/HugehardJiang/buugoo/internal/memo"
 	"github.com/HugehardJiang/buugoo/internal/skills"
@@ -61,7 +62,11 @@ type Deps struct {
 	Plugins *mcp.Manager
 	Agent   *agent.Service
 	Memos   *memo.Service
-	Todos   *todo.Service
+	// DBMove 不为空时管理后台可以把 SQLite 一键迁移到 MySQL；Restart 让服务重启，Supervised 表示重启后会被自动拉起。
+	DBMove     *dbmove.Mover
+	Restart    func()
+	Supervised bool
+	Todos      *todo.Service
 	// Billing、Accounts 为空时不提供会员和用户管理（single 模式）。
 	Billing  *billing.Service
 	Accounts *accounts.Service
@@ -115,7 +120,7 @@ func New(d Deps) http.Handler {
 
 	e.GET("/healthz", s.healthz)
 
-	api := e.Group("/api/v1", middleware.BodyLimit("1M"))
+	api := e.Group("/api/v1", middleware.BodyLimit("1M"), s.maintenance)
 	api.GET("/meta", s.meta)
 
 	// 登录与注册按 IP 限速，防止暴力破解。
@@ -151,6 +156,11 @@ func New(d Deps) http.Handler {
 	console.GET("/channels", s.consoleChannels)
 	console.GET("/diagnostics", s.consoleDiagnostics)
 	console.POST("/channels/weixin/:id/logout", s.consoleWeixinKick)
+	if s.DBMove != nil {
+		console.GET("/database", s.consoleDatabase)
+		console.POST("/database/test", s.consoleDatabaseTest)
+		console.POST("/database/migrate", s.consoleDatabaseMigrate)
+	}
 
 	priv := api.Group("", s.requireUser)
 	priv.POST("/auth/logout-all", s.logoutAll)
@@ -309,6 +319,8 @@ func (s *server) meta(c echo.Context) error {
 		"home": map[string]string{"title": s.Config.Home.Title, "tagline": s.Config.Home.Tagline},
 		// billing 为 true 时设置页显示「会员」（多用户版）。
 		"billing": s.Billing != nil,
+		// maintenance 为 true 时正在迁移数据库，网页只能查看。
+		"maintenance": s.DBMove != nil && s.DBMove.Paused(),
 	})
 }
 
@@ -386,6 +398,13 @@ func toAPIError(err error) *apiError {
 		return &apiError{Status: http.StatusBadRequest, Code: "invalid_memo", Message: memoErr.Msg}
 	case errors.Is(err, memo.ErrNotFound):
 		return &apiError{Status: http.StatusNotFound, Code: "not_found", Message: err.Error()}
+	}
+	if errors.Is(err, dbmove.ErrMaintenance) {
+		return &apiError{Status: http.StatusServiceUnavailable, Code: "maintenance", Message: dbmove.ErrMaintenance.Error()}
+	}
+	var moveErr *dbmove.UserError
+	if errors.As(err, &moveErr) {
+		return &apiError{Status: http.StatusBadRequest, Code: "invalid_input", Message: moveErr.Msg}
 	}
 	var todoErr *todo.UserError
 	switch {
