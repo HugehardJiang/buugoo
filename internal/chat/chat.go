@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -225,6 +226,8 @@ type turnInput struct {
 	model       *models.Resolved
 	toolHints   string
 	emotion     string
+	// skip 是不放进历史的消息（重新生成时的原消息）。
+	skip []uint64
 }
 
 func (s *Service) prepare(ctx context.Context, u *store.User, conv *store.Conversation, in turnInput) (*prepared, error) {
@@ -232,6 +235,9 @@ func (s *Service) prepare(ctx context.Context, u *store.User, conv *store.Conver
 	history, err := s.unsummarized(ctx, u, conv)
 	if err != nil {
 		return nil, fmt.Errorf("读取对话历史: %w", err)
+	}
+	if len(in.skip) > 0 {
+		history = slices.DeleteFunc(history, func(m store.Message) bool { return slices.Contains(in.skip, m.ID) })
 	}
 	vision := in.model != nil && in.model.Vision
 	history, histImages := s.renderHistory(ctx, u, withToolNotes(history), vision)
@@ -338,6 +344,69 @@ func (s *Service) Send(ctx context.Context, u *store.User, in SendInput, sink Si
 	if err != nil {
 		return nil, err
 	}
+	return s.respond(ctx, u, conv, model, content, atts, nil, sink)
+}
+
+// regen 是重新生成时的原消息：用户那条保留，原来的回复删掉换成新的。
+type regen struct {
+	user     *store.Message
+	oldReply uint64
+}
+
+// ErrCannotRegenerate 表示最后一条不是可以重新生成的回复。
+var ErrCannotRegenerate = errors.New("只能重新生成最后一条回复")
+
+// Regenerate 重新生成对话里最后一条回复：用同一条用户消息再回答一次，原来的回复删掉。
+// 用户消息之前已经提取过记忆、更新过情绪，这次不再重复。
+func (s *Service) Regenerate(ctx context.Context, u *store.User, convID uint64, sink Sink) (*Result, error) {
+	conv, err := s.conversation(ctx, u, convID)
+	if err != nil {
+		return nil, err
+	}
+	last, err := s.store.Messages().Recent(ctx, u.ID, conv.ID, 2)
+	if err != nil {
+		return nil, err
+	}
+	if len(last) != 2 || last[0].Role != store.RoleUser || last[1].Role != store.RoleAssistant || last[1].ID <= conv.SummaryUntil {
+		return nil, ErrCannotRegenerate
+	}
+	userMsg := last[0]
+	model, err := s.models.Resolve(ctx, modelUser(u), conv.ModelID)
+	if err != nil {
+		return nil, err
+	}
+	if !model.Personal {
+		if err := s.quota.Check(ctx, u); err != nil {
+			return nil, err
+		}
+	}
+	atts, err := s.store.Attachments().ListByMessages(ctx, u.ID, []uint64{userMsg.ID})
+	if err != nil {
+		return nil, err
+	}
+	return s.respond(ctx, u, conv, model, userMsg.Content, atts, &regen{user: &userMsg, oldReply: last[1].ID}, sink)
+}
+
+// DeleteMessage 删除对话里的一条消息（用户的或布谷的）。已经提取的记忆和发过的文件保留。
+func (s *Service) DeleteMessage(ctx context.Context, u *store.User, convID, msgID uint64) error {
+	conv, err := s.conversation(ctx, u, convID)
+	if err != nil {
+		return err
+	}
+	got, err := s.store.Messages().Before(ctx, u.ID, conv.ID, msgID+1, 1)
+	if err != nil {
+		return err
+	}
+	if len(got) == 0 || got[0].ID != msgID {
+		return store.ErrNotFound
+	}
+	return s.store.Messages().Delete(ctx, u.ID, msgID)
+}
+
+// respond 生成一轮回复。again 不为空时是重新生成：不再保存用户消息，原来的回复删掉。
+func (s *Service) respond(ctx context.Context, u *store.User, conv *store.Conversation, model *models.Resolved,
+	content string, atts []store.Attachment, again *regen, sink Sink) (*Result, error) {
+	var err error
 	// 上一轮用的上下文超过了阈值：先压缩，再处理这条消息。压缩失败不影响聊天（超出预算时会舍弃最早的消息）。
 	if conv.CompactPending && s.summarizer != nil {
 		if err := s.compact(ctx, u, conv, model); err != nil && !errors.Is(err, ErrNothingToCompact) && !errors.Is(err, ErrCompacting) {
@@ -350,26 +419,42 @@ func (s *Service) Send(ctx context.Context, u *store.User, in SendInput, sink Si
 	toolset := s.toolSet(ctx, u, conv, model, atts)
 	var mood string
 	if s.emotion != nil {
-		// 情绪更新失败不影响聊天。
-		if mood, err = s.emotion.Before(ctx, u.ID, titleSource(content, atts)); err != nil {
+		// 情绪更新失败不影响聊天。重新生成时这条消息已经影响过情绪，只读取现在的。
+		if again != nil {
+			mood, err = s.emotion.Peek(ctx, u.ID)
+		} else {
+			mood, err = s.emotion.Before(ctx, u.ID, titleSource(content, atts))
+		}
+		if err != nil {
 			s.log.Warn("更新情绪失败", "user_id", u.ID, "err", err)
 		}
 	}
-	p, err := s.prepare(ctx, u, conv, turnInput{content: content, attachments: atts, model: model, toolHints: toolHints(toolset), emotion: mood})
+	in := turnInput{content: content, attachments: atts, model: model, toolHints: toolHints(toolset), emotion: mood}
+	if again != nil {
+		in.skip = []uint64{again.user.ID, again.oldReply}
+	}
+	p, err := s.prepare(ctx, u, conv, in)
 	if err != nil {
 		return nil, err
 	}
 
 	userMsg := &store.Message{ConversationID: conv.ID, UserID: u.ID, Role: store.RoleUser, Content: content}
-	if err := s.store.Messages().Create(ctx, userMsg); err != nil {
-		return nil, fmt.Errorf("保存消息: %w", err)
-	}
-	if len(atts) > 0 {
-		if err := s.store.Attachments().Attach(ctx, u.ID, attachmentIDs(atts), conv.ID, userMsg.ID); err != nil {
-			return nil, fmt.Errorf("关联附件: %w", err)
+	if again != nil {
+		userMsg = again.user
+		if err := s.store.Messages().Delete(ctx, u.ID, again.oldReply); err != nil {
+			return nil, fmt.Errorf("删除原来的回复: %w", err)
 		}
+	} else {
+		if err := s.store.Messages().Create(ctx, userMsg); err != nil {
+			return nil, fmt.Errorf("保存消息: %w", err)
+		}
+		if len(atts) > 0 {
+			if err := s.store.Attachments().Attach(ctx, u.ID, attachmentIDs(atts), conv.ID, userMsg.ID); err != nil {
+				return nil, fmt.Errorf("关联附件: %w", err)
+			}
+		}
+		s.autoTitle(ctx, u, conv, titleSource(content, atts))
 	}
-	s.autoTitle(ctx, u, conv, titleSource(content, atts))
 	modelID := model.ID
 	// 助手消息先以"中断"状态占位，正常结束后再更新为完成。
 	reply := &store.Message{ConversationID: conv.ID, UserID: u.ID, Role: store.RoleAssistant,
@@ -423,7 +508,7 @@ func (s *Service) Send(ctx context.Context, u *store.User, in SendInput, sink Si
 		// 这一轮大约用了多少上下文：提示词 + 工具结果 + 回复。超过阈值时下一条消息前先压缩。
 		s.recordContext(bg, u, conv, model, p.prompt.EstimatedTokens+t.toolTokens+prompt.EstimateTokens(reply.Content), p.prompt.DroppedHistory > 0)
 	}
-	s.afterReply(bg, u, p, model, userMsg, reply, atts, res.Usage)
+	s.afterReply(bg, u, p, model, userMsg, reply, atts, res.Usage, again == nil)
 	if genErr != nil {
 		return res, genErr
 	}
@@ -754,7 +839,7 @@ func isCanceled(ctx context.Context, err error) bool {
 
 // afterReply 记录用量、记忆使用，并提交记忆写入任务。这些步骤失败只记录日志。
 func (s *Service) afterReply(ctx context.Context, u *store.User, p *prepared, model *models.Resolved,
-	userMsg, reply *store.Message, atts []store.Attachment, usage llm.Usage) {
+	userMsg, reply *store.Message, atts []store.Attachment, usage llm.Usage, remember bool) {
 	if !model.Personal {
 		if err := s.quota.Record(ctx, u.ID, quota.Use{Key: quota.ModelKey(model.ID), Messages: 1, PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens, CachedTokens: usage.CachedTokens}); err != nil {
 			s.log.Error("记录用量失败", "user_id", u.ID, "err", err)
@@ -769,7 +854,7 @@ func (s *Service) afterReply(ctx context.Context, u *store.User, p *prepared, mo
 	if err := s.retriever.MarkUsed(ctx, u.ID, reply.ID, p.prompt.UsedMemories); err != nil {
 		s.log.Error("记录记忆使用失败", "user_id", u.ID, "err", err)
 	}
-	if reply.Status != store.MessageComplete {
+	if reply.Status != store.MessageComplete || !remember {
 		return
 	}
 	known := make([]string, 0, len(p.prompt.UsedMemories))

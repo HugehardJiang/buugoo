@@ -182,6 +182,8 @@ func New(d Deps) http.Handler {
 	priv.PATCH("/conversations/:id", s.updateConversation)
 	priv.DELETE("/conversations/:id", s.deleteConversation)
 	priv.GET("/conversations/:id/messages", s.listConversationMessages)
+	priv.DELETE("/conversations/:id/messages/:mid", s.deleteMessage)
+	priv.POST("/conversations/:id/regenerate", s.regenerate)
 	priv.GET("/messages", s.listMessages)
 	priv.POST("/chat", s.chat)
 	priv.GET("/models", s.listModels)
@@ -405,6 +407,8 @@ func toAPIError(err error) *apiError {
 			status = http.StatusRequestEntityTooLarge
 		}
 		return &apiError{Status: status, Code: code, Message: ue.Msg}
+	case errors.Is(err, chat.ErrCannotRegenerate):
+		return &apiError{Status: http.StatusConflict, Code: "cannot_regenerate", Message: err.Error()}
 	case errors.Is(err, chat.ErrNothingToCompact), errors.Is(err, chat.ErrCompacting), errors.Is(err, chat.ErrSummaryDisabled):
 		return &apiError{Status: http.StatusConflict, Code: "cannot_compact", Message: err.Error()}
 	case errors.Is(err, chat.ErrAttachmentNotFound), errors.Is(err, chat.ErrTooManyFiles),

@@ -327,8 +327,8 @@ func TestNudgeTodos(t *testing.T) {
 		return td
 	}
 	soon := add("交实验报告", "2026-10-29 15:30") // 一个半小时后截止：该问了
-	add("写论文", "2026-11-05")                  // 还早
-	today := add("取快递", "2026-10-29")         // 今天，10 点后问
+	add("写论文", "2026-11-05")                 // 还早
+	today := add("取快递", "2026-10-29")        // 今天，10 点后问
 	add("没有截止时间", "")
 	sp, dl := &fakeSpeaker{}, &fakeDeliver{}
 	e := New(Deps{Store: db, Speaker: sp, Deliver: dl, Location: shanghai, Todos: svc})

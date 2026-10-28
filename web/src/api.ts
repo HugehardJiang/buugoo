@@ -688,6 +688,7 @@ export const api = {
   createMemo: (title: string, content = '') => request<MemoPage>('POST', '/memos', { title, content }),
   updateMemo: (id: number, patch: { title?: string; content?: string }) => request<MemoPage>('PUT', `/memos/${id}`, patch),
   deleteMemo: (id: number) => request<void>('DELETE', `/memos/${id}`),
+  deleteMessage: (conversationId: number, id: number) => request<void>('DELETE', `/conversations/${conversationId}/messages/${id}`),
   todos: () => request<{ items: Todo[] }>('GET', '/todos'),
   createTodo: (input: { title: string; note?: string; due?: string }) => request<Todo>('POST', '/todos', input),
   updateTodo: (id: number, patch: TodoInput) => request<Todo>('PUT', `/todos/${id}`, patch),
@@ -730,19 +731,28 @@ export interface ChatHandlers {
 }
 
 // sendChat 发送消息并解析 SSE 事件流。正常结束时返回最终的助手消息。
-export async function sendChat(
+export function sendChat(
   conversationId: number,
   content: string,
   attachmentIds: number[],
   h: ChatHandlers,
   signal?: AbortSignal,
 ): Promise<Message> {
+  return streamChat('/api/v1/chat', { conversation_id: conversationId, content, attachment_ids: attachmentIds, stream: true }, h, signal)
+}
+
+// regenerateChat 重新生成对话里最后一条回复，事件和 sendChat 一样。
+export function regenerateChat(conversationId: number, h: ChatHandlers, signal?: AbortSignal): Promise<Message> {
+  return streamChat(`/api/v1/conversations/${conversationId}/regenerate`, {}, h, signal)
+}
+
+async function streamChat(url: string, body: unknown, h: ChatHandlers, signal?: AbortSignal): Promise<Message> {
   let resp: Response
   try {
-    resp = await fetch('/api/v1/chat', {
+    resp = await fetch(url, {
       method: 'POST',
       headers: headers(true),
-      body: JSON.stringify({ conversation_id: conversationId, content, attachment_ids: attachmentIds, stream: true }),
+      body: JSON.stringify(body),
       signal,
     })
   } catch (e) {

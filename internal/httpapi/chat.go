@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/HugehardJiang/buugoo/internal/logx"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -61,8 +62,40 @@ func (s *server) chat(c echo.Context) error {
 		})
 	}
 
+	return s.streamReply(c, func(sink chat.Sink) (*chat.Result, error) { return s.Chat.Send(ctx, u, in, sink) })
+}
+
+// regenerate 处理 POST /api/v1/conversations/:id/regenerate：重新生成最后一条回复，事件和 /chat 一样。
+func (s *server) regenerate(c echo.Context) error {
+	id, err := pathID(c)
+	if err != nil {
+		return err
+	}
+	ctx, u := c.Request().Context(), currentUser(c)
+	return s.streamReply(c, func(sink chat.Sink) (*chat.Result, error) { return s.Chat.Regenerate(ctx, u, id, sink) })
+}
+
+// deleteMessage 处理 DELETE /api/v1/conversations/:id/messages/:mid：删除一条消息。
+func (s *server) deleteMessage(c echo.Context) error {
+	id, err := pathID(c)
+	if err != nil {
+		return err
+	}
+	mid, err := strconv.ParseUint(c.Param("mid"), 10, 64)
+	if err != nil || mid == 0 {
+		return badRequest("消息 id 无效")
+	}
+	if err := s.Chat.DeleteMessage(c.Request().Context(), currentUser(c), id, mid); err != nil {
+		return err
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// streamReply 用 SSE 推送一轮回复的生成过程。
+func (s *server) streamReply(c echo.Context, run func(chat.Sink) (*chat.Result, error)) error {
+	ctx, u := c.Request().Context(), currentUser(c)
 	sse := newSSE(c.Response())
-	res, err := s.Chat.Send(ctx, u, in, sse)
+	res, err := run(sse)
 	if !sse.started {
 		// 尚未开始推送（参数错误、超出限额、连不上模型服务等），按普通 JSON 错误返回。
 		if err != nil {

@@ -4,7 +4,9 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   api,
   ApiError,
+  regenerateChat,
   sendChat,
+  type ChatHandlers,
   type Attachment,
   type PersonaPreset,
   type Usage,
@@ -455,31 +457,11 @@ async function send() {
       convId,
       content,
       attachments.map((a) => a.id),
-      {
-        onStart: (d) => {
-          Object.assign(items.value[items.value.length - 2], d.user_message, { attachments })
-          r.id = d.assistant_message_id
-          replaceConv(d.conversation)
-          for (const p of sentPending) if (p.preview) URL.revokeObjectURL(p.preview)
-        },
-        onTool: (ev) => {
-          const list = r.tools ?? (r.tools = [])
-          const i = list.findIndex((x) => x.id === ev.id)
-          if (i >= 0) list[i] = ev
-          else list.push(ev)
-          scrollToBottom()
-        },
-        onMemories: (m) => (r.memories = m),
-        onReasoning: (t) => {
-          // 思考过程默认折叠，想看时再点开。
-          r.reasoning += t
-          scrollToBottom()
-        },
-        onDelta: (t) => {
-          r.content += t
-          scrollToBottom()
-        },
-      },
+      replyHandlers(r, (d) => {
+        Object.assign(items.value[items.value.length - 2], d.user_message, { attachments })
+        replaceConv(d.conversation)
+        for (const p of sentPending) if (p.preview) URL.revokeObjectURL(p.preview)
+      }),
       controller.signal,
     )
     Object.assign(r, { ...final, memories: r.memories, tools: final.tools ?? r.tools })
@@ -511,6 +493,89 @@ async function send() {
       c.last_message_at = new Date().toISOString()
       convs.value = [c, ...convs.value.filter((x) => x.id !== convId)]
     }
+  }
+}
+
+// replyHandlers 把流式事件写进回复 r。
+function replyHandlers(r: Item, onStart?: NonNullable<ChatHandlers['onStart']>): ChatHandlers {
+  return {
+    onStart: (d) => {
+      r.id = d.assistant_message_id
+      onStart?.(d)
+    },
+    onTool: (ev) => {
+      const list = r.tools ?? (r.tools = [])
+      const i = list.findIndex((x) => x.id === ev.id)
+      if (i >= 0) list[i] = ev
+      else list.push(ev)
+      scrollToBottom()
+    },
+    onMemories: (m) => (r.memories = m),
+    onReasoning: (t) => {
+      // 思考过程默认折叠，想看时再点开。
+      r.reasoning += t
+      scrollToBottom()
+    },
+    onDelta: (t) => {
+      r.content += t
+      scrollToBottom()
+    },
+  }
+}
+
+// 最后一条是保存过的回复时可以重新生成。
+const lastReply = computed(() => {
+  const last = items.value[items.value.length - 1]
+  return last && last.role === 'assistant' && last.id > 0 && !last.streaming ? last : null
+})
+
+// regenerate 重新生成最后一条回复：原来的回复换成新的。
+async function regenerate() {
+  const old = lastReply.value
+  if (!old || sending.value || !current.value) return
+  const convId = current.value.id
+  sending.value = true
+  const tmp = -Date.now()
+  items.value.splice(items.value.length - 1, 1, {
+    id: tmp, key: tmp, fresh: true, role: 'assistant', content: '', reasoning: '', tools: [], status: 'complete',
+    created_at: new Date().toISOString(), streaming: true,
+  })
+  const r = items.value[items.value.length - 1]
+  await scrollToBottom(true, true)
+  controller = new AbortController()
+  try {
+    const final = await regenerateChat(convId, replyHandlers(r), controller.signal)
+    Object.assign(r, { ...final, memories: r.memories, tools: final.tools ?? r.tools })
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') {
+      r.status = 'interrupted'
+    } else if (r.id < 0) {
+      // 还没开始就失败了（例如超出限额），原来的回复还在。
+      items.value.splice(items.value.indexOf(r), 1, old)
+      toast(errText(e, '重新生成失败'))
+    } else {
+      r.status = 'error'
+      r.error = errText(e, '这次没有回复成功')
+    }
+  } finally {
+    r.streaming = false
+    sending.value = false
+    controller = null
+    scrollToBottom()
+    meter.value?.refresh()
+  }
+}
+
+// removeMessage 删除一条消息。
+async function removeMessage(m: Item) {
+  if (m.id < 0 || m.streaming || !current.value) return
+  if (!confirm(`删除这条${m.role === 'user' ? '消息' : '回复'}？删除后${name.value}之后也看不到它了（已经记住的事不受影响）。`)) return
+  try {
+    await api.deleteMessage(current.value.id, m.id)
+    items.value = items.value.filter((x) => x !== m)
+    meter.value?.refresh()
+  } catch (e) {
+    toast(errText(e, '删除失败'))
   }
 }
 
@@ -745,6 +810,22 @@ onBeforeUnmount(() => {
                 <span v-if="row.item.status === 'interrupted'">· 已停止</span>
                 <span v-if="row.item.status === 'error'" class="err">· {{ row.item.error || '这次没有回复成功' }}</span>
                 <button v-if="row.item.status === 'error'" type="button" class="chip-note diag" @click="copyDiag(row.item)">复制诊断信息</button>
+                <span v-if="row.item.id > 0 && !row.item.streaming" class="msg-actions">
+                  <button
+                    v-if="row.item === lastReply"
+                    type="button"
+                    class="msg-action"
+                    :disabled="sending"
+                    title="重新生成这条回复"
+                    aria-label="重新生成这条回复"
+                    @click="regenerate"
+                  >
+                    <Icon name="refresh" :size="14" />
+                  </button>
+                  <button type="button" class="msg-action" :disabled="sending" title="删除" :aria-label="row.item.role === 'user' ? '删除这条消息' : '删除这条回复'" @click="removeMessage(row.item)">
+                    <Icon name="trash" :size="14" />
+                  </button>
+                </span>
                 <button
                   v-if="memoriesUnlocked && row.item.memories?.length"
                   class="chip-note recall-toggle"
@@ -1011,6 +1092,15 @@ onBeforeUnmount(() => {
 .meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 6px; color: var(--color-muted); font-size: 12px; }
 .meta .err { color: var(--color-danger); }
 .meta .diag { margin-left: 4px; }
+.msg-actions { display: inline-flex; gap: 2px; opacity: 0; transition: opacity .15s ease; }
+.msg:hover .msg-actions, .msg:focus-within .msg-actions { opacity: 1; }
+@media (hover: none) { .msg-actions { opacity: .7; } }
+.msg-action {
+  display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px;
+  background: none; color: var(--color-muted); cursor: pointer; transition: background-color .15s ease, color .15s ease;
+}
+.msg-action:hover:not(:disabled) { background: var(--color-surface-soft, rgba(0, 0, 0, .05)); color: var(--color-ink); }
+.msg-action:disabled { opacity: .4; cursor: default; }
 .recall-toggle { cursor: pointer; height: 24px; font-size: 12px; margin-left: 4px; }
 .recalled {
   display: grid; gap: 8px; max-width: 640px; margin: 10px 0 0; padding: 12px 14px; list-style: none;

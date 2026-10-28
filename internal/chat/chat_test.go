@@ -3,8 +3,8 @@ package chat
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -944,5 +944,67 @@ func TestForgottenReminderNudge(t *testing.T) {
 	}
 	if len(e.chat.reqs) != n+1 {
 		t.Fatalf("不该补发: %d", len(e.chat.reqs)-n)
+	}
+}
+
+func TestRegenerateAndDelete(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, config.QuotaConfig{})
+	e.chat.script = []*fakeStream{
+		{chunks: []llm.Chunk{{Delta: "第一句回复"}}},
+		{chunks: []llm.Chunk{{Delta: "第二句回复"}}},
+		{chunks: []llm.Chunk{{Delta: "重新生成的回复"}}},
+	}
+	first, err := e.svc.Send(ctx, e.user, SendInput{Content: "你好"}, &recordSink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	convID := first.Conversation.ID
+	second, err := e.svc.Send(ctx, e.user, SendInput{ConversationID: convID, Content: "今天吃什么"}, &recordSink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := e.svc.Regenerate(ctx, e.user, convID, &recordSink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.UserMessage.ID != second.UserMessage.ID || res.Reply.Content != "重新生成的回复" {
+		t.Fatalf("user=%d reply=%q", res.UserMessage.ID, res.Reply.Content)
+	}
+	// 发给模型的历史里不能有原来的回复，也不能重复这条用户消息。
+	req := e.chat.reqs[len(e.chat.reqs)-1]
+	var users int
+	for _, m := range req.Messages {
+		if strings.Contains(m.Content, "第二句回复") {
+			t.Fatal("原来的回复不该还在历史里")
+		}
+		if strings.Contains(m.Content, "今天吃什么") {
+			users++
+		}
+	}
+	if users != 1 {
+		t.Fatalf("用户消息应只出现一次: %d", users)
+	}
+	_, msgs, _ := e.svc.History(ctx, e.user, convID, 0, 10)
+	if len(msgs) != 4 || msgs[3].Content != "重新生成的回复" {
+		t.Fatalf("%+v", msgs)
+	}
+
+	// 删除一条消息；最后一条不是回复时不能重新生成。
+	if err := e.svc.DeleteMessage(ctx, e.user, convID, msgs[3].ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.svc.Regenerate(ctx, e.user, convID, &recordSink{}); !errors.Is(err, ErrCannotRegenerate) {
+		t.Fatalf("err=%v", err)
+	}
+	if err := e.svc.DeleteMessage(ctx, e.user, convID+99, msgs[0].ID); err == nil {
+		t.Fatal("别的对话里不能删")
+	}
+	if err := e.svc.DeleteMessage(ctx, e.user, convID, 9999); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("err=%v", err)
+	}
+	_, msgs, _ = e.svc.History(ctx, e.user, convID, 0, 10)
+	if len(msgs) != 3 {
+		t.Fatalf("%+v", msgs)
 	}
 }
