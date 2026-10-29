@@ -159,6 +159,8 @@ type Service struct {
 	contexts *contextCache
 	// newChat 便于测试替换。publicOnly 为 true 时只允许连接公网地址。
 	newChat func(c config.ModelConfig, publicOnly bool) llm.ChatProvider
+	// util 缓存网页上选的辅助模型。
+	util utilityCache
 }
 
 // NewService 创建服务，并按网页中保存的设置（没有则用配置文件）初始化向量模型。

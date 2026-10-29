@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api, ApiError, type Invite } from '../api'
 import AgentPanel from '../components/AgentPanel.vue'
 import EmbeddingPanel from '../components/EmbeddingPanel.vue'
+import UtilityPanel from '../components/UtilityPanel.vue'
 import ExtensionsPanel from '../components/ExtensionsPanel.vue'
 import Modal from '../components/Modal.vue'
 import ModelsPanel from '../components/ModelsPanel.vue'
@@ -129,6 +130,8 @@ onMounted(async () => {
         <ModelsPanel />
 
         <ExtensionsPanel />
+
+        <UtilityPanel v-if="isAdmin" />
 
         <EmbeddingPanel v-if="isAdmin" />
 

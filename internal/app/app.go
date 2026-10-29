@@ -109,7 +109,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 		return nil, err
 	}
 	p := personas.Current()
-	utilLLM, err := provider.NewChat(cfg.LLM.Utility)
+	configUtil, err := provider.NewChat(cfg.LLM.Utility)
 	if err != nil {
 		return nil, err
 	}
@@ -124,6 +124,8 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	if err != nil {
 		return nil, err
 	}
+	// 辅助模型：管理员可以在网页上直接选一个现有的模型，不选就用配置文件里的 llm.utility。
+	utilLLM := modelSvc.UtilityChat(configUtil)
 	emb := modelSvc.Embedding()
 	authSvc, err := auth.NewService(ctx, cfg, db)
 	if err != nil {
@@ -151,7 +153,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 			}
 			key := job.UsageKey
 			if key == "" {
-				key = quota.KeyUtility
+				key = modelSvc.UtilityKey(ctx)
 			}
 			if err := limiter.Record(ctx, job.UserID, quota.Tokens(key, u)); err != nil {
 				log.Error("记录后台用量失败", "user_id", job.UserID, "err", err)
@@ -159,7 +161,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 		})
 	compactor := memory.NewCompactor(db.Memories(), vs, userEmb, utilLLM, cfg.Memory.Compact, log,
 		func(ctx context.Context, userID uint64, u llm.Usage) {
-			if err := limiter.Record(ctx, userID, quota.Tokens(quota.KeyUtility, u)); err != nil {
+			if err := limiter.Record(ctx, userID, quota.Tokens(modelSvc.UtilityKey(ctx), u)); err != nil {
 				log.Error("记录后台用量失败", "user_id", userID, "err", err)
 			}
 		})

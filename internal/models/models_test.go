@@ -11,6 +11,7 @@ import (
 
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/llm"
+	"github.com/HugehardJiang/buugoo/internal/quota"
 	"github.com/HugehardJiang/buugoo/internal/secret"
 	"github.com/HugehardJiang/buugoo/internal/store"
 	"github.com/HugehardJiang/buugoo/internal/store/gormstore"
@@ -398,5 +399,44 @@ func TestZeroValuesKept(t *testing.T) {
 	in.MaxTokens = MaxOutputTokens + 1
 	if _, err := svc.Update(ctx, alice, v.ID, in); err == nil {
 		t.Fatal("超过上限应报错")
+	}
+}
+
+func TestUtilityChoice(t *testing.T) {
+	ctx := context.Background()
+	svc, _ := newService(t, config.ModeMulti, "builtin-key")
+	admin, alice := User{ID: 1, IsAdmin: true}, User{ID: 2}
+	fallback := &fakeChat{cfg: config.ModelConfig{Model: "config-utility"}}
+	util := svc.UtilityChat(fallback)
+	if util.Model() != "config-utility" || svc.UtilityKey(ctx) != quota.KeyUtility || svc.Utility(ctx).ModelID != nil {
+		t.Fatal("没选时用配置文件里的辅助模型")
+	}
+	pub, err := svc.Create(ctx, admin, Input{Name: "OpenCode 便宜模型", BaseURL: "https://opencode.ai/zen/go/v1", APIKey: "k", Model: "cheap", Public: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mine, _ := svc.Create(ctx, alice, input("mine", "k"))
+	if _, err := svc.SetUtility(ctx, alice, &pub.ID); err == nil {
+		t.Fatal("只有管理员能改")
+	}
+	if _, err := svc.SetUtility(ctx, admin, &mine.ID); err == nil {
+		t.Fatal("不能选个人模型")
+	}
+	v, err := svc.SetUtility(ctx, admin, &pub.ID)
+	if err != nil || v.Name != "OpenCode 便宜模型" || v.Model != "cheap" {
+		t.Fatal(v, err)
+	}
+	if util.Model() != "cheap" || svc.UtilityKey(ctx) != quota.ModelKey(pub.ID) {
+		t.Fatalf("选了以后用这个模型、按它计价：%s %s", util.Model(), svc.UtilityKey(ctx))
+	}
+	// 选的模型删掉了：自动改回配置文件里的。
+	if err := svc.Delete(ctx, admin, pub.ID); err != nil {
+		t.Fatal(err)
+	}
+	if util.Model() != "config-utility" || !svc.Utility(ctx).Missing || svc.UtilityKey(ctx) != quota.KeyUtility {
+		t.Fatal("模型删掉后改回配置文件里的")
+	}
+	if v, err := svc.SetUtility(ctx, admin, nil); err != nil || v.ModelID != nil || v.Missing {
+		t.Fatal(v, err)
 	}
 }

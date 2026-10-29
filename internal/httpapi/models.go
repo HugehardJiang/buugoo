@@ -215,3 +215,24 @@ func (s *server) adminStartReembed(c echo.Context) error {
 	}
 	return c.JSON(http.StatusAccepted, s.Reembed.Status())
 }
+
+// adminGetUtility 返回现在的辅助模型。
+func (s *server) adminGetUtility(c echo.Context) error {
+	return c.JSON(http.StatusOK, s.Models.Utility(c.Request().Context()))
+}
+
+// adminSetUtility 选辅助模型：model_id 为 null 表示用配置文件里的。
+func (s *server) adminSetUtility(c echo.Context) error {
+	var in struct {
+		ModelID *uint64 `json:"model_id"`
+	}
+	if err := bind(c, &in); err != nil {
+		return err
+	}
+	v, err := s.Models.SetUtility(c.Request().Context(), modelUser(currentUser(c)), in.ModelID)
+	if err != nil {
+		return err
+	}
+	s.audit(c, "修改了辅助模型", "model", v.Name)
+	return c.JSON(http.StatusOK, v)
+}

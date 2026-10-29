@@ -44,9 +44,13 @@ func (s *server) pricingItems(c echo.Context) ([]pricingItem, error) {
 		out = append(out, pricingItem{Key: quota.ModelKey(m.ID), Label: label, Kind: "tokens", Group: "聊天模型", Hint: hint, Model: m.Model})
 	}
 	cfg := s.Config.LLM
+	utilHint := "记忆太多时合并整理；对话里的记忆提取和长对话摘要用的是这段对话的模型，按那个模型的价格计"
+	if u := s.Models.Utility(c.Request().Context()); u.ModelID != nil && !u.Missing {
+		utilHint = "现在辅助模型选的是「" + u.Name + "」，按它的价格计，这一项暂时用不到（在「设置 → 辅助模型」里改）"
+	}
 	out = append(out,
 		pricingItem{Key: quota.KeyUtility, Label: "辅助模型（" + cfg.Utility.Model + "）", Kind: "tokens", Group: "后台调用",
-			Hint: "记忆太多时合并整理；对话里的记忆提取和长对话摘要用的是这段对话的模型，按那个模型的价格计", Model: cfg.Utility.Model},
+			Hint: utilHint, Model: cfg.Utility.Model},
 		pricingItem{Key: quota.KeyEmbedding, Label: "向量模型（" + cfg.Embedding.Model + "）", Kind: "tokens", Group: "后台调用",
 			Hint: "记忆检索和写入；接口不返回用量，按文字长度估算 token（只算输入价格）", Model: cfg.Embedding.Model},
 	)

@@ -180,6 +180,16 @@ export interface ContextStatus {
   cache_total?: number
 }
 
+export interface UtilityView {
+  model_id: number | null
+  name: string
+  model: string
+  /** 配置文件里的辅助模型名 */
+  config: string
+  /** 选的模型已经删了或不能用，暂时用配置文件里的 */
+  missing?: boolean
+}
+
 export interface ModelView {
   id: number
   name: string
@@ -665,6 +675,9 @@ export const api = {
   // 不带 input 时测试已保存的模型；带 input 时测试表单中的配置（id 为 0 表示尚未保存）。
   testModel: (id: number, input?: ModelInput) =>
     input && !id ? request<TestResult>('POST', '/models/test', input) : request<TestResult>('POST', `/models/${id}/test`, input),
+  /** 辅助模型（管理员）：model_id 为 null 表示用配置文件里的 */
+  utility: () => request<UtilityView>('GET', '/admin/utility'),
+  setUtility: (modelId: number | null) => request<UtilityView>('PUT', '/admin/utility', { model_id: modelId }),
   embedding: () =>
     request<{ embedding: EmbeddingView; pending: number; counts: Record<string, number>; reembed: ReembedStatus }>(
       'GET',

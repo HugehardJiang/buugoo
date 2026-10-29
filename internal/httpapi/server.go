@@ -244,6 +244,8 @@ func New(d Deps) http.Handler {
 	admin.GET("/invites", s.adminListInvites)
 	admin.POST("/invites", s.adminCreateInvite)
 	admin.DELETE("/invites/:id", s.adminDeleteInvite)
+	admin.GET("/utility", s.adminGetUtility)
+	admin.PUT("/utility", s.adminSetUtility)
 	admin.GET("/embedding", s.adminGetEmbedding)
 	admin.PUT("/embedding", s.adminSetEmbedding)
 	admin.POST("/embedding/test", s.adminTestEmbedding)
