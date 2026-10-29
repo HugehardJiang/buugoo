@@ -6,6 +6,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,6 +37,8 @@ func isOpenCode(baseURL string) bool {
 type client struct {
 	baseURL string
 	apiKey  string
+	// session 是没有对话编号时用的会话编号（每个客户端一个）。
+	session string
 	http    *http.Client
 	// sleep 便于测试替换。
 	sleep func(context.Context, time.Duration) error
@@ -64,9 +68,16 @@ func newClient(baseURL, apiKey string, publicOnly bool) client {
 	return client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		apiKey:  apiKey,
+		session: "buugoo-" + randomID(),
 		http:    &http.Client{Transport: t},
 		sleep:   sleepCtx,
 	}
+}
+
+func randomID() string {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {
@@ -107,7 +118,13 @@ func (c client) do(ctx context.Context, path string, body any, retry bool) (*htt
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 		req.Header.Set("User-Agent", userAgent)
-		if sid := llm.SessionFrom(ctx); sid != "" && isOpenCode(c.baseURL) {
+		if isOpenCode(c.baseURL) {
+			// OpenCode Go 要求每个请求都带会话编号：聊天时用对话的编号；测试连接、起标题、提取记忆这类
+			// 不属于某段对话的请求，用这个客户端固定的一个编号。
+			sid := llm.SessionFrom(ctx)
+			if sid == "" {
+				sid = c.session
+			}
 			req.Header.Set("x-opencode-session", sid)
 		}
 		resp, err := c.http.Do(req)

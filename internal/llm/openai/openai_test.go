@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -337,4 +338,32 @@ func TestUserAgentAndSessionHeader(t *testing.T) {
 	if !isOpenCode("https://opencode.ai/inference/go/openai/v1") || isOpenCode(srv.URL) {
 		t.Fatal("isOpenCode")
 	}
+	// OpenCode：有对话编号用对话编号，没有（测试连接、后台任务）时也要带一个固定的。
+	var got []string
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Header.Get("x-opencode-session"))
+		fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"hi"}}]}`)
+	}))
+	defer srv2.Close()
+	oc := newClient("https://opencode.ai/inference/go/openai/v1", "k", false)
+	oc.http = &http.Client{Transport: rewrite{srv2.URL}}
+	for _, cx := range []context.Context{context.Background(), context.Background(), llm.WithSession(context.Background(), "buugoo-1-2")} {
+		resp, err := oc.do(cx, "/chat/completions", map[string]any{"model": "m"}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+	}
+	if len(got) != 3 || got[0] == "" || got[0] != got[1] || got[2] != "buugoo-1-2" {
+		t.Fatalf("sessions %q", got)
+	}
+}
+
+// rewrite 把请求转到测试服务器（保留原来的地址判断）。
+type rewrite struct{ target string }
+
+func (r rewrite) RoundTrip(req *http.Request) (*http.Response, error) {
+	u, _ := url.Parse(r.target)
+	req.URL.Scheme, req.URL.Host = u.Scheme, u.Host
+	return http.DefaultTransport.RoundTrip(req)
 }
