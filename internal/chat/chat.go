@@ -4,6 +4,7 @@
 package chat
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -543,6 +544,8 @@ type turn struct {
 	usage         llm.Usage
 	usageReported bool
 	toolTokens    int
+	// calledWith 记下这一轮已经调用过的工具和参数，重复的不再执行。
+	calledWith map[string]bool
 	// reminderNudged 表示已经提醒过模型补设提醒（每轮回复最多一次）。
 	reminderNudged bool
 	// userText 是对方这一条消息的原文（不含附上的〔此刻〕信息）。
@@ -651,6 +654,15 @@ func (t *turn) runTool(call llm.ToolCall) (string, error) {
 	if t.tools == nil {
 		return "当前没有可用的工具", nil
 	}
+	// 同一轮里用一模一样的参数重复调用（模型偶尔会连着查好几遍提醒）：不再执行，也不显示步骤，让它直接用之前的结果。
+	sig := toolSignature(call)
+	if t.calledWith == nil {
+		t.calledWith = map[string]bool{}
+	}
+	if t.calledWith[sig] {
+		return "你刚才已经用同样的参数调用过 " + call.Name + "，结果和上次一样，不用再调用。直接根据之前的结果继续。", nil
+	}
+	t.calledWith[sig] = true
 	// 先解析出输入用于展示（搜索词、网址、代码）。
 	ev.Input = toolInput(call)
 	if err := t.sink.Tool(ev); err != nil {
@@ -815,6 +827,20 @@ func (t *turn) consume(stream llm.ChatStream) (string, string, []llm.ToolCall, e
 		}
 		t.text.WriteString(delta)
 	}
+}
+
+// toolSignature 是一次工具调用的「名字 + 参数」（参数去掉空白后比较）。
+func toolSignature(call llm.ToolCall) string {
+	var b bytes.Buffer
+	args := strings.TrimSpace(call.Arguments)
+	if args == "" {
+		args = "{}"
+	}
+	if json.Compact(&b, []byte(args)) != nil {
+		b.Reset()
+		b.WriteString(args)
+	}
+	return call.Name + "|" + b.String()
 }
 
 // toolHints 返回可用工具的使用说明，放进系统提示词。

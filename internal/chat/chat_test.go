@@ -1049,3 +1049,29 @@ func TestDSMLToolCallsInText(t *testing.T) {
 		t.Fatalf("%+v", req.Messages[n-2:])
 	}
 }
+
+// 同一轮里用一样的参数重复调用工具：只执行一次。
+func TestRepeatedToolCallSkipped(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, config.QuotaConfig{})
+	e.models.tools = true
+	n := 0
+	e.svc.tools = fakeTools{extra: []tools.Extra{{
+		Def: llm.Tool{Name: "list_reminders", Parameters: map[string]any{"type": "object", "properties": map[string]any{}}},
+		Run: func(context.Context, json.RawMessage) tools.Result {
+			n++
+			return tools.Result{OK: true, Output: "现在没有提醒"}
+		},
+	}}}
+	call := func(id, args string) *fakeStream {
+		return &fakeStream{chunks: []llm.Chunk{{ToolCalls: []llm.ToolCallDelta{{Index: 0, ID: id, Name: "list_reminders", Arguments: args}}}}}
+	}
+	e.chat.script = []*fakeStream{call("a", "{}"), call("b", "{ }"), call("c", ""), {chunks: []llm.Chunk{{Delta: "没有提醒"}}}}
+	res, err := e.svc.Send(ctx, e.user, SendInput{Content: "我有什么提醒"}, &recordSink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 || len(res.Tools) != 1 || res.Reply.Content != "没有提醒" {
+		t.Fatalf("n=%d tools=%d reply=%q", n, len(res.Tools), res.Reply.Content)
+	}
+}

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 设计系统 Icons 组的线性图标：24px 网格、1.8 描边、圆角端点、无填充，颜色继承 currentColor。
-defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' | 'trash' | 'chevron' | 'clip' | 'file' | 'search' | 'code' | 'globe' | 'x' | 'brain' | 'folder' | 'image' | 'check' | 'sparkle' | 'download' | 'clock' | 'link' | 'note' | 'refresh'; size?: number }>()
+defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' | 'trash' | 'chevron' | 'clip' | 'file' | 'search' | 'code' | 'globe' | 'x' | 'brain' | 'folder' | 'image' | 'check' | 'sparkle' | 'download' | 'clock' | 'link' | 'note' | 'refresh' | 'grid'; size?: number }>()
 </script>
 
 <template>
@@ -48,6 +48,12 @@ defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' |
     <template v-else-if="name === 'trash'">
       <path d="M4 7h16M10 11v6M14 11v6" />
       <path d="M6 7l1 13h10l1-13M9 7V4h6v3" />
+    </template>
+    <template v-else-if="name === 'grid'">
+      <rect x="4" y="4" width="6.5" height="6.5" rx="1.6" />
+      <rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6" />
+      <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6" />
+      <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6" />
     </template>
     <template v-else-if="name === 'refresh'">
       <path d="M20 11a8 8 0 0 0-14.6-4.4L4 8" />
