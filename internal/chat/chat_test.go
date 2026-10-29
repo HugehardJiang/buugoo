@@ -187,7 +187,9 @@ type env struct {
 	chat    *fakeChat
 	models  *fakeModels
 	writer  *memory.Writer
-	user    *store.User
+	// usageKeys 是记忆提取记到的计价项。
+	usageKeys []string
+	user      *store.User
 	uploads *uploads.Service
 	dir     string
 }
@@ -218,8 +220,10 @@ func newEnv(t *testing.T, q config.QuotaConfig) *env {
 	vs := memstore.New(db.Memories().LoadEmbeddings, cfg.Memory.Cache, nil)
 	retriever := memory.NewRetriever(db.Memories(), vs, fakeEmb{}, cfg.Memory.Retrieval, cfg.Memory.Write.AccessBoost)
 	limiter := quota.New(q, db.Usage(), time.UTC)
+	e := &env{}
 	writer := memory.NewWriter(db.Memories(), vs, fakeEmb{}, memory.NewLLMExtractor(fc), cfg.Memory.Write, nil,
 		func(ctx context.Context, job memory.WriteJob, u llm.Usage) {
+			e.usageKeys = append(e.usageKeys, job.UsageKey)
 			if !job.Personal {
 				_ = limiter.Record(ctx, job.UserID, quota.Use{Key: quota.KeyUtility, PromptTokens: u.PromptTokens, CompletionTokens: u.CompletionTokens})
 			}
@@ -232,7 +236,8 @@ func newEnv(t *testing.T, q config.QuotaConfig) *env {
 		Store: db, Models: fm, Tools: fakeTools{out: "1234567"}, Uploads: up, Retriever: retriever, Writer: writer,
 		Builder: prompt.NewBuilder(p, 6000), Quota: limiter, Config: cfg.Chat, Location: time.UTC,
 	})
-	return &env{svc: svc, db: db, chat: fc, models: fm, writer: writer, user: user, uploads: up, dir: dir}
+	*e = env{svc: svc, db: db, chat: fc, models: fm, writer: writer, user: user, uploads: up, dir: dir, usageKeys: e.usageKeys}
+	return e
 }
 
 func TestSendFlowAndMemoryRoundTrip(t *testing.T) {
@@ -263,6 +268,10 @@ func TestSendFlowAndMemoryRoundTrip(t *testing.T) {
 	mems, total, _ := e.db.Memories().List(ctx, e.user.ID, store.MemoryFilter{}, 10, 0)
 	if total != 1 || mems[0].Content != "用户对花生过敏" || *mems[0].SourceMessageID != res.UserMessage.ID {
 		t.Fatalf("应写入一条记忆: %+v", mems)
+	}
+	// 记忆提取用的是这段对话的模型，按这个模型计价（不记成辅助模型）。
+	if len(e.usageKeys) != 1 || e.usageKeys[0] != quota.ModelKey(0) {
+		t.Fatalf("计价项: %v", e.usageKeys)
 	}
 
 	// 第二轮：应检索到上一轮写入的记忆，并带上对话历史。
@@ -693,7 +702,7 @@ type fakeSummarizer struct {
 	prev  []string
 }
 
-func (f *fakeSummarizer) Summarize(_ context.Context, _, prev string, msgs []store.Message) (string, llm.Usage, error) {
+func (f *fakeSummarizer) Summarize(_ context.Context, _ llm.ChatProvider, _, prev string, msgs []store.Message) (string, llm.Usage, error) {
 	f.calls = append(f.calls, msgs)
 	f.prev = append(f.prev, prev)
 	return fmt.Sprintf("摘要%d：聊到第 %s 句", len(f.calls), msgs[len(msgs)-1].Content), llm.Usage{PromptTokens: 10}, nil

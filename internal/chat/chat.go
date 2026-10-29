@@ -963,7 +963,7 @@ func (s *Service) afterReply(ctx context.Context, u *store.User, p *prepared, mo
 	}
 	s.writer.Enqueue(memory.WriteJob{
 		UserID: u.ID, ConversationID: p.conv.ID, MessageID: userMsg.ID,
-		Chat: model.Chat, Personal: model.Personal,
+		Chat: model.Chat, Personal: model.Personal, UsageKey: usageKey(model),
 		Input: memory.ExtractInput{
 			UserName: u.DisplayName, UserMessage: userText, AssistantReply: reply.Content,
 			Context: recent, Known: known, Now: s.now().In(s.loc), Images: images,

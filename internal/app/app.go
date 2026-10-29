@@ -149,7 +149,11 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 			if job.Personal {
 				return // 用户自带的 Key，不计入限额
 			}
-			if err := limiter.Record(ctx, job.UserID, quota.Tokens(quota.KeyUtility, u)); err != nil {
+			key := job.UsageKey
+			if key == "" {
+				key = quota.KeyUtility
+			}
+			if err := limiter.Record(ctx, job.UserID, quota.Tokens(key, u)); err != nil {
 				log.Error("记录后台用量失败", "user_id", job.UserID, "err", err)
 			}
 		})

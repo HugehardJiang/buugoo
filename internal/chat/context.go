@@ -356,15 +356,17 @@ func (s *Service) compact(ctx context.Context, u *store.User, conv *store.Conver
 			tokens += prompt.EstimateTokens(folded[end].Content)
 			end++
 		}
-		next, usage, err := s.summarizer.Summarize(ctx, s.builder.Persona().Name, summary, folded[start:end])
+		next, usage, err := s.summarizer.Summarize(ctx, chatOf(model), s.builder.Persona().Name, summary, folded[start:end])
 		if err != nil || next == "" {
 			if err == nil {
 				err = errors.New("辅助模型返回了空的摘要")
 			}
 			return fmt.Errorf("整理摘要失败：%w", err)
 		}
-		if err := s.quota.Record(ctx, u.ID, quota.Tokens(quota.KeyUtility, usage)); err != nil {
-			s.log.Error("记录用量失败", "user_id", u.ID, "err", err)
+		if model == nil || !model.Personal {
+			if err := s.quota.Record(ctx, u.ID, quota.Tokens(usageKey(model), usage)); err != nil {
+				s.log.Error("记录用量失败", "user_id", u.ID, "err", err)
+			}
 		}
 		summary = next
 		start = end
@@ -382,4 +384,23 @@ func (s *Service) compact(ctx context.Context, u *store.User, conv *store.Conver
 	conv.Summary, conv.SummaryUntil, conv.CompactPending, conv.ContextUsed = summary, fold[len(fold)-1].ID, false, used
 	s.log.Info("已压缩对话上下文", "user_id", u.ID, "conversation_id", conv.ID, "folded", len(fold), "kept", len(msgs)-len(fold))
 	return nil
+}
+
+// 对话的摘要和记忆提取都用这段对话自己的模型（例如用 OpenCode 的模型聊天，后台也走 OpenCode），
+// 按这个模型的价格计费；没有模型时才用辅助模型。用户自己 Key 的模型不计费。
+
+// chatOf 返回这段对话的模型，没有时为空（用辅助模型）。
+func chatOf(model *models.Resolved) llm.ChatProvider {
+	if model == nil {
+		return nil
+	}
+	return model.Chat
+}
+
+// usageKey 是后台调用的计价项：用了对话的模型就按这个模型计价，否则按辅助模型。
+func usageKey(model *models.Resolved) string {
+	if model == nil || model.Chat == nil {
+		return quota.KeyUtility
+	}
+	return quota.ModelKey(model.ID)
 }

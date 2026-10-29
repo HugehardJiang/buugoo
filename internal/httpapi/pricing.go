@@ -46,7 +46,7 @@ func (s *server) pricingItems(c echo.Context) ([]pricingItem, error) {
 	cfg := s.Config.LLM
 	out = append(out,
 		pricingItem{Key: quota.KeyUtility, Label: "辅助模型（" + cfg.Utility.Model + "）", Kind: "tokens", Group: "后台调用",
-			Hint: "记忆提取、长对话摘要、整理记忆", Model: cfg.Utility.Model},
+			Hint: "记忆太多时合并整理；对话里的记忆提取和长对话摘要用的是这段对话的模型，按那个模型的价格计", Model: cfg.Utility.Model},
 		pricingItem{Key: quota.KeyEmbedding, Label: "向量模型（" + cfg.Embedding.Model + "）", Kind: "tokens", Group: "后台调用",
 			Hint: "记忆检索和写入；接口不返回用量，按文字长度估算 token（只算输入价格）", Model: cfg.Embedding.Model},
 	)

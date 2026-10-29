@@ -14,10 +14,11 @@ const maxSummaryRunes = 2400
 
 // Summarizer 把较早的消息整理成摘要。
 type Summarizer interface {
-	Summarize(ctx context.Context, name, previous string, msgs []store.Message) (string, llm.Usage, error)
+	// Summarize 用 chat（这段对话用的模型）整理摘要，chat 为空时用辅助模型。
+	Summarize(ctx context.Context, chat llm.ChatProvider, name, previous string, msgs []store.Message) (string, llm.Usage, error)
 }
 
-// LLMSummarizer 用辅助模型整理摘要。
+// LLMSummarizer 整理摘要；没指定模型时用辅助模型。
 type LLMSummarizer struct{ LLM llm.ChatProvider }
 
 const summaryPrompt = `你在帮 AI 朋友"%s"整理一段长对话的前情提要。下面给出已有的摘要（可能为空）和之后的对话，请写出新的摘要，替换旧摘要。
@@ -31,7 +32,10 @@ const summaryPrompt = `你在帮 AI 朋友"%s"整理一段长对话的前情提�
 - 只输出摘要本身`
 
 // Summarize 实现 Summarizer。
-func (s LLMSummarizer) Summarize(ctx context.Context, name, previous string, msgs []store.Message) (string, llm.Usage, error) {
+func (s LLMSummarizer) Summarize(ctx context.Context, chat llm.ChatProvider, name, previous string, msgs []store.Message) (string, llm.Usage, error) {
+	if chat == nil {
+		chat = s.LLM
+	}
 	var b strings.Builder
 	if previous != "" {
 		b.WriteString("【已有摘要】\n" + previous + "\n\n")
@@ -51,7 +55,7 @@ func (s LLMSummarizer) Summarize(ctx context.Context, name, previous string, msg
 		}
 		fmt.Fprintf(&b, "%s（%s）：%s\n", who, m.CreatedAt.Format("01-02 15:04"), text)
 	}
-	resp, err := s.LLM.Chat(ctx, llm.ChatRequest{Thinking: "off", Messages: []llm.Message{
+	resp, err := chat.Chat(ctx, llm.ChatRequest{Thinking: "off", Messages: []llm.Message{
 		{Role: llm.RoleSystem, Content: fmt.Sprintf(summaryPrompt, name, name)},
 		{Role: llm.RoleUser, Content: b.String()},
 	}})

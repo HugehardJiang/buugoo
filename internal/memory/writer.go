@@ -27,6 +27,8 @@ type WriteJob struct {
 	Chat llm.ChatProvider
 	// Personal 为 true 表示使用用户自己的 API Key，不计入每日限额。
 	Personal bool
+	// UsageKey 是这次记忆提取的计价项（跟着本轮对话的模型），为空时按辅助模型计。
+	UsageKey string
 }
 
 // UsageFunc 用于把后台任务消耗的 token 计入用户用量。
