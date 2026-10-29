@@ -182,16 +182,16 @@ func (r *recordSink) Delta(t string) error {
 }
 
 type env struct {
-	svc     *Service
-	db      *gormstore.DB
-	chat    *fakeChat
-	models  *fakeModels
-	writer  *memory.Writer
+	svc    *Service
+	db     *gormstore.DB
+	chat   *fakeChat
+	models *fakeModels
+	writer *memory.Writer
 	// usageKeys 是记忆提取记到的计价项。
 	usageKeys []string
 	user      *store.User
-	uploads *uploads.Service
-	dir     string
+	uploads   *uploads.Service
+	dir       string
 }
 
 func newEnv(t *testing.T, q config.QuotaConfig) *env {
