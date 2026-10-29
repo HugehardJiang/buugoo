@@ -56,6 +56,26 @@ const result = ref('')
 
 const imported = computed(() => new Map((info.value?.imported ?? []).map((m) => [m.model, m])))
 const needKey = computed(() => [...picked.value].some((id) => !imported.value.has(id)))
+// 选中的里面已经添加过的（可以一键删除）。
+const pickedImported = computed(() => [...picked.value].filter((id) => imported.value.has(id)))
+const removing = ref(false)
+
+async function removePicked() {
+  const ids = pickedImported.value
+  if (!ids.length || removing.value) return
+  if (!confirm(`删除选中的 ${ids.length} 个已添加的模型？它们的计费价格也会一起删掉，正在用这些模型的对话会改回默认模型。`)) return
+  removing.value = true
+  try {
+    const r = await props.call<{ removed: number }>('POST', '/opencode/remove', { models: ids })
+    toast(`删除了 ${r.removed} 个模型`)
+    picked.value = new Set([...picked.value].filter((id) => !ids.includes(id)))
+    await load()
+  } catch (e) {
+    toast(e instanceof ApiError ? e.message : '删除失败')
+  } finally {
+    removing.value = false
+  }
+}
 
 onMounted(load)
 
@@ -278,6 +298,9 @@ function planLabel(t: string) {
       <p class="caption">每个模型每 5 小时最多用掉月额度的 20%、每周 50%，超出后 OpenCode 会拒绝请求（可以在 OpenCode 控制台打开 Extra Usage 改为按量付费）。</p>
       <div class="actions">
         <span v-if="result" class="caption ok">{{ result }}</span>
+        <button v-if="pickedImported.length" class="btn btn-danger-lite" :disabled="removing" @click="removePicked">
+          {{ removing ? '正在删除' : `删除选中的 ${pickedImported.length} 个已添加模型` }}
+        </button>
         <button class="btn btn-primary" :disabled="!picked.size || busy || (needKey && !opts.api_key.trim())" @click="submit">
           {{ busy ? '正在导入' : `导入选中的 ${picked.size} 个模型` }}
         </button>

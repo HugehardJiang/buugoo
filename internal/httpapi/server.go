@@ -165,6 +165,7 @@ func New(d Deps) http.Handler {
 		console.POST("/opencode/sync", s.consoleOpenCodeSync)
 		console.POST("/opencode/apply", s.consoleOpenCodeApply)
 		console.PUT("/opencode/options", s.consoleOpenCodeOptions)
+		console.POST("/opencode/remove", s.consoleOpenCodeRemove)
 	}
 	if s.DBMove != nil {
 		console.GET("/database", s.consoleDatabase)
@@ -257,6 +258,7 @@ func New(d Deps) http.Handler {
 	if s.OpenCode != nil {
 		priv.GET("/opencode/catalog", s.openCodeCatalog)
 		priv.POST("/opencode/mine", s.addMyOpenCode)
+		priv.POST("/opencode/mine/remove", s.removeMyOpenCode)
 	}
 	if s.Todos != nil {
 		priv.GET("/todos", s.listTodos)

@@ -6,6 +6,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/HugehardJiang/buugoo/internal/models"
 	"github.com/HugehardJiang/buugoo/internal/opencode"
 )
 
@@ -117,4 +118,35 @@ func (s *server) addMyOpenCode(c echo.Context) error {
 		return err
 	}
 	return c.JSON(http.StatusOK, map[string]any{"added": added, "updated": updated})
+}
+
+// consoleOpenCodeRemove 一键删除站长添加的 OpenCode 公共模型（连同计费价格）。
+func (s *server) consoleOpenCodeRemove(c echo.Context) error {
+	var req struct {
+		Models []string `json:"models"`
+	}
+	if err := bind(c, &req); err != nil {
+		return err
+	}
+	n, err := s.OpenCode.Remove(c.Request().Context(), models.User{IsAdmin: true}, true, req.Models)
+	if err != nil {
+		return err
+	}
+	s.audit(c, "管理后台删除了 OpenCode Go 模型", "removed", n)
+	return c.JSON(http.StatusOK, map[string]any{"removed": n})
+}
+
+// removeMyOpenCode 一键删除用户自己添加的 OpenCode 模型。
+func (s *server) removeMyOpenCode(c echo.Context) error {
+	var req struct {
+		Models []string `json:"models"`
+	}
+	if err := bind(c, &req); err != nil {
+		return err
+	}
+	n, err := s.OpenCode.Remove(c.Request().Context(), modelUser(currentUser(c)), false, req.Models)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]any{"removed": n})
 }

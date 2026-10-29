@@ -76,6 +76,25 @@ function ocToggle(id: string) {
   oc.picked = s
 }
 const ocNeedKey = computed(() => [...oc.picked].some((id) => !oc.mine.includes(id)))
+const ocPickedMine = computed(() => [...oc.picked].filter((id) => oc.mine.includes(id)))
+async function removeOpenCode() {
+  const ids = ocPickedMine.value
+  if (!ids.length || oc.busy) return
+  if (!confirm(`删除选中的 ${ids.length} 个已添加的模型？正在用它们的对话会改回默认模型。`)) return
+  oc.busy = true
+  oc.error = ''
+  try {
+    const r = await api.removeMyOpenCode(ids)
+    toast(`删除了 ${r.removed} 个模型`)
+    oc.mine = oc.mine.filter((id) => !ids.includes(id))
+    oc.picked = new Set([...oc.picked].filter((id) => !ids.includes(id)))
+    await load()
+  } catch (e) {
+    oc.error = e instanceof ApiError ? e.message : '删除失败'
+  } finally {
+    oc.busy = false
+  }
+}
 async function saveOpenCode() {
   if (!oc.picked.size || oc.busy) return
   oc.busy = true
@@ -404,6 +423,9 @@ defineExpose({ load })
         </div>
         <p v-if="oc.error" class="form-flash form-flash--error">{{ oc.error }}</p>
         <div class="modal-actions">
+          <button v-if="ocPickedMine.length" type="button" class="btn btn-danger-lite oc-remove" :disabled="oc.busy" @click="removeOpenCode">
+            删除选中的 {{ ocPickedMine.length }} 个已添加模型
+          </button>
           <button type="button" class="btn btn-ghost" @click="oc.open = false">取消</button>
           <button type="submit" class="btn btn-primary" :disabled="!oc.picked.size || oc.busy || (ocNeedKey && !oc.key.trim())">
             {{ oc.busy ? '正在添加' : `添加 ${oc.picked.size} 个模型` }}
@@ -440,6 +462,7 @@ defineExpose({ load })
 .presets { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
 .preset { cursor: pointer; min-height: 28px; padding: 0 10px; }
 .preset:hover { border-color: var(--color-muted); color: var(--color-ink); }
+.oc-remove { margin-right: auto; }
 .head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .oc-note { margin: 4px 0 10px; line-height: 1.7; }
 .oc-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; max-height: 46vh; overflow-y: auto; margin-bottom: 12px; }

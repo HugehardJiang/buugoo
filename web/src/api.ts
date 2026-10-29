@@ -694,6 +694,7 @@ export const api = {
   deleteMessage: (conversationId: number, id: number) => request<void>('DELETE', `/conversations/${conversationId}/messages/${id}`),
   openCodeCatalog: () =>
     request<{ models: { id: string; name: string; vision?: boolean; free?: boolean; note?: string }[]; mine: string[]; date: string }>('GET', '/opencode/catalog'),
+  removeMyOpenCode: (models: string[]) => request<{ removed: number }>('POST', '/opencode/mine/remove', { models }),
   addMyOpenCode: (apiKey: string, models: string[]) => request<{ added: number; updated: number }>('POST', '/opencode/mine', { api_key: apiKey, models }),
   todos: () => request<{ items: Todo[] }>('GET', '/todos'),
   createTodo: (input: { title: string; note?: string; due?: string }) => request<Todo>('POST', '/todos', input),

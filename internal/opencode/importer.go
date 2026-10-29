@@ -333,6 +333,43 @@ func (i *Importer) AddPersonal(ctx context.Context, u models.User, key string, i
 	return added, updated, nil
 }
 
+// Remove 删除已经添加的 OpenCode 模型：admin 为 true 时删公共模型（连同计费价格），否则删用户自己的。
+// 用这些模型的对话会改回默认模型。返回删了几个。
+func (i *Importer) Remove(ctx context.Context, u models.User, public bool, ids []string) (int, error) {
+	if len(ids) == 0 {
+		return 0, &UserError{"至少选一个模型"}
+	}
+	scope := models.ScopePersonal
+	if public {
+		scope, u = models.ScopePublic, admin
+	}
+	have, err := i.list(ctx, u, scope)
+	if err != nil {
+		return 0, err
+	}
+	var removed []uint64
+	for _, id := range ids {
+		v, ok := have[id]
+		if !ok {
+			continue
+		}
+		if err := i.models.Delete(ctx, u, v.ID); err != nil {
+			return len(removed), err
+		}
+		removed = append(removed, v.ID)
+	}
+	if public && i.billing != nil && len(removed) > 0 {
+		p := i.billing.Pricing(ctx)
+		for _, id := range removed {
+			delete(p.Prices, quota.ModelKey(id))
+		}
+		if err := i.billing.SetPricing(ctx, p); err != nil {
+			return len(removed), err
+		}
+	}
+	return len(removed), nil
+}
+
 // Mine 返回用户自己添加过的 OpenCode 模型名。
 func (i *Importer) Mine(ctx context.Context, u models.User) ([]string, error) {
 	mine, err := i.list(ctx, u, models.ScopePersonal)

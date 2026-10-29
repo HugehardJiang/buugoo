@@ -125,6 +125,22 @@ func TestImportSyncAndPersonal(t *testing.T) {
 	if strings.Join(mine, ",") != "glm-5.3,kimi-k3" {
 		t.Fatal(mine)
 	}
+	// 一键删除：用户删自己的，站长删公共的（连同价格）。
+	if n, err := imp.Remove(ctx, u, false, []string{"glm-5.3", "glm-5.2"}); err != nil || n != 1 {
+		t.Fatal(n, err)
+	}
+	if mine, _ := imp.Mine(ctx, u); strings.Join(mine, ",") != "kimi-k3" {
+		t.Fatal(mine)
+	}
+	if n, err := imp.Remove(ctx, admin, true, []string{"glm-5.2"}); err != nil || n != 1 {
+		t.Fatal(n, err)
+	}
+	if _, ok := bill.Pricing(ctx).Prices[quota.ModelKey(glm.ID)]; ok {
+		t.Fatal("价格也要删掉")
+	}
+	if left, _ := imp.Imported(ctx); len(left) != 1 {
+		t.Fatalf("%v", left)
+	}
 	list, _ := ms.List(ctx, u)
 	for _, v := range list {
 		if v.Model == "kimi-k3" && (v.Scope != models.ScopePersonal || !v.Vision || v.BaseURL != BaseURL) {
