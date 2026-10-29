@@ -337,3 +337,24 @@ func TestCostCacheAndPeak(t *testing.T) {
 		}
 	}
 }
+
+// 服务器时钟是 UTC 时也要按系统时区判断高峰（UTC 11:13 是北京时间 19:13，空闲）。
+func TestPeakNowUsesLocation(t *testing.T) {
+	svc, _ := setup(t)
+	sh, _ := time.LoadLocation("Asia/Shanghai")
+	svc.loc = sh
+	p := svc.Pricing(context.Background())
+	p.Mode = quota.ModeQuotaFirst
+	p.Peak = &PeakRule{Days: []int{1, 2, 3, 4, 5}, Ranges: []string{"09:00-12:00", "14:00-18:00"}}
+	if err := svc.SetPricing(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	svc.now = func() time.Time { return time.Date(2026, 10, 29, 11, 13, 0, 0, time.UTC) }
+	if svc.PeakNow(context.Background()) {
+		t.Fatal("北京时间 19:13 是空闲时段")
+	}
+	svc.now = func() time.Time { return time.Date(2026, 10, 29, 2, 0, 0, 0, time.UTC) }
+	if !svc.PeakNow(context.Background()) {
+		t.Fatal("北京时间 10:00 是高峰时段")
+	}
+}

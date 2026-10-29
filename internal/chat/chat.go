@@ -259,7 +259,10 @@ func (s *Service) prepare(ctx context.Context, u *store.User, conv *store.Conver
 	if preset != nil {
 		extra = preset.MemoryExtra
 	}
-	mems := s.retrieve(ctx, u.ID, userText, history, extra)
+	var mems []memory.Scored
+	if !isolated(conv) {
+		mems = s.retrieve(ctx, u.ID, userText, history, extra)
+	}
 	p := s.builder.Build(prompt.Input{
 		UserName:      u.DisplayName,
 		Now:           s.now().In(s.loc),
@@ -275,9 +278,14 @@ func (s *Service) prepare(ctx context.Context, u *store.User, conv *store.Conver
 		Summary:       conv.Summary,
 		MaxTokens:     budget,
 		Channel:       conv.Channel,
+		Temporary:     conv.Temporary,
+		Isolated:      isolated(conv),
 	})
 	return &prepared{conv: conv, history: history, prompt: p, userText: userText, images: images}, nil
 }
+
+// isolated 报告这段对话是不是不参考记忆和心情的临时对话。
+func isolated(conv *store.Conversation) bool { return conv.Temporary && !conv.UseContext }
 
 // retrieve 检索相关记忆。检索失败（例如向量服务不可用）不影响聊天，只记录告警。
 func (s *Service) retrieve(ctx context.Context, userID uint64, content string, history []store.Message, extra int) []memory.Scored {
@@ -312,7 +320,7 @@ func (s *Service) Preview(ctx context.Context, u *store.User, convID uint64, con
 	if model != nil {
 		in.toolHints = toolHints(s.toolSet(ctx, u, conv, model, nil))
 	}
-	if s.emotion != nil {
+	if s.emotion != nil && !isolated(conv) {
 		in.emotion, _ = s.emotion.Peek(ctx, u.ID)
 	}
 	p, err := s.prepare(ctx, u, conv, in)
@@ -428,9 +436,10 @@ func (s *Service) respond(ctx context.Context, u *store.User, conv *store.Conver
 	}
 	toolset := s.toolSet(ctx, u, conv, model, atts)
 	var mood string
-	if s.emotion != nil {
-		// 情绪更新失败不影响聊天。重新生成时这条消息已经影响过情绪，只读取现在的。
-		if again != nil {
+	if s.emotion != nil && !isolated(conv) {
+		// 情绪更新失败不影响聊天。重新生成时这条消息已经影响过情绪，只读取现在的；
+		// 临时对话只参考现在的心情，不改变它。
+		if again != nil || conv.Temporary {
 			mood, err = s.emotion.Peek(ctx, u.ID)
 		} else {
 			mood, err = s.emotion.Before(ctx, u.ID, titleSource(content, atts))
@@ -463,7 +472,9 @@ func (s *Service) respond(ctx context.Context, u *store.User, conv *store.Conver
 				return nil, fmt.Errorf("关联附件: %w", err)
 			}
 		}
-		s.autoTitle(ctx, u, conv, titleSource(content, atts))
+		if !conv.Temporary {
+			s.autoTitle(ctx, u, conv, titleSource(content, atts))
+		}
 	}
 	modelID := model.ID
 	// 助手消息先以"中断"状态占位，正常结束后再更新为完成。
@@ -518,7 +529,7 @@ func (s *Service) respond(ctx context.Context, u *store.User, conv *store.Conver
 		// 这一轮大约用了多少上下文：提示词 + 工具结果 + 回复。超过阈值时下一条消息前先压缩。
 		s.recordContext(bg, u, conv, model, p.prompt.EstimatedTokens+t.toolTokens+prompt.EstimateTokens(reply.Content), p.prompt.DroppedHistory > 0)
 	}
-	s.afterReply(bg, u, p, model, userMsg, reply, atts, res.Usage, again == nil)
+	s.afterReply(bg, u, p, model, userMsg, reply, atts, res.Usage, again == nil && !conv.Temporary)
 	if genErr != nil {
 		return res, genErr
 	}
@@ -911,7 +922,8 @@ func (s *Service) afterReply(ctx context.Context, u *store.User, p *prepared, mo
 	if err := s.store.Conversations().Touch(ctx, u.ID, p.conv.ID, reply.CreatedAt); err != nil {
 		s.log.Error("更新对话时间失败", "user_id", u.ID, "err", err)
 	}
-	if reply.Content == "" {
+	// 临时对话不留下任何记忆痕迹（包括「想起过哪些记忆」）。
+	if reply.Content == "" || p.conv.Temporary {
 		return
 	}
 	if err := s.retriever.MarkUsed(ctx, u.ID, reply.ID, p.prompt.UsedMemories); err != nil {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 设计系统 Icons 组的线性图标：24px 网格、1.8 描边、圆角端点、无填充，颜色继承 currentColor。
-defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' | 'trash' | 'chevron' | 'clip' | 'file' | 'search' | 'code' | 'globe' | 'x' | 'brain' | 'folder' | 'image' | 'check' | 'sparkle' | 'download' | 'clock' | 'link' | 'note' | 'refresh' | 'grid'; size?: number }>()
+defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' | 'trash' | 'chevron' | 'clip' | 'file' | 'search' | 'code' | 'globe' | 'x' | 'brain' | 'folder' | 'image' | 'check' | 'sparkle' | 'download' | 'clock' | 'link' | 'note' | 'refresh' | 'grid' | 'ghost'; size?: number }>()
 </script>
 
 <template>
@@ -22,6 +22,10 @@ defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' |
     <template v-else-if="name === 'book'">
       <path d="M2 4h6a4 4 0 0 1 4 4v13a4 4 0 0 0-4-4H2z" />
       <path d="M22 4h-6a4 4 0 0 0-4 4v13a4 4 0 0 1 4-4h6z" />
+    </template>
+    <template v-else-if="name === 'ghost'">
+      <path d="M5 20V10a7 7 0 0 1 14 0v10l-2.33-1.5L14.33 20 12 18.5 9.67 20l-2.34-1.5z" />
+      <path d="M9.5 10.5h.01M14.5 10.5h.01" />
     </template>
     <template v-else-if="name === 'clock'">
       <circle cx="12" cy="12" r="9" />

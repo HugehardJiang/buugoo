@@ -112,11 +112,14 @@ type conversationDTO struct {
 	LastMessageAt *time.Time `json:"last_message_at"`
 	// Channel 是对话来自哪个聊天软件（weixin、qq、telegram），网页上的对话为空。
 	Channel string `json:"channel,omitempty"`
+	// Temporary 表示临时对话；UseContext 是临时对话里是否参考记忆和心情。
+	Temporary  bool `json:"temporary,omitempty"`
+	UseContext bool `json:"use_context,omitempty"`
 }
 
 func toConversation(c *store.Conversation) conversationDTO {
 	return conversationDTO{ID: c.ID, Title: c.Title, ModelID: c.ModelID, Thinking: c.Thinking,
-		CreatedAt: c.CreatedAt, LastMessageAt: c.LastMessageAt, Channel: c.Channel}
+		CreatedAt: c.CreatedAt, LastMessageAt: c.LastMessageAt, Channel: c.Channel, Temporary: c.Temporary, UseContext: c.UseContext}
 }
 
 type memoryDTO struct {
@@ -299,6 +302,18 @@ func conversationPatch(c echo.Context) (chat.ConversationPatch, error) {
 			return p, badRequest("thinking 无效")
 		}
 		p.Thinking = &t
+	}
+	if v, ok := raw["temporary"]; ok {
+		if err := json.Unmarshal(v, &p.Temporary); err != nil {
+			return p, badRequest("temporary 无效")
+		}
+	}
+	if v, ok := raw["use_context"]; ok {
+		var b bool
+		if err := json.Unmarshal(v, &b); err != nil {
+			return p, badRequest("use_context 无效")
+		}
+		p.UseContext = &b
 	}
 	if v, ok := raw["model_id"]; ok {
 		p.SetModel = true

@@ -192,7 +192,7 @@ func (discardSink) Tool(ToolEvent) error           { return nil }
 // latestConversation 返回用户最近说过话的对话，没有时使用最近的对话（没有则新建）。
 func (s *Service) latestConversation(ctx context.Context, u *store.User) (*store.Conversation, error) {
 	if m, err := s.store.Messages().LastUserMessage(ctx, u.ID); err == nil {
-		if conv, err := s.store.Conversations().Get(ctx, u.ID, m.ConversationID); err == nil {
+		if conv, err := s.store.Conversations().Get(ctx, u.ID, m.ConversationID); err == nil && !conv.Temporary {
 			return conv, nil
 		}
 	}

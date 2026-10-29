@@ -18,6 +18,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/billing"
 	"github.com/HugehardJiang/buugoo/internal/models"
 	"github.com/HugehardJiang/buugoo/internal/quota"
+	"github.com/HugehardJiang/buugoo/internal/secret"
 	"github.com/HugehardJiang/buugoo/internal/store"
 )
 
@@ -26,6 +27,8 @@ const (
 	metaOptions = "opencode.import"
 	metaCatalog = "opencode.catalog"
 	metaSync    = "opencode.sync"
+	// metaKey 是站长的 Key（加密保存），导入新模型时不用每次都填。
+	metaKey = "opencode.admin_key"
 )
 
 // syncEvery 是自动同步官网目录的间隔（只在添加过 OpenCode 模型时才同步）。
@@ -78,6 +81,7 @@ type Importer struct {
 	meta    store.MetaRepo
 	models  *models.Service
 	billing *billing.Service // 单用户版为空
+	box     *secret.Box
 	loc     *time.Location
 	log     *slog.Logger
 	http    *http.Client
@@ -89,11 +93,11 @@ type Importer struct {
 }
 
 // NewImporter 创建 Importer。bill 可以为空（没有计费）。
-func NewImporter(db *gorm.DB, meta store.MetaRepo, ms *models.Service, bill *billing.Service, loc *time.Location, log *slog.Logger) *Importer {
+func NewImporter(db *gorm.DB, meta store.MetaRepo, box *secret.Box, ms *models.Service, bill *billing.Service, loc *time.Location, log *slog.Logger) *Importer {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Importer{db: db, meta: meta, models: ms, billing: bill, loc: loc, log: log.With("component", "opencode"),
+	return &Importer{db: db, meta: meta, box: box, models: ms, billing: bill, loc: loc, log: log.With("component", "opencode"),
 		http: &http.Client{Timeout: 30 * time.Second}, docsURL: DocsURL, now: time.Now}
 }
 
@@ -204,6 +208,13 @@ func (i *Importer) Import(ctx context.Context, key string, ids []string, o Optio
 		return nil, err
 	}
 	key = strings.TrimSpace(key)
+	if key != "" {
+		if err := i.saveKey(ctx, key); err != nil {
+			return nil, err
+		}
+	} else {
+		key = i.savedKey(ctx)
+	}
 	res := &ImportResult{}
 	targets := map[uint64]Model{}
 	for _, id := range ids {
@@ -237,6 +248,64 @@ func (i *Importer) Import(ctx context.Context, key string, ids []string, o Optio
 	b, _ := json.Marshal(o)
 	_ = i.meta.Set(ctx, metaOptions, string(b))
 	return res, nil
+}
+
+func (i *Importer) saveKey(ctx context.Context, key string) error {
+	sealed, err := i.box.Seal(key)
+	if err != nil {
+		return err
+	}
+	return i.meta.Set(ctx, metaKey, sealed)
+}
+
+func (i *Importer) savedKey(ctx context.Context) string {
+	v, ok, err := i.meta.Get(ctx, metaKey)
+	if err != nil || !ok {
+		return ""
+	}
+	key, err := i.box.Open(v)
+	if err != nil {
+		return ""
+	}
+	return key
+}
+
+// KeyMask 返回站长保存的 Key 的打码版本；旧版本没单独保存时用已添加模型上的。
+func (i *Importer) KeyMask(ctx context.Context, imported map[string]models.View) string {
+	if key := i.savedKey(ctx); key != "" {
+		return secret.Mask(key)
+	}
+	for _, m := range imported {
+		if m.KeyMask != "" {
+			return m.KeyMask
+		}
+	}
+	return ""
+}
+
+// SetKey 保存站长的 Key，并换到所有已添加的 OpenCode 公共模型上，返回换了几个。
+func (i *Importer) SetKey(ctx context.Context, key string) (int, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return 0, &UserError{"API Key 不能为空"}
+	}
+	imported, err := i.Imported(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if err := i.saveKey(ctx, key); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, old := range imported {
+		in := keep(input(Model{ID: old.Model, Name: old.Name, Vision: old.Vision}, key), old)
+		in.Public, in.Restricted = true, old.Restricted
+		if _, err := i.models.Update(ctx, admin, old.ID, in); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
 }
 
 // applyPrices 按目录给这些公共模型写计费价格（没有计费时什么都不做）。

@@ -4,6 +4,7 @@ import { api, ApiError, type ModelInput, type ModelView, type TestResult, type T
 import { session } from '../session'
 import { toast } from '../toast'
 import Modal from './Modal.vue'
+import ModelIcon from './ModelIcon.vue'
 
 const models = ref<ModelView[]>([])
 const error = ref('')
@@ -267,6 +268,7 @@ defineExpose({ load })
     <div v-for="m in models" :key="m.id" class="model-row">
       <div class="model-row__main">
         <div class="model-row__title">
+          <ModelIcon :model="m.model" :name="m.name" :size="18" />
           <strong>{{ m.name }}</strong>
           <span v-if="m.is_default" class="chip-note">默认</span>
           <span v-if="scopeLabel(m)" class="badge-pill">{{ scopeLabel(m) }}</span>
@@ -412,6 +414,7 @@ defineExpose({ load })
         <div class="oc-list">
           <label v-for="m in oc.models" :key="m.id" class="oc-item" :class="{ 'is-on': oc.picked.has(m.id) }">
             <input type="checkbox" :checked="oc.picked.has(m.id)" @change="ocToggle(m.id)" />
+            <ModelIcon :model="m.id" :name="m.name" :size="18" />
             <span>
               <strong>{{ m.name }}</strong>
               <span v-if="oc.mine.includes(m.id)" class="badge-pill">已添加</span>

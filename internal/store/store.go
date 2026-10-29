@@ -162,11 +162,11 @@ type InviteRepo interface {
 
 // ConversationRepo 是对话数据访问接口。
 type ConversationRepo interface {
-	// Primary 返回用户最近使用的对话，不存在时创建（终端聊天等未指定对话的客户端使用）。
+	// Primary 返回用户最近使用的对话（不含临时对话），不存在时创建（终端聊天等未指定对话的客户端使用）。
 	Primary(ctx context.Context, userID uint64) (*Conversation, error)
 	Create(ctx context.Context, c *Conversation) error
 	Get(ctx context.Context, userID, id uint64) (*Conversation, error)
-	// List 按最近活动时间倒序列出用户的对话。
+	// List 按最近活动时间倒序列出用户的对话（不含临时对话）。
 	List(ctx context.Context, userID uint64) ([]Conversation, error)
 	// Update 更新标题、模型、思考等级等字段（键为列名）。
 	Update(ctx context.Context, userID, id uint64, fields map[string]any) error
@@ -175,6 +175,8 @@ type ConversationRepo interface {
 	Touch(ctx context.Context, userID, id uint64, at time.Time) error
 	// ClearModel 把使用某个模型的对话改回默认模型（删除模型时调用）。
 	ClearModel(ctx context.Context, modelID uint64) error
+	// StaleTemporary 列出所有用户在 before 之前就没动静的临时对话（定时清理用）。
+	StaleTemporary(ctx context.Context, before time.Time) ([]Conversation, error)
 }
 
 // ModelRepo 是模型配置数据访问接口。

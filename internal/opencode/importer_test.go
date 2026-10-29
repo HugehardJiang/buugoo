@@ -38,7 +38,7 @@ func newImporter(t *testing.T) (*Importer, *billing.Service, *models.Service) {
 	}
 	sh, _ := time.LoadLocation("Asia/Shanghai")
 	bill := billing.New(db.Gorm(), box, sh)
-	return NewImporter(db.Gorm(), db.Meta(), ms, bill, sh, nil), bill, ms
+	return NewImporter(db.Gorm(), db.Meta(), box, ms, bill, sh, nil), bill, ms
 }
 
 func TestImportSyncAndPersonal(t *testing.T) {
@@ -178,5 +178,37 @@ func TestEnableThinkingForOldModels(t *testing.T) {
 		if m.ID == v.ID && m.ThinkingStyle != "none" {
 			t.Fatal("只改一次")
 		}
+	}
+}
+
+func TestSaveAdminKey(t *testing.T) {
+	ctx := context.Background()
+	imp, _, _ := newImporter(t)
+	// 先只保存 Key，之后添加模型时不用再填。
+	if _, err := imp.SetKey(ctx, "  "); err == nil {
+		t.Fatal("空 Key 应报错")
+	}
+	if n, err := imp.SetKey(ctx, "sk-first-key-1234"); err != nil || n != 0 {
+		t.Fatal(n, err)
+	}
+	if m := imp.KeyMask(ctx, nil); m == "" || strings.Contains(m, "first") {
+		t.Fatalf("应打码: %q", m)
+	}
+	o := Options{Tier: TierGo, Rate: 7, Markup: 1, Restricted: true}
+	if _, err := imp.Import(ctx, "", []string{"glm-5.2"}, o); err != nil {
+		t.Fatalf("应沿用保存的 Key: %v", err)
+	}
+	imported, _ := imp.Imported(ctx)
+	if !strings.HasSuffix(imported["glm-5.2"].KeyMask, "1234") {
+		t.Fatalf("%+v", imported["glm-5.2"])
+	}
+	// 换 Key：已添加的模型一起换，名字和设置不变。
+	if n, err := imp.SetKey(ctx, "sk-second-key-9876"); err != nil || n != 1 {
+		t.Fatal(n, err)
+	}
+	imported, _ = imp.Imported(ctx)
+	g := imported["glm-5.2"]
+	if !strings.HasSuffix(g.KeyMask, "9876") || !g.Restricted || g.Name != "GLM-5.2（OpenCode）" {
+		t.Fatalf("%+v", g)
 	}
 }

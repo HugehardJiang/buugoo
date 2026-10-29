@@ -23,6 +23,9 @@ import Modal from '../components/Modal.vue'
 import ContextMeter from '../components/ContextMeter.vue'
 import FatBird from '../components/FatBird.vue'
 import ToolSteps from '../components/ToolSteps.vue'
+import ThinkingSlider from '../components/ThinkingSlider.vue'
+import ModelIcon from '../components/ModelIcon.vue'
+import { shortName, sourceOf } from '../vendors'
 import { splitBubbles } from '../bubbles'
 import { dayKey, dayLabel, formatSize, renderMarkdown, shortWhen, timeOf } from '../format'
 import { memoriesUnlocked } from '../memoryLock'
@@ -100,36 +103,41 @@ const canSend = computed(() => !!current.value && !uploading.value && (!!input.v
 
 const name = computed(() => session.meta?.name ?? '布谷')
 const isAdmin = computed(() => !!session.user?.is_admin)
-const current = computed(() => convs.value.find((c) => c.id === currentId.value) ?? null)
-const title = computed(() => current.value?.title || '新对话')
+// 临时对话不在对话列表里，单独放着；离开它（打开别的对话、关掉页面）时删除。
+const tempConv = ref<Conversation | null>(null)
+const current = computed(
+  () => convs.value.find((c) => c.id === currentId.value) ?? (tempConv.value?.id === currentId.value ? tempConv.value : null),
+)
+const isTemp = computed(() => !!current.value?.temporary)
+const title = computed(() => (isTemp.value ? '临时对话' : current.value?.title || '新对话'))
 const defaultModel = computed(() => models.value.find((m) => m.is_default) ?? models.value[0] ?? null)
 // 对话实际使用的模型：未选择或已不可用时使用默认模型。
 const activeModel = computed(() => {
   const id = current.value?.model_id
   return (id != null && models.value.find((m) => m.id === id)) || defaultModel.value
 })
-const thinkingOptions = computed<{ v: Thinking; l: string }[]>(() => {
+const thinkingOptions = computed<{ v: Thinking; l: string; d?: string }[]>(() => {
   switch (activeModel.value?.thinking_style) {
     case 'deepseek':
       // DeepSeek 只有 low / high / max 三档强度。
       return [
-        { v: 'off', l: '关' },
-        { v: 'low', l: '低' },
-        { v: 'medium', l: '高' },
-        { v: 'high', l: '最高' },
+        { v: 'off', l: '关', d: '直接回答，最快' },
+        { v: 'low', l: '低', d: '稍微想一想，速度和质量兼顾' },
+        { v: 'medium', l: '高', d: '认真推敲，适合难一点的问题' },
+        { v: 'high', l: '最高', d: '想得最久最细，回得最慢、用的 token 最多' },
       ]
     case 'model_switch':
       return [
-        { v: 'off', l: '不思考' },
-        { v: 'medium', l: '深度思考' },
+        { v: 'off', l: '不思考', d: '直接回答，最快' },
+        { v: 'medium', l: '深度思考', d: '换用推理模型，先想再答' },
       ]
     case 'reasoning_effort':
     case 'enable_thinking':
       return [
-        { v: 'off', l: '关' },
-        { v: 'low', l: '低' },
-        { v: 'medium', l: '中' },
-        { v: 'high', l: '高' },
+        { v: 'off', l: '关', d: '直接回答，最快' },
+        { v: 'low', l: '低', d: '稍微想一想，速度和质量兼顾' },
+        { v: 'medium', l: '中', d: '认真推敲，适合多数问题' },
+        { v: 'high', l: '高', d: '想得最久最细，回得最慢、用的 token 最多' },
       ]
     default:
       return []
@@ -209,6 +217,7 @@ async function loadSide() {
 }
 
 async function openConversation(id: number) {
+  if (tempConv.value && tempConv.value.id !== id) discardTemp()
   currentId.value = id
   drawer.value = false
   items.value = []
@@ -216,7 +225,9 @@ async function openConversation(id: number) {
   loadError.value = ''
   openMemories.value = new Set()
   openThinking.value = new Set()
-  if (String(route.query.c ?? '') !== String(id)) router.replace({ query: { c: String(id) } })
+  // 临时对话不写进地址，刷新页面后不会再打开它。
+  if (tempConv.value?.id === id) router.replace({ query: {} })
+  else if (String(route.query.c ?? '') !== String(id)) router.replace({ query: { c: String(id) } })
   try {
     const r = await api.messages(id, 0, 50)
     if (currentId.value !== id) return
@@ -261,7 +272,7 @@ async function loadMore() {
 async function newConversation() {
   if (sending.value) return
   // 当前对话还是空的就直接用它，避免堆出一串空对话。
-  if (current.value && !items.value.length) {
+  if (current.value && !isTemp.value && !items.value.length) {
     drawer.value = false
     textarea.value?.focus()
     return
@@ -277,11 +288,63 @@ async function newConversation() {
 }
 
 function replaceConv(c: Conversation) {
+  if (tempConv.value?.id === c.id) tempConv.value = c
   const i = convs.value.findIndex((x) => x.id === c.id)
   if (i >= 0) convs.value[i] = c
 }
 
-async function patchCurrent(patch: { title?: string; model_id?: number | null; thinking?: Thinking }) {
+// startTemporary 开一段临时对话：不保存、不写记忆、不影响心情；默认也不参考记忆和心情。
+async function startTemporary() {
+  if (sending.value) return
+  if (isTemp.value) {
+    textarea.value?.focus()
+    return
+  }
+  try {
+    const c = await api.createConversation({ temporary: true, use_context: false })
+    discardTemp()
+    tempConv.value = c
+    await openConversation(c.id)
+    textarea.value?.focus()
+  } catch (e) {
+    toast(errText(e, '开临时对话失败'))
+  }
+}
+
+// discardTemp 删掉临时对话（不等结果，失败了服务器也会定时清理）。
+function discardTemp() {
+  const t = tempConv.value
+  if (!t) return
+  tempConv.value = null
+  api.discardConversation(t.id)
+}
+
+async function endTemporary() {
+  if (!isTemp.value || sending.value) return
+  if (items.value.length && !confirm('结束后这段临时对话会被删掉，确定吗？')) return
+  discardTemp()
+  if (convs.value.length) {
+    await openConversation(convs.value[0].id)
+    return
+  }
+  try {
+    const c = await api.createConversation()
+    convs.value = [c]
+    await openConversation(c.id)
+  } catch (e) {
+    toast(errText(e, '新建对话失败'))
+  }
+}
+
+function setUseContext(on: boolean) {
+  patchCurrent({ use_context: on })
+}
+
+function onUnload() {
+  if (tempConv.value) api.discardConversation(tempConv.value.id)
+}
+
+async function patchCurrent(patch: { title?: string; model_id?: number | null; thinking?: Thinking; use_context?: boolean }) {
   if (!current.value) return
   try {
     replaceConv(await api.updateConversation(current.value.id, patch))
@@ -343,17 +406,8 @@ function modelPrice(m: ModelView): { text: string; title: string; tag?: string }
   return { text: `¥${yuanPrice(p.input)} / ${yuanPrice(p.output)}`, title: `每百万 token：${line(p)}` }
 }
 
-// 思考等级滑块：在可选等级之间拖动或点刻度。
-const thinkingIndex = computed(() => Math.max(0, thinkingOptions.value.findIndex((o) => o.v === thinkingValue.value)))
-// 刻度文字对准滑块上的档位（滑块两端各留出把手的半径 9px）。
-function tickStyle(i: number) {
-  const n = thinkingOptions.value.length
-  const f = n > 1 ? i / (n - 1) : 0
-  return { left: `calc(9px + (100% - 18px) * ${f})` }
-}
-function setThinkingIndex(i: number) {
-  const o = thinkingOptions.value[i]
-  if (o && o.v !== thinkingValue.value) patchCurrent({ thinking: o.v })
+function setThinking(v: string) {
+  if (v !== thinkingValue.value) patchCurrent({ thinking: v as Thinking })
 }
 
 function chooseModel(id: number | null) {
@@ -748,11 +802,15 @@ onMounted(() => {
   pollTimer = setInterval(checkNew, 20000)
   document.addEventListener('visibilitychange', onVisible)
   window.addEventListener('focus', checkNew)
+  window.addEventListener('pagehide', onUnload)
 })
 onBeforeUnmount(() => {
   clearInterval(pollTimer)
   document.removeEventListener('visibilitychange', onVisible)
   window.removeEventListener('focus', checkNew)
+  window.removeEventListener('pagehide', onUnload)
+  // 去了别的页面：临时对话也就结束了。
+  discardTemp()
 })
 </script>
 
@@ -798,8 +856,22 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="current" class="topbar__actions">
           <ContextMeter ref="meter" :conversation-id="currentId" :busy="sending" @status="(s) => (compactPending = !!s?.pending)" />
-          <button class="icon-btn" aria-label="重命名对话" title="重命名" @click="startRename"><Icon name="edit" :size="18" /></button>
-          <button class="icon-btn" aria-label="删除对话" title="删除" :disabled="sending" @click="deleting = true"><Icon name="trash" :size="18" /></button>
+          <template v-if="isTemp">
+            <button class="btn btn-sm temp-end" :disabled="sending" title="结束并删除这段临时对话" @click="endTemporary">结束<span class="hide-sm">临时对话</span></button>
+          </template>
+          <template v-else>
+            <button
+              class="icon-btn"
+              aria-label="开临时对话"
+              title="临时对话：不保存聊天记录，不写进记忆、不影响心情"
+              :disabled="sending"
+              @click="startTemporary"
+            >
+              <Icon name="ghost" :size="18" />
+            </button>
+            <button class="icon-btn" aria-label="重命名对话" title="重命名" @click="startRename"><Icon name="edit" :size="18" /></button>
+            <button class="icon-btn" aria-label="删除对话" title="删除" :disabled="sending" @click="deleting = true"><Icon name="trash" :size="18" /></button>
+          </template>
         </div>
       </header>
 
@@ -823,7 +895,12 @@ onBeforeUnmount(() => {
           </div>
 
           <Transition name="fade">
-            <div v-if="!items.length && !loadError && current" class="empty">
+            <div v-if="!items.length && !loadError && isTemp" key="temp" class="empty empty--temp">
+              <span class="empty__icon"><Icon name="ghost" :size="26" /></span>
+              <h2>临时对话</h2>
+              <p class="muted">这里聊的不会保存，不会写进{{ name }}的记忆，也不会影响它的心情。点「结束」或离开这个页面就删掉。</p>
+            </div>
+            <div v-else-if="!items.length && !loadError && current" key="normal" class="empty">
               <h2>最近过得怎么样。</h2>
               <p class="muted">随便说点什么。{{ name }}会记住你提到的事，下次自然地接上。</p>
               <RouterLink v-if="persona" to="/settings#persona" class="persona-chip" title="换一种性格">
@@ -943,13 +1020,23 @@ onBeforeUnmount(() => {
             <button type="button" class="pending__remove" :aria-label="`移除 ${p.name}`" @click="removePending(p)"><Icon name="x" :size="12" /></button>
           </div>
         </TransitionGroup>
-        <div class="composer__box">
+        <Transition name="fade">
+          <div v-if="isTemp" class="temp-bar">
+            <span class="temp-bar__label"><Icon name="ghost" :size="15" />临时对话 · 不保存、不写记忆</span>
+            <label class="temp-switch" :title="`打开后${name}会参考已有的记忆和现在的心情来聊，但不会改变它们`">
+              <input type="checkbox" :checked="!!current?.use_context" :disabled="sending" @change="setUseContext(($event.target as HTMLInputElement).checked)" />
+              <span class="temp-switch__track" aria-hidden="true"><span /></span>
+              <span>参考记忆和心情</span>
+            </label>
+          </div>
+        </Transition>
+        <div class="composer__box" :class="{ 'is-temp': isTemp }">
           <textarea
             ref="textarea"
             v-model="input"
             class="composer__input"
             rows="1"
-            :placeholder="`和${name}说点什么`"
+            :placeholder="isTemp ? '临时对话，聊完就删' : `和${name}说点什么`"
             aria-label="消息"
             maxlength="4000"
             @input="autoGrow"
@@ -979,7 +1066,8 @@ onBeforeUnmount(() => {
                 :disabled="sending"
                 @click="pickerOpen = !pickerOpen"
               >
-                <span class="picker__model">{{ activeModel?.name ?? '默认模型' }}</span>
+                <ModelIcon v-if="activeModel" :model="activeModel.model" :name="activeModel.name" :size="15" />
+                <span class="picker__model">{{ activeModel ? shortName(activeModel.name) : '默认模型' }}</span>
                 <span v-if="thinkingLabel" class="picker__think">· {{ thinkingLabel }}</span>
                 <Icon name="chevron" :size="12" class="picker__chev" />
               </button>
@@ -997,11 +1085,12 @@ onBeforeUnmount(() => {
                     :class="{ 'is-active': current?.model_id == null }"
                     @click="chooseModel(null)"
                   >
+                    <span class="picker__opt-icon picker__opt-auto"><Icon name="sparkle" :size="14" /></span>
                     <span class="picker__opt-main">
                       <span class="picker__opt-name">默认模型</span>
                       <Icon v-if="current?.model_id == null" name="check" :size="15" class="picker__check" />
                     </span>
-                    <small v-if="defaultModel">跟随设置里的默认：{{ defaultModel.name }}</small>
+                    <small v-if="defaultModel">跟随设置里的默认：{{ shortName(defaultModel.name) }}</small>
                   </button>
                   <template v-for="g in modelGroups" :key="g.label">
                     <p v-if="g.label" class="picker__group">{{ g.label }}</p>
@@ -1013,8 +1102,10 @@ onBeforeUnmount(() => {
                       :class="{ 'is-active': current?.model_id === m.id }"
                       @click="chooseModel(m.id)"
                     >
+                      <ModelIcon :model="m.model" :name="m.name" :size="20" class="picker__opt-icon" />
                       <span class="picker__opt-main">
-                        <span class="picker__opt-name">{{ m.name }}</span>
+                        <span class="picker__opt-name" :title="m.name">{{ shortName(m.name) }}</span>
+                        <span v-if="sourceOf(m.base_url, m.name)" class="picker__src">{{ sourceOf(m.base_url, m.name) }}</span>
                         <Icon v-if="current?.model_id === m.id" name="check" :size="15" class="picker__check" />
                       </span>
                       <small class="picker__opt-meta">
@@ -1032,33 +1123,9 @@ onBeforeUnmount(() => {
                 <div v-if="thinkingOptions.length" class="picker__think-box">
                   <div class="picker__think-head">
                     <span>思考</span>
-                    <strong>{{ thinkingOptions[thinkingIndex]?.l }}</strong>
+                    <strong>{{ thinkingLabel }}</strong>
                   </div>
-                  <input
-                    class="picker__slider"
-                    type="range"
-                    min="0"
-                    :max="thinkingOptions.length - 1"
-                    step="1"
-                    :value="thinkingIndex"
-                    :style="{ '--pct': `${(thinkingIndex / Math.max(1, thinkingOptions.length - 1)) * 100}%` }"
-                    aria-label="思考等级"
-                    :aria-valuetext="thinkingOptions[thinkingIndex]?.l"
-                    @input="setThinkingIndex(Number(($event.target as HTMLInputElement).value))"
-                  />
-                  <div class="picker__ticks">
-                    <button
-                      v-for="(o, i) in thinkingOptions"
-                      :key="o.v"
-                      type="button"
-                      :class="{ 'is-active': i === thinkingIndex, 'is-past': i < thinkingIndex }"
-                      :style="tickStyle(i)"
-                      @click="setThinkingIndex(i)"
-                    >
-                      {{ o.l }}
-                    </button>
-                  </div>
-                  <p class="picker__note">想得越多越准，但回得更慢、用的 token 更多</p>
+                  <ThinkingSlider :stops="thinkingOptions" :model-value="thinkingValue" @update:model-value="setThinking" />
                 </div>
               </div>
               </Transition>
@@ -1252,6 +1319,11 @@ onBeforeUnmount(() => {
 }
 .picker__opt:hover { background: var(--color-surface-hover); }
 .picker__opt.is-active { background: var(--color-canvas-soft); }
+.picker__opt { grid-template-columns: 20px minmax(0, 1fr); column-gap: 10px; }
+.picker__opt > :not(.picker__opt-icon) { grid-column: 2; }
+.picker__opt-icon { grid-row: 1 / span 2; grid-column: 1; align-self: center; }
+.picker__opt-auto { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; background: var(--color-canvas-soft); color: var(--color-text-secondary); }
+.picker__src { flex-shrink: 0; padding: 0 5px; border: 1px solid var(--color-hairline-strong); border-radius: 4px; color: var(--color-muted); font-size: 10px; line-height: 15px; }
 .picker__opt-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .picker__opt-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .picker__check { flex-shrink: 0; color: var(--color-accent); }
@@ -1265,27 +1337,28 @@ onBeforeUnmount(() => {
 .picker__think-box { margin-top: 8px; padding: 10px 10px 4px; border-top: 1px solid var(--color-divider); }
 .picker__think-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; color: var(--color-muted); font-size: 12px; font-weight: 600; letter-spacing: .04em; }
 .picker__think-head strong { color: var(--color-ink); font-size: 13px; letter-spacing: 0; }
-.picker__slider {
-  --pct: 0%;
-  width: 100%; height: 22px; margin: 0; background: transparent; cursor: pointer; -webkit-appearance: none; appearance: none;
+.temp-end { color: var(--color-text-secondary); }
+.empty__icon { display: inline-grid; place-items: center; width: 52px; height: 52px; margin-bottom: 14px; border-radius: 16px; background: var(--color-canvas-soft); color: var(--color-text-secondary); }
+.temp-bar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px;
+  max-width: 960px; margin: 0 auto 8px; padding: 0 6px; color: var(--color-muted); font-size: 12.5px;
 }
-.picker__slider::-webkit-slider-runnable-track {
-  height: 6px; border-radius: 999px;
-  background: linear-gradient(to right, var(--color-accent) var(--pct), var(--color-hairline-strong) var(--pct));
+.temp-bar__label { display: inline-flex; align-items: center; gap: 6px; }
+.temp-switch { display: inline-flex; align-items: center; gap: 8px; color: var(--color-text-secondary); cursor: pointer; user-select: none; }
+.temp-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.temp-switch__track {
+  position: relative; width: 30px; height: 18px; border-radius: 999px; background: var(--color-hairline-strong);
+  transition: background-color .2s ease;
 }
-.picker__slider::-moz-range-track { height: 6px; border-radius: 999px; background: var(--color-hairline-strong); }
-.picker__slider::-moz-range-progress { height: 6px; border-radius: 999px; background: var(--color-accent); }
-.picker__slider::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 18px; height: 18px; margin-top: -6px; border: 2px solid var(--color-accent); border-radius: 50%;
-  background: var(--color-surface); box-shadow: 0 1px 4px rgba(20, 20, 19, .2); transition: transform .12s ease;
+.temp-switch__track span {
+  position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 2px rgba(20, 20, 19, .25); transition: transform .28s cubic-bezier(.34, 1.56, .64, 1);
 }
-.picker__slider::-moz-range-thumb { width: 14px; height: 14px; border: 2px solid var(--color-accent); border-radius: 50%; background: var(--color-surface); }
-.picker__slider:active::-webkit-slider-thumb { transform: scale(1.12); }
-.picker__slider:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 4px; }
-.picker__ticks { position: relative; height: 24px; margin-top: 2px; }
-.picker__ticks button { position: absolute; top: 0; transform: translateX(-50%); padding: 4px 2px; color: var(--color-muted); font-size: 12px; white-space: nowrap; }
-.picker__ticks button.is-past { color: var(--color-text-secondary); }
-.picker__ticks button.is-active { color: var(--color-ink); font-weight: 600; }
+.temp-switch input:checked + .temp-switch__track { background: var(--color-accent); }
+.temp-switch input:checked + .temp-switch__track span { transform: translateX(12px); }
+.temp-switch input:focus-visible + .temp-switch__track { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.temp-switch input:disabled + .temp-switch__track { opacity: .5; }
+.composer__box.is-temp { border-style: dashed; background: var(--color-canvas-soft); }
 .composer.is-dragging .composer__box { border-style: dashed; border-color: var(--color-accent); }
 .pending { display: flex; flex-wrap: wrap; gap: 8px; max-width: 960px; margin: 0 auto 8px; }
 .pending__item {
@@ -1323,6 +1396,7 @@ onBeforeUnmount(() => {
   /* 手机上面板铺满输入框的宽度，不跟着按钮的位置走。 */
   .composer__box { position: relative; }
   .picker { position: static; }
+  .hide-sm { display: none; }
   .picker__panel { left: 0; right: 0; width: auto; max-width: none; }
 }
 </style>

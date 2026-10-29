@@ -157,6 +157,10 @@ export interface Conversation {
   last_message_at: string | null
   // 来自哪个聊天软件，网页上的对话没有
   channel?: 'weixin' | 'qq' | 'telegram'
+  /** 临时对话：不在列表里、不写记忆和情绪，结束后删除 */
+  temporary?: boolean
+  /** 临时对话里是否参考记忆和心情 */
+  use_context?: boolean
 }
 
 // ContextStatus 是一段对话的上下文用量。
@@ -633,11 +637,16 @@ export const api = {
     request<Session>('POST', '/auth/password', { old_password, new_password }),
   me: () => request<{ user: User; quota: Quota; has_model: boolean; embedding_ready: boolean }>('GET', '/me'),
   conversations: () => request<{ conversations: Conversation[] }>('GET', '/conversations'),
-  createConversation: (input: { title?: string; model_id?: number | null; thinking?: Thinking } = {}) =>
-    request<Conversation>('POST', '/conversations', input),
-  updateConversation: (id: number, patch: { title?: string; model_id?: number | null; thinking?: Thinking }) =>
+  createConversation: (
+    input: { title?: string; model_id?: number | null; thinking?: Thinking; temporary?: boolean; use_context?: boolean } = {},
+  ) => request<Conversation>('POST', '/conversations', input),
+  updateConversation: (id: number, patch: { title?: string; model_id?: number | null; thinking?: Thinking; use_context?: boolean }) =>
     request<Conversation>('PATCH', `/conversations/${id}`, patch),
   deleteConversation: (id: number) => request<void>('DELETE', `/conversations/${id}`),
+  /** 关页面时删掉临时对话（keepalive：页面关掉后请求也能发完） */
+  discardConversation: (id: number) => {
+    fetch(`/api/v1/conversations/${id}`, { method: 'DELETE', headers: headers(false), keepalive: true }).catch(() => {})
+  },
   messages: (conversationId: number, beforeId = 0, limit = 50) =>
     request<{ conversation_id: number; messages: Message[]; has_more: boolean }>(
       'GET',

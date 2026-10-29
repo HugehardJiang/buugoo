@@ -105,6 +105,10 @@ type Conversation struct {
 	// 下一条消息处理前先压缩。
 	ContextUsed    int  `gorm:"not null;default:0"`
 	CompactPending bool `gorm:"not null;default:false"`
+	// Temporary 表示临时对话：不出现在对话列表，不写记忆、不影响情绪，结束后（或闲置太久）删除。
+	// UseContext 表示临时对话里是否参考已有的记忆和现在的心情（只读，不会改变它们）。
+	Temporary  bool `gorm:"not null;default:false"`
+	UseContext bool `gorm:"not null;default:false"`
 }
 
 // 消息角色。

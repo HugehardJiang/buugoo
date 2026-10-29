@@ -33,7 +33,24 @@ func (s *server) consoleOpenCode(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		"catalog": s.OpenCode.Catalog(ctx), "base_url": opencode.BaseURL, "options": s.OpenCode.Options(ctx),
 		"imported": list, "last_sync": s.OpenCode.LastSync(ctx), "billing": s.Billing != nil,
+		"key_mask": s.OpenCode.KeyMask(ctx, imported),
 	})
+}
+
+// consoleOpenCodeKey 保存站长的 Key，并换到已添加的模型上。
+func (s *server) consoleOpenCodeKey(c echo.Context) error {
+	var req struct {
+		APIKey string `json:"api_key"`
+	}
+	if err := bind(c, &req); err != nil {
+		return err
+	}
+	n, err := s.OpenCode.SetKey(c.Request().Context(), req.APIKey)
+	if err != nil {
+		return err
+	}
+	s.audit(c, "管理后台更换了 OpenCode Go 的 API Key", "models", n)
+	return c.JSON(http.StatusOK, map[string]any{"updated": n})
 }
 
 func (s *server) consoleOpenCodeImport(c echo.Context) error {

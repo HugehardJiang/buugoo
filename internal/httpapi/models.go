@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"time"
 
 	"github.com/labstack/echo/v4"
 
@@ -30,7 +29,8 @@ func (s *server) listModels(c echo.Context) error {
 	// peak 表示现在是不是高峰时段。
 	if s.Billing != nil {
 		p := s.Billing.Pricing(c.Request().Context())
-		peak := p.IsPeak(time.Now())
+		// 必须按系统时区判断（服务器时钟多半是 UTC）。
+		peak := s.Billing.PeakNow(c.Request().Context())
 		prices := map[uint64]billing.Price{}
 		for _, m := range ms {
 			if m.Scope == models.ScopePersonal {
@@ -46,7 +46,7 @@ func (s *server) listModels(c echo.Context) error {
 			prices[m.ID] = pr
 		}
 		out["prices"] = prices
-		out["peak"] = p.Peak != nil && peak
+		out["peak"] = peak
 	}
 	return c.JSON(http.StatusOK, out)
 }

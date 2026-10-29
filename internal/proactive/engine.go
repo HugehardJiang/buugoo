@@ -430,7 +430,12 @@ func (e *Engine) decide(ctx context.Context, u *store.User, last *store.Message,
 			fmt.Fprintf(&b, "- %s（%s）\n", m.Content, m.CreatedAt.In(e.loc).Format("01-02"))
 		}
 	}
-	if msgs, err := e.store.Messages().Recent(ctx, u.ID, last.ConversationID, 12); err == nil && len(msgs) > 0 {
+	// 临时对话聊完就不该被记得，主动找对方时也不提。
+	temporary := false
+	if c, err := e.store.Conversations().Get(ctx, u.ID, last.ConversationID); err == nil && c.Temporary {
+		temporary = true
+	}
+	if msgs, err := e.store.Messages().Recent(ctx, u.ID, last.ConversationID, 12); err == nil && len(msgs) > 0 && !temporary {
 		b.WriteString("\n【最近的聊天】\n")
 		for _, m := range msgs {
 			who := "对方"

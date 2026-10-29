@@ -165,6 +165,7 @@ func New(d Deps) http.Handler {
 		console.POST("/opencode/sync", s.consoleOpenCodeSync)
 		console.POST("/opencode/apply", s.consoleOpenCodeApply)
 		console.PUT("/opencode/options", s.consoleOpenCodeOptions)
+		console.PUT("/opencode/key", s.consoleOpenCodeKey)
 		console.POST("/opencode/remove", s.consoleOpenCodeRemove)
 	}
 	if s.DBMove != nil {

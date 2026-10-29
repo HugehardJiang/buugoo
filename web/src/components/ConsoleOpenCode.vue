@@ -4,6 +4,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ApiError } from '../api'
 import { toast } from '../toast'
+import ModelIcon from './ModelIcon.vue'
 
 const props = defineProps<{ call: <T>(method: string, path: string, body?: unknown) => Promise<T> }>()
 
@@ -43,6 +44,7 @@ interface Info {
   imported: { id: number; model: string; name: string; restricted: boolean }[] | null
   last_sync?: SyncReport | null
   billing: boolean
+  key_mask?: string
 }
 
 const info = ref<Info | null>(null)
@@ -55,7 +57,24 @@ const busy = ref(false)
 const result = ref('')
 
 const imported = computed(() => new Map((info.value?.imported ?? []).map((m) => [m.model, m])))
-const needKey = computed(() => [...picked.value].some((id) => !imported.value.has(id)))
+const needKey = computed(() => !info.value?.key_mask && [...picked.value].some((id) => !imported.value.has(id)))
+const savingKey = ref(false)
+
+async function saveKey() {
+  const key = opts.api_key.trim()
+  if (!key || savingKey.value) return
+  savingKey.value = true
+  try {
+    const r = await props.call<{ updated: number }>('PUT', '/opencode/key', { api_key: key })
+    toast(r.updated ? `已保存，${r.updated} 个模型换成了新 Key` : '已保存，添加模型时会用这个 Key')
+    opts.api_key = ''
+    await load()
+  } catch (e) {
+    toast(e instanceof ApiError ? e.message : '保存失败')
+  } finally {
+    savingKey.value = false
+  }
+}
 // 选中的里面已经添加过的（可以一键删除）。
 const pickedImported = computed(() => [...picked.value].filter((id) => imported.value.has(id)))
 const removing = ref(false)
@@ -221,7 +240,18 @@ function planLabel(t: string) {
         </label>
         <label class="field">
           <span class="field__label">API Key</span>
-          <input v-model="opts.api_key" class="text-input" type="password" autocomplete="new-password" :placeholder="imported.size ? '不填则沿用已保存的 Key' : 'OpenCode 控制台里复制的 Key'" />
+          <span class="key-row">
+            <input
+              v-model="opts.api_key"
+              class="text-input"
+              type="password"
+              autocomplete="new-password"
+              :placeholder="info.key_mask ? `已保存 ${info.key_mask}，填新的可以替换` : 'OpenCode 控制台里复制的 Key'"
+              @keydown.enter.prevent="saveKey"
+            />
+            <button type="button" class="btn btn-sm" :disabled="!opts.api_key.trim() || savingKey" @click="saveKey">{{ savingKey ? '保存中' : '保存' }}</button>
+          </span>
+          <small v-if="info.key_mask" class="caption">已保存：{{ info.key_mask }}（加密存放）</small>
         </label>
       </div>
       <p class="caption hint">加价倍数：1 = 按成本价收，1.2 = 在成本价上加 20%。</p>
@@ -273,7 +303,7 @@ function planLabel(t: string) {
             <tr v-for="s in info.catalog.models" :key="s.id" :class="{ 'is-picked': picked.has(s.id) }" @click="toggle(s.id)">
               <td><input type="checkbox" :checked="picked.has(s.id)" :aria-label="`选择 ${s.name}`" @click.stop="toggle(s.id)" /></td>
               <td>
-                <span class="name">{{ s.name }}</span>
+                <span class="name"><ModelIcon :model="s.id" :name="s.name" :size="16" class="oc-icon" />{{ s.name }}</span>
                 <span v-if="imported.has(s.id)" class="badge-pill">已添加</span>
                 <br /><code class="caption">{{ s.id }}</code>
                 <p v-if="s.note" class="caption note">{{ s.note }}</p>
@@ -312,6 +342,9 @@ function planLabel(t: string) {
 </template>
 
 <style scoped>
+.oc-icon { margin-right: 6px; vertical-align: -3px; }
+.key-row { display: flex; gap: 6px; }
+.key-row .text-input { flex: 1; min-width: 0; }
 h2 { margin: 0 0 10px; }
 .skel { height: 200px; border-radius: var(--radius-md); }
 .intro { margin: 0 0 10px; line-height: 1.7; }

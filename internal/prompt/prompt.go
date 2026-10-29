@@ -42,6 +42,9 @@ type Input struct {
 	Summary string
 	// Channel 是这段对话所在的聊天软件（weixin、qq、telegram），网页上为空。决定公式怎么写：网页能渲染 LaTeX，聊天软件不能。
 	Channel string
+	// Temporary 表示临时对话（聊完就删、不会被记住）；Isolated 表示临时对话不参考记忆和心情。
+	Temporary bool
+	Isolated  bool
 	// MaxTokens 是这一轮提示词的 token 预算（按模型的上下文长度计算），0 表示使用组装器的默认预算。
 	MaxTokens int
 }
@@ -256,8 +259,14 @@ func situationText(in Input) string {
 	if last := lastMessageTime(in.History); !last.IsZero() {
 		last = last.In(in.Now.Location())
 		fmt.Fprintf(&s, "\n- 你们上一次说话是 %s（%s）", timefmt.Full(last), humanizeGap(in.Now, last))
-	} else {
+	} else if !in.Temporary {
 		s.WriteString("\n- 这是你们第一次聊天")
+	}
+	if in.Temporary {
+		s.WriteString("\n- 这是对方开的临时对话：聊完就会删掉，你之后不会记得这次聊了什么，所以不要说「我记住了」，要记的事请对方在普通对话里说")
+		if in.Isolated {
+			s.WriteString("；对方选了不参考你们以前的记忆，就像第一次见面那样聊")
+		}
 	}
 	return s.String()
 }

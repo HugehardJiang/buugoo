@@ -268,6 +268,12 @@ func (s *Service) SetPricing(ctx context.Context, p Pricing) error {
 	return nil
 }
 
+// PeakNow 报告现在（按系统时区）是不是高峰时段。没有设分时段计价时返回 false。
+func (s *Service) PeakNow(ctx context.Context) bool {
+	p := s.Pricing(ctx)
+	return p.Peak != nil && p.IsPeak(s.now().In(s.loc))
+}
+
 // Mode 实现 quota.Billing。
 func (s *Service) Mode() string { return s.Pricing(context.Background()).Mode }
 

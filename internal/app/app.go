@@ -243,7 +243,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 			}
 		}
 	}
-	ocImporter := opencode.NewImporter(db.Gorm(), db.Meta(), modelSvc, billingSvc, loc, log)
+	ocImporter := opencode.NewImporter(db.Gorm(), db.Meta(), box, modelSvc, billingSvc, loc, log)
 	restart := make(chan struct{}, 1)
 	mover := dbmove.New(db, cfg, log)
 	handler := httpapi.New(httpapi.Deps{
@@ -291,6 +291,7 @@ func (a *App) Run(ctx context.Context) error {
 	defer cancelBg()
 	a.Writer.Start(bgCtx)
 	go a.uploads.RunCleanup(bgCtx)
+	go a.Chat.RunCleanup(bgCtx)
 	go a.tools.prepare(bgCtx)
 	a.plugins.Start(bgCtx)
 	go a.opencode.Run(bgCtx)

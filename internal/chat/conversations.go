@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/HugehardJiang/buugoo/internal/store"
@@ -17,6 +18,9 @@ type ConversationPatch struct {
 	Thinking *string
 	// Channel 是对话来自哪个聊天软件，只在创建时使用。
 	Channel string
+	// Temporary 新建临时对话（只在创建时使用）；UseContext 是临时对话里是否参考记忆和心情。
+	Temporary  bool
+	UseContext *bool
 }
 
 func (s *Service) patchFields(ctx context.Context, u *store.User, p ConversationPatch) (map[string]any, error) {
@@ -33,6 +37,9 @@ func (s *Service) patchFields(ctx context.Context, u *store.User, p Conversation
 			return nil, ErrInvalidThinking
 		}
 		fields["thinking"] = *p.Thinking
+	}
+	if p.UseContext != nil {
+		fields["use_context"] = *p.UseContext
 	}
 	if p.SetModel {
 		if p.ModelID != nil {
@@ -62,7 +69,10 @@ func (s *Service) CreateConversation(ctx context.Context, u *store.User, p Conve
 	if err != nil {
 		return nil, err
 	}
-	c := &store.Conversation{UserID: u.ID, Thinking: store.ThinkingOff, Channel: p.Channel}
+	c := &store.Conversation{UserID: u.ID, Thinking: store.ThinkingOff, Channel: p.Channel, Temporary: p.Temporary}
+	if p.Temporary && p.UseContext != nil {
+		c.UseContext = *p.UseContext
+	}
 	if recent, err := s.store.Conversations().List(ctx, u.ID); err == nil && len(recent) > 0 {
 		c.ModelID, c.Thinking = recent[0].ModelID, recent[0].Thinking
 	}
@@ -115,4 +125,39 @@ func (s *Service) DeleteConversation(ctx context.Context, u *store.User, id uint
 		s.uploads.RemoveWorkspace(u.ID, id)
 	}
 	return nil
+}
+
+// TemporaryIdle 是临时对话闲置多久后自动删除（用户关掉网页没点「结束」时）。
+const TemporaryIdle = 6 * time.Hour
+
+// CleanupTemporary 删除闲置太久的临时对话，返回删了几个。
+func (s *Service) CleanupTemporary(ctx context.Context) int {
+	stale, err := s.store.Conversations().StaleTemporary(ctx, s.now().Add(-TemporaryIdle))
+	if err != nil {
+		s.log.Error("查找过期的临时对话失败", "err", err)
+		return 0
+	}
+	n := 0
+	for _, c := range stale {
+		if err := s.DeleteConversation(ctx, &store.User{ID: c.UserID}, c.ID); err != nil {
+			s.log.Error("删除过期的临时对话失败", "conversation_id", c.ID, "err", err)
+			continue
+		}
+		n++
+	}
+	return n
+}
+
+// RunCleanup 每 30 分钟清理一次闲置的临时对话，直到 ctx 取消。
+func (s *Service) RunCleanup(ctx context.Context) {
+	t := time.NewTicker(30 * time.Minute)
+	defer t.Stop()
+	for {
+		s.CleanupTemporary(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
 }

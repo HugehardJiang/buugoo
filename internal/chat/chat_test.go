@@ -1075,3 +1075,80 @@ func TestRepeatedToolCallSkipped(t *testing.T) {
 		t.Fatalf("n=%d tools=%d reply=%q", n, len(res.Tools), res.Reply.Content)
 	}
 }
+
+func TestTemporaryConversation(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, config.QuotaConfig{})
+	e.writer.Start(ctx)
+	// 先在普通对话里留下一条记忆。
+	if _, err := e.svc.Send(ctx, e.user, SendInput{Content: "我对花生过敏"}, &recordSink{}); err != nil {
+		t.Fatal(err)
+	}
+	closeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := e.writer.Close(closeCtx); err != nil {
+		t.Fatal(err)
+	}
+	mems, _, _ := e.db.Memories().List(ctx, e.user.ID, store.MemoryFilter{}, 10, 0)
+	before := mems[0].AccessCount
+
+	// 不参考记忆的临时对话：不检索记忆、不起标题、不出现在列表里，也不写记忆。
+	conv, err := e.svc.CreateConversation(ctx, e.user, ConversationPatch{Temporary: true})
+	if err != nil || !conv.Temporary || conv.UseContext {
+		t.Fatal(conv, err)
+	}
+	sink := &recordSink{}
+	if _, err := e.svc.Send(ctx, e.user, SendInput{ConversationID: conv.ID, Content: "晚饭吃花生酱拌面可以吗"}, sink); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.mems) != 0 {
+		t.Fatalf("不应参考记忆: %+v", sink.mems)
+	}
+	req := e.chat.reqs[len(e.chat.reqs)-1]
+	if last := req.Messages[len(req.Messages)-1].Content; strings.Contains(last, "花生过敏") || !strings.Contains(last, "临时对话") {
+		t.Fatalf("提示词: %s", last)
+	}
+	got, _ := e.db.Conversations().Get(ctx, e.user.ID, conv.ID)
+	if got.Title != "" {
+		t.Fatal("临时对话不自动起标题")
+	}
+	list, _ := e.svc.ListConversations(ctx, e.user)
+	for _, c := range list {
+		if c.ID == conv.ID {
+			t.Fatal("临时对话不出现在列表里")
+		}
+	}
+	// 选了参考记忆：能想起来，但不更新记忆的使用次数。
+	on := true
+	if _, err := e.svc.UpdateConversation(ctx, e.user, conv.ID, ConversationPatch{UseContext: &on}); err != nil {
+		t.Fatal(err)
+	}
+	sink = &recordSink{}
+	if _, err := e.svc.Send(ctx, e.user, SendInput{ConversationID: conv.ID, Content: "那花生呢"}, sink); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.mems) != 1 {
+		t.Fatalf("应参考记忆: %+v", sink.mems)
+	}
+	e.svc.Wait()
+	mems, total, _ := e.db.Memories().List(ctx, e.user.ID, store.MemoryFilter{}, 10, 0)
+	if total != 1 || mems[0].AccessCount != before {
+		t.Fatalf("临时对话不写记忆、不记使用: total=%d %+v", total, mems)
+	}
+	// 主动找对方时不会落到临时对话里。
+	if c, err := e.svc.latestConversation(ctx, e.user); err != nil || c.Temporary {
+		t.Fatal(c, err)
+	}
+
+	// 闲置太久的临时对话会被清理掉，普通对话不受影响。
+	e.svc.now = func() time.Time { return time.Now().Add(TemporaryIdle + time.Hour) }
+	if n := e.svc.CleanupTemporary(ctx); n != 1 {
+		t.Fatalf("应清理 1 个，实际 %d", n)
+	}
+	if _, err := e.db.Conversations().Get(ctx, e.user.ID, conv.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal("临时对话应已删除", err)
+	}
+	if list, _ := e.svc.ListConversations(ctx, e.user); len(list) != 1 {
+		t.Fatalf("普通对话应保留: %+v", list)
+	}
+}
