@@ -52,7 +52,7 @@ type Invite struct {
 	ID        uint64     `gorm:"primaryKey"`
 	Code      string     `gorm:"size:32;uniqueIndex;not null"`
 	CreatedBy uint64     `gorm:"index;not null"`
-	MaxUses   int        `gorm:"not null;default:1"` // 0 表示不限次数
+	MaxUses   int        `gorm:"not null"` // 0 表示不限次数（不写默认值，否则 0 会被存成 1）
 	UsedCount int        `gorm:"not null;default:0"`
 	ExpiresAt *time.Time ``
 	Note      string     `gorm:"size:255;not null;default:''"`
@@ -172,20 +172,23 @@ const PublicOwner uint64 = 0
 
 // ModelConfig 是在网页中添加的聊天模型（OpenAI 兼容协议）。APIKey 保存的是加密后的值。
 type ModelConfig struct {
-	ID            uint64  `gorm:"primaryKey"`
-	OwnerID       uint64  `gorm:"index;not null;default:0"`
-	Name          string  `gorm:"size:64;not null"`
-	BaseURL       string  `gorm:"size:512;not null"`
-	APIKey        string  `gorm:"column:api_key_enc;size:2048;not null;default:''"`
-	Model         string  `gorm:"size:128;not null"`
-	ThinkingStyle string  `gorm:"size:32;not null;default:'none'"`
-	ThinkingModel string  `gorm:"size:128;not null;default:''"`
-	Temperature   float64 `gorm:"not null;default:0.8"`
-	MaxTokens     int     `gorm:"not null;default:1024"`
+	ID            uint64 `gorm:"primaryKey"`
+	OwnerID       uint64 `gorm:"index;not null;default:0"`
+	Name          string `gorm:"size:64;not null"`
+	BaseURL       string `gorm:"size:512;not null"`
+	APIKey        string `gorm:"column:api_key_enc;size:2048;not null;default:''"`
+	Model         string `gorm:"size:128;not null"`
+	ThinkingStyle string `gorm:"size:32;not null;default:'none'"`
+	ThinkingModel string `gorm:"size:128;not null;default:''"`
+	// Temperature、MaxTokens、Tools 不写默认值：GORM 建记录时会跳过和默认值不同的零值（0、false），
+	// 让数据库填上默认值，结果「最大输出 0（用服务的默认值）」变成了 1024、关掉的工具又变成开着。
+	Temperature float64 `gorm:"not null"`
+	// MaxTokens 是回复的最大长度，0 表示不限（用服务的默认值）。
+	MaxTokens int `gorm:"not null"`
 	// Vision 表示模型能理解图片。
 	Vision bool `gorm:"not null;default:false"`
 	// Tools 表示模型支持工具调用（联网搜索、运行代码）。
-	Tools bool `gorm:"not null;default:true"`
+	Tools bool `gorm:"not null"`
 	// ContextTokens 是上下文长度（token），0 表示自动识别。
 	ContextTokens int  `gorm:"not null;default:0"`
 	IsDefault     bool `gorm:"not null;default:false"`

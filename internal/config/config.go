@@ -471,8 +471,9 @@ func Default() *Config {
 				BaseURL:     "https://api.deepseek.com/v1",
 				Model:       "deepseek-flash",
 				Temperature: 0.8,
-				MaxTokens:   1024,
-				Timeout:     120 * time.Second,
+				// 0 表示不限，由服务决定（以前默认 1024，长一点的回答会被截断）。
+				MaxTokens: 0,
+				Timeout:   120 * time.Second,
 				// DeepSeek：thinking.type 开关 + reasoning_effort 调节思考强度；deepseek-flash 支持图片。
 				ThinkingStyle: "deepseek",
 				Vision:        true,
@@ -480,7 +481,7 @@ func Default() *Config {
 			},
 			Utility: ModelConfig{
 				Temperature: 0.2,
-				MaxTokens:   1024,
+				MaxTokens:   4096,
 			},
 			Embedding: EmbeddingConfig{
 				Provider:  "openai",
@@ -652,6 +653,13 @@ func (c *Config) applyDerived() {
 	}
 	if c.LLM.Chat.Vision && c.LLM.Chat.Model != "deepseek-flash" && !c.fileSets("llm.chat.vision") {
 		c.LLM.Chat.Vision = false
+	}
+	// 旧版本的配置文件默认写着 max_tokens: 1024，回复说一点就被截断，按不限处理。
+	if c.LLM.Chat.MaxTokens == 1024 {
+		c.LLM.Chat.MaxTokens = 0
+	}
+	if c.LLM.Utility.MaxTokens == 1024 {
+		c.LLM.Utility.MaxTokens = 4096
 	}
 	u, ch := &c.LLM.Utility, c.LLM.Chat
 	if u.Provider == "" {

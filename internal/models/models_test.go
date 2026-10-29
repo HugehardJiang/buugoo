@@ -370,3 +370,33 @@ func TestRestrictedModels(t *testing.T) {
 		t.Fatal("取消限制后所有人能用")
 	}
 }
+
+// 「最大输出 0（不限）」、温度 0、关掉工具都要原样存下来（以前会被数据库默认值换成 1024、0.8、开着）。
+func TestZeroValuesKept(t *testing.T) {
+	ctx := context.Background()
+	svc, _ := newService(t, config.ModeMulti, "builtin-key")
+	alice := User{ID: 2}
+	in := input("zero", "k")
+	in.MaxTokens, in.Temperature, in.Tools = 0, 0, false
+	v, err := svc.Create(ctx, alice, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.MaxTokens != 0 || v.Temperature != 0 || v.Tools {
+		t.Fatalf("%+v", v)
+	}
+	list, _ := svc.List(ctx, alice)
+	for _, m := range list {
+		if m.ID == v.ID && (m.MaxTokens != 0 || m.Temperature != 0 || m.Tools) {
+			t.Fatalf("读回来变了: %+v", m)
+		}
+	}
+	in.MaxTokens = 1_000_000
+	if _, err := svc.Update(ctx, alice, v.ID, in); err != nil {
+		t.Fatalf("应能填很长的最大输出: %v", err)
+	}
+	in.MaxTokens = MaxOutputTokens + 1
+	if _, err := svc.Update(ctx, alice, v.ID, in); err == nil {
+		t.Fatal("超过上限应报错")
+	}
+}

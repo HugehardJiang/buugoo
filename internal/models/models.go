@@ -24,6 +24,9 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/store"
 )
 
+// MaxOutputTokens 是「最大输出长度」能填的上限（现在有的模型一次能输出几十万 token）。
+const MaxOutputTokens = 2_000_000
+
 // BuiltinID 是配置文件中默认模型的 ID。
 const BuiltinID uint64 = 0
 
@@ -133,7 +136,7 @@ type Resolved struct {
 	APIKey  string
 	// ContextTokens 是模型的上下文长度（token）。
 	ContextTokens int
-	// MaxTokens 是回复的最大长度（为空时由服务商决定），预算时要给回复留出空间。
+	// MaxTokens 是回复的最大长度（0 表示不限，由服务商决定），预算时要给回复留出空间。
 	MaxTokens int
 }
 
@@ -379,8 +382,8 @@ func validateInput(in *Input, requireKey bool) error {
 		return &InvalidError{"temperature 需在 0-2 之间"}
 	case in.ContextTokens < 0 || in.ContextTokens > 20_000_000:
 		return &InvalidError{"上下文长度需在 0（自动识别）到 2000 万之间"}
-	case in.MaxTokens < 0 || in.MaxTokens > 65536:
-		return &InvalidError{"最大输出长度需在 0-65536 之间（0 表示使用服务默认值）"}
+	case in.MaxTokens < 0 || in.MaxTokens > MaxOutputTokens:
+		return &InvalidError{fmt.Sprintf("最大输出长度需在 0-%d 之间（0 表示不限，由服务决定）", MaxOutputTokens)}
 	}
 	return nil
 }

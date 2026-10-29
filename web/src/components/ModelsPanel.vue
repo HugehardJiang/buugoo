@@ -350,8 +350,8 @@ defineExpose({ load })
           </div>
           <div class="field">
             <label class="field__label" for="m-max">最大输出 token</label>
-            <input id="m-max" v-model.number="form.max_tokens" class="text-input" type="number" min="0" max="65536" />
-            <p class="field__hint">0 表示使用服务的默认值。</p>
+            <input id="m-max" v-model.number="form.max_tokens" class="text-input" type="number" min="0" max="2000000" step="1024" />
+            <p class="field__hint">0 表示不限制，由服务决定（推荐）；想限制长度时再填，例如 8192、32768。</p>
           </div>
         </div>
         <div class="field">

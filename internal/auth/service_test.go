@@ -122,6 +122,16 @@ func TestMultiModeInviteRegistration(t *testing.T) {
 	if _, err := svc.Register(ctx, RegisterInput{Username: "bob", Password: "password1", InviteCode: inv.Code}); !errors.Is(err, store.ErrInviteInvalid) {
 		t.Fatalf("邀请码已用完: %v", err)
 	}
+	// 不限次数（0）的邀请码要真的不限（以前会被数据库默认值存成 1 次）。
+	unlimited, err := svc.CreateInvite(ctx, 0, InviteInput{})
+	if err != nil || unlimited.MaxUses != 0 {
+		t.Fatalf("inv=%+v err=%v", unlimited, err)
+	}
+	for _, name := range []string{"carol", "dave"} {
+		if _, err := svc.Register(ctx, RegisterInput{Username: name, Password: "password1", InviteCode: unlimited.Code}); err != nil {
+			t.Fatalf("不限次数的邀请码第二次也能用: %v", err)
+		}
+	}
 	if _, err := svc.Login(ctx, "alice", "wrong-password"); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatal(err)
 	}

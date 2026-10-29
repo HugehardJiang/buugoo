@@ -70,7 +70,7 @@ llm:
     api_key: ""          # 必填，或使用环境变量 BUUGOO_LLM__CHAT__API_KEY
     model: deepseek-flash  # 或 deepseek-v4-pro
     temperature: 0.8       # 开启思考时不生效
-    max_tokens: 1024
+    max_tokens: 0          # 回复的最大长度，0 表示不限（由服务决定）
     timeout: 120s
     # 思考参数格式：none（不支持）| deepseek（thinking.type + reasoning_effort）|
     # reasoning_effort（OpenAI 风格）| enable_thinking（通义千问、硅基流动风格）|
@@ -88,7 +88,7 @@ llm:
     api_key: ""
     model: ""
     temperature: 0.2
-    max_tokens: 1024
+    max_tokens: 4096
   # 向量模型（OpenAI 兼容协议）
   # 默认：硅基流动 BAAI/bge-m3（1024 维）
   # 可选：阿里云百炼 text-embedding-v3
