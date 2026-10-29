@@ -54,8 +54,8 @@ func TestImportSyncAndPersonal(t *testing.T) {
 	}
 	imported, _ := imp.Imported(ctx)
 	glm := imported["glm-5.2"]
-	if !glm.Restricted {
-		t.Fatal("默认仅限授权用户")
+	if !glm.Restricted || glm.ThinkingStyle != "reasoning_effort" {
+		t.Fatalf("默认仅限授权用户、可以调思考: %+v", glm)
 	}
 	p := bill.Pricing(ctx).Prices[quota.ModelKey(glm.ID)]
 	// Go Plus：$1.40 × 40/180 × 7 ≈ 2.1778
@@ -129,6 +129,38 @@ func TestImportSyncAndPersonal(t *testing.T) {
 	for _, v := range list {
 		if v.Model == "kimi-k3" && (v.Scope != models.ScopePersonal || !v.Vision || v.BaseURL != BaseURL) {
 			t.Fatalf("%+v", v)
+		}
+	}
+}
+
+// 早期版本导入的 OpenCode 模型思考参数是「不支持」，升级后改成可以调（只改一次，管理员之后改回去不再动）。
+func TestEnableThinkingForOldModels(t *testing.T) {
+	ctx := context.Background()
+	imp, _, ms := newImporter(t)
+	v, err := ms.Create(ctx, admin, models.Input{Name: "GLM（OpenCode）", BaseURL: BaseURL, APIKey: "k", Model: "glm-5.2", ThinkingStyle: "none", Public: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _ := ms.Create(ctx, admin, models.Input{Name: "别家", BaseURL: "https://api.example.com/v1", APIKey: "k", Model: "x", ThinkingStyle: "none", Public: true})
+	imp.EnableThinking(ctx)
+	list, _ := ms.List(ctx, admin)
+	for _, m := range list {
+		if m.ID == v.ID && m.ThinkingStyle != "reasoning_effort" {
+			t.Fatalf("%+v", m)
+		}
+		if m.ID == other.ID && m.ThinkingStyle != "none" {
+			t.Fatal("别家的不动")
+		}
+	}
+	in := models.Input{Name: "GLM（OpenCode）", BaseURL: BaseURL, Model: "glm-5.2", ThinkingStyle: "none", Public: true}
+	if _, err := ms.Update(ctx, admin, v.ID, in); err != nil {
+		t.Fatal(err)
+	}
+	imp.EnableThinking(ctx)
+	list, _ = ms.List(ctx, admin)
+	for _, m := range list {
+		if m.ID == v.ID && m.ThinkingStyle != "none" {
+			t.Fatal("只改一次")
 		}
 	}
 }

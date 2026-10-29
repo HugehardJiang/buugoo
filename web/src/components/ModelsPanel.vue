@@ -54,7 +54,7 @@ const presets: { label: string; v: Partial<ModelInput> }[] = [
   { label: 'OpenAI', v: { name: 'OpenAI', base_url: 'https://api.openai.com/v1', model: 'gpt-5-mini', thinking_style: 'reasoning_effort', thinking_model: '', vision: true, tools: true } },
   // OpenCode Go：所有文本模型都能走这个 OpenAI 兼容接口；模型名见 opencode.ai/docs/go（例如 glm-5.2、kimi-k3、deepseek-v4-pro）。
   // 一般用上面的「OpenCode Go」一键添加，这里留着给想手动填的人。
-  { label: 'OpenCode Go', v: { name: 'OpenCode Go', base_url: 'https://opencode.ai/inference/go/openai/v1', model: 'glm-5.2', thinking_style: 'none', thinking_model: '', vision: false, tools: true } },
+  { label: 'OpenCode Go', v: { name: 'OpenCode Go', base_url: 'https://opencode.ai/inference/go/openai/v1', model: 'glm-5.2', thinking_style: 'reasoning_effort', thinking_model: '', vision: false, tools: true } },
 ]
 
 // OpenCode Go 一键添加：填自己的 Key、勾选模型，每个模型添加成一个「我的」模型（用自己的 Key 不计费）。

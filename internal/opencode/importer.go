@@ -170,12 +170,16 @@ func (i *Importer) list(ctx context.Context, u models.User, scope string) (map[s
 
 func input(spec Model, key string) models.Input {
 	return models.Input{Name: spec.Name + "（OpenCode）", BaseURL: BaseURL, APIKey: key, Model: spec.ID,
-		ThinkingStyle: "none", Temperature: 0.8, Vision: spec.Vision, Tools: true}
+		ThinkingStyle: store.ThinkingStyleEffort, Temperature: 0.8, Vision: spec.Vision, Tools: true}
 }
 
 // keep 保留已有模型上改过的名字和参数，只换 Key（填了的话）。
 func keep(in models.Input, old models.View) models.Input {
-	in.Name, in.ThinkingStyle, in.ThinkingModel = old.Name, old.ThinkingStyle, old.ThinkingModel
+	in.Name = old.Name
+	// 早期版本导入时没开思考（none），改成可以调；管理员自己改过的保留。
+	if old.ThinkingStyle != store.ThinkingStyleNone {
+		in.ThinkingStyle, in.ThinkingModel = old.ThinkingStyle, old.ThinkingModel
+	}
 	in.Temperature, in.MaxTokens, in.Vision, in.Tools, in.ContextTokens = old.Temperature, old.MaxTokens, old.Vision, old.Tools, old.ContextTokens
 	return in
 }
@@ -480,8 +484,29 @@ func (i *Importer) hasModels(ctx context.Context) bool {
 	return n > 0
 }
 
+// EnableThinking 把早期版本添加的 OpenCode 模型（思考参数是「不支持」）改成 reasoning_effort，
+// 这样对话里能调思考等级。只做一次。
+func (i *Importer) EnableThinking(ctx context.Context) {
+	const done = "opencode.thinking_v1"
+	if _, ok, err := i.meta.Get(ctx, done); err != nil || ok {
+		return
+	}
+	res := i.db.WithContext(ctx).Model(&store.ModelConfig{}).
+		Where("base_url LIKE ? AND thinking_style = ?", "%opencode.ai%", store.ThinkingStyleNone).
+		Update("thinking_style", store.ThinkingStyleEffort)
+	if res.Error != nil {
+		i.log.Warn("打开 OpenCode 模型的思考等级失败", "err", res.Error)
+		return
+	}
+	if res.RowsAffected > 0 {
+		i.log.Info("已让 OpenCode 模型可以调思考等级", "models", res.RowsAffected)
+	}
+	_ = i.meta.Set(ctx, done, "1")
+}
+
 // Run 在后台定时同步，直到 ctx 取消。只在添加过 OpenCode 模型时才去官网。
 func (i *Importer) Run(ctx context.Context) {
+	i.EnableThinking(ctx)
 	t := time.NewTimer(2 * time.Minute)
 	defer t.Stop()
 	for {
