@@ -53,8 +53,44 @@ const presets: { label: string; v: Partial<ModelInput> }[] = [
   { label: '硅基流动', v: { name: '硅基流动', base_url: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen3-32B', thinking_style: 'enable_thinking', thinking_model: '', vision: false, tools: true } },
   { label: 'OpenAI', v: { name: 'OpenAI', base_url: 'https://api.openai.com/v1', model: 'gpt-5-mini', thinking_style: 'reasoning_effort', thinking_model: '', vision: true, tools: true } },
   // OpenCode Go：所有文本模型都能走这个 OpenAI 兼容接口；模型名见 opencode.ai/docs/go（例如 glm-5.2、kimi-k3、deepseek-v4-pro）。
+  // 一般用上面的「OpenCode Go」一键添加，这里留着给想手动填的人。
   { label: 'OpenCode Go', v: { name: 'OpenCode Go', base_url: 'https://opencode.ai/inference/go/openai/v1', model: 'glm-5.2', thinking_style: 'none', thinking_model: '', vision: false, tools: true } },
 ]
+
+// OpenCode Go 一键添加：填自己的 Key、勾选模型，每个模型添加成一个「我的」模型（用自己的 Key 不计费）。
+type OcModel = { id: string; name: string; vision?: boolean; free?: boolean; note?: string }
+const oc = reactive({ open: false, key: '', models: [] as OcModel[], mine: [] as string[], picked: new Set<string>(), busy: false, error: '', date: '' })
+async function openOpenCode() {
+  Object.assign(oc, { open: true, key: '', error: '', picked: new Set<string>() })
+  try {
+    const r = await api.openCodeCatalog()
+    Object.assign(oc, { models: r.models, mine: r.mine, date: r.date })
+  } catch (e) {
+    oc.error = e instanceof ApiError ? e.message : '加载失败'
+  }
+}
+function ocToggle(id: string) {
+  const s = new Set(oc.picked)
+  if (s.has(id)) s.delete(id)
+  else s.add(id)
+  oc.picked = s
+}
+const ocNeedKey = computed(() => [...oc.picked].some((id) => !oc.mine.includes(id)))
+async function saveOpenCode() {
+  if (!oc.picked.size || oc.busy) return
+  oc.busy = true
+  oc.error = ''
+  try {
+    const r = await api.addMyOpenCode(oc.key, [...oc.picked])
+    toast(`添加了 ${r.added} 个${r.updated ? `，更新了 ${r.updated} 个` : ''}`)
+    oc.open = false
+    await load()
+  } catch (e) {
+    oc.error = e instanceof ApiError ? e.message : '添加失败'
+  } finally {
+    oc.busy = false
+  }
+}
 const isOpenCode = computed(() => /(^|\.)opencode\.ai(\/|:|$)/.test(form.base_url.replace(/^https?:\/\//, '')))
 
 const styles: { v: ThinkingStyle; l: string; hint: string }[] = [
@@ -194,7 +230,10 @@ defineExpose({ load })
   <section id="models" class="panel panel--inset">
     <div class="panel-head">
       <h2>模型</h2>
-      <button class="btn btn-primary" @click="openForm(null)">添加模型</button>
+      <span class="head-actions">
+        <button class="btn" @click="openOpenCode">OpenCode Go</button>
+        <button class="btn btn-primary" @click="openForm(null)">添加模型</button>
+      </span>
     </div>
     <p class="muted intro">
       <template v-if="isMulti">
@@ -340,6 +379,39 @@ defineExpose({ load })
       </form>
     </Modal>
 
+    <Modal :open="oc.open" title="添加 OpenCode Go 模型" subtitle="填上你自己的 OpenCode Go API Key，勾选要用的模型，一键添加。用自己的 Key 不计费。" wide @close="oc.open = false">
+      <form @submit.prevent="saveOpenCode">
+        <div class="field">
+          <label class="field__label" for="oc-key">API Key</label>
+          <input id="oc-key" v-model="oc.key" class="text-input" type="password" autocomplete="new-password"
+            :placeholder="oc.mine.length ? '只更新已添加的模型时可以不填' : '在 OpenCode 控制台（opencode.ai/console）复制'" />
+        </div>
+        <p class="caption oc-note">
+          官方说明 Go 套餐是给编程助手用的，用在聊天上有被限制的风险。DeepSeek 模型要先在 OpenCode 控制台 Settings › Privacy 里把地区选成 Global。
+          模型列表 {{ oc.date }} 更新。
+        </p>
+        <div class="oc-list">
+          <label v-for="m in oc.models" :key="m.id" class="oc-item" :class="{ 'is-on': oc.picked.has(m.id) }">
+            <input type="checkbox" :checked="oc.picked.has(m.id)" @change="ocToggle(m.id)" />
+            <span>
+              <strong>{{ m.name }}</strong>
+              <span v-if="oc.mine.includes(m.id)" class="badge-pill">已添加</span>
+              <span v-if="m.free" class="badge-pill">免费</span>
+              <span v-if="m.vision" class="caption"> · 能看图</span>
+              <span v-if="m.note" class="caption"><br />{{ m.note }}</span>
+            </span>
+          </label>
+        </div>
+        <p v-if="oc.error" class="form-flash form-flash--error">{{ oc.error }}</p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" @click="oc.open = false">取消</button>
+          <button type="submit" class="btn btn-primary" :disabled="!oc.picked.size || oc.busy || (ocNeedKey && !oc.key.trim())">
+            {{ oc.busy ? '正在添加' : `添加 ${oc.picked.size} 个模型` }}
+          </button>
+        </div>
+      </form>
+    </Modal>
+
     <Modal v-if="removing" :title="`删除「${removing.name}」？`" subtitle="使用这个模型的对话会改回默认模型，聊天记录不受影响。" @close="removing = null">
       <div class="modal-actions">
         <button class="btn" @click="removing = null">取消</button>
@@ -368,5 +440,10 @@ defineExpose({ load })
 .presets { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
 .preset { cursor: pointer; min-height: 28px; padding: 0 10px; }
 .preset:hover { border-color: var(--color-muted); color: var(--color-ink); }
+.head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .oc-note { margin: 4px 0 10px; line-height: 1.7; }
+.oc-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; max-height: 46vh; overflow-y: auto; margin-bottom: 12px; }
+.oc-item { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid var(--color-divider); border-radius: var(--radius-md); font-size: 13px; cursor: pointer; line-height: 1.5; }
+.oc-item.is-on { border-color: var(--color-accent); background: var(--color-accent-tint, rgba(91, 122, 74, .08)); }
+.oc-item input { margin-top: 3px; }
 </style>

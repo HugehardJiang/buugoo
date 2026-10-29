@@ -29,6 +29,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/memo"
 	"github.com/HugehardJiang/buugoo/internal/memory"
 	"github.com/HugehardJiang/buugoo/internal/models"
+	"github.com/HugehardJiang/buugoo/internal/opencode"
 	"github.com/HugehardJiang/buugoo/internal/persona"
 	"github.com/HugehardJiang/buugoo/internal/proactive"
 	"github.com/HugehardJiang/buugoo/internal/prompt"
@@ -64,6 +65,8 @@ type App struct {
 	plugins   *mcp.Manager
 	// restart 收到消息时停止服务并返回 ErrRestart（迁移数据库后重启）。
 	restart chan struct{}
+	// opencode 定时从官网同步 OpenCode Go 的模型和价格。
+	opencode *opencode.Importer
 
 	// UpdateCheck 在服务启动后于后台执行（检查新版本），可为空。
 	UpdateCheck func(ctx context.Context)
@@ -240,10 +243,11 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 			}
 		}
 	}
+	ocImporter := opencode.NewImporter(db.Gorm(), db.Meta(), modelSvc, billingSvc, loc, log)
 	restart := make(chan struct{}, 1)
 	mover := dbmove.New(db, cfg, log)
 	handler := httpapi.New(httpapi.Deps{
-		DBMove: mover, Supervised: Supervised(),
+		DBMove: mover, Supervised: Supervised(), OpenCode: ocImporter,
 		Restart: func() {
 			select {
 			case restart <- struct{}{}:
@@ -259,7 +263,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 			Runner: func(ctx context.Context, u *store.User) tools.Runner { return toolsProv.python(ctx, u) }}),
 	})
 	a := &App{Config: cfg, Log: log, DB: db, Auth: authSvc, Chat: chatSvc, Models: modelSvc, Writer: writer, Handler: handler,
-		uploads: uploadSvc, tools: toolsProv, channels: hub, plugins: pluginSvc, restart: restart}
+		uploads: uploadSvc, tools: toolsProv, channels: hub, plugins: pluginSvc, restart: restart, opencode: ocImporter}
 	if cfg.Proactive.Reminders || cfg.Proactive.Care {
 		deps := proactive.Deps{Store: db, Speaker: chatSvc, Utility: utilLLM, Mood: emo, Config: cfg.Proactive,
 			Name: func() string { return personas.Current().Name }, Location: loc, Logger: log, Todos: todoSvc}
@@ -289,6 +293,7 @@ func (a *App) Run(ctx context.Context) error {
 	go a.uploads.RunCleanup(bgCtx)
 	go a.tools.prepare(bgCtx)
 	a.plugins.Start(bgCtx)
+	go a.opencode.Run(bgCtx)
 	if a.proactive != nil {
 		go a.proactive.Run(bgCtx)
 	}

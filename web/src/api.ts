@@ -692,6 +692,9 @@ export const api = {
   updateMemo: (id: number, patch: { title?: string; content?: string }) => request<MemoPage>('PUT', `/memos/${id}`, patch),
   deleteMemo: (id: number) => request<void>('DELETE', `/memos/${id}`),
   deleteMessage: (conversationId: number, id: number) => request<void>('DELETE', `/conversations/${conversationId}/messages/${id}`),
+  openCodeCatalog: () =>
+    request<{ models: { id: string; name: string; vision?: boolean; free?: boolean; note?: string }[]; mine: string[]; date: string }>('GET', '/opencode/catalog'),
+  addMyOpenCode: (apiKey: string, models: string[]) => request<{ added: number; updated: number }>('POST', '/opencode/mine', { api_key: apiKey, models }),
   todos: () => request<{ items: Todo[] }>('GET', '/todos'),
   createTodo: (input: { title: string; note?: string; due?: string }) => request<Todo>('POST', '/todos', input),
   updateTodo: (id: number, patch: TodoInput) => request<Todo>('PUT', `/todos/${id}`, patch),

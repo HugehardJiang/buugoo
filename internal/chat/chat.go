@@ -605,6 +605,20 @@ func (t *turn) run(start func() error) error {
 		if err != nil {
 			return err
 		}
+		// DeepSeek 偶尔把工具调用写成 DSML 标记混在正文里（没有推送给用户）：去掉，并当成真正的工具调用来执行。
+		if clean, dsml, found := llm.ExtractDSML(roundText); found {
+			roundText = clean
+			// 标记前面的空行已经推送了，保存时去掉。
+			kept := strings.TrimRight(t.text.String(), " \t\n")
+			t.text.Reset()
+			t.text.WriteString(kept)
+			if len(calls) == 0 && t.rounds < maxToolRounds {
+				for i := range dsml {
+					dsml[i].ID = fmt.Sprintf("dsml_%d_%d", t.rounds, i)
+				}
+				calls = dsml
+			}
+		}
 		if len(calls) == 0 {
 			if t.text.Len() == 0 {
 				return errors.New("模型返回了空回复")
@@ -750,9 +764,20 @@ func (t *turn) consume(stream llm.ChatStream) (string, string, []llm.ToolCall, e
 	var calls llm.ToolCallBuilder
 	// 多轮工具调用之间的正文用空行分开。
 	sep := t.text.Len() > 0
+	// 混在正文里的 DSML 工具调用标记不推送给用户。
+	var filter llm.DSMLFilter
 	for {
 		chunk, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
+			if rest := filter.Flush(); rest != "" {
+				if sep {
+					rest = "\n\n" + rest
+				}
+				if err := t.sink.Delta(rest); err != nil {
+					return text.String(), reasoning.String(), nil, err
+				}
+				t.text.WriteString(rest)
+			}
 			return text.String(), reasoning.String(), calls.Calls(), nil
 		}
 		if err != nil {
@@ -776,7 +801,11 @@ func (t *turn) consume(stream llm.ChatStream) (string, string, []llm.ToolCall, e
 		if chunk.Delta == "" {
 			continue
 		}
-		delta := chunk.Delta
+		text.WriteString(chunk.Delta)
+		delta := filter.Push(chunk.Delta)
+		if delta == "" {
+			continue
+		}
 		if sep {
 			delta, sep = "\n\n"+delta, false
 		}
@@ -784,7 +813,6 @@ func (t *turn) consume(stream llm.ChatStream) (string, string, []llm.ToolCall, e
 		if err := t.sink.Delta(delta); err != nil {
 			return text.String(), reasoning.String(), nil, err
 		}
-		text.WriteString(chunk.Delta)
 		t.text.WriteString(delta)
 	}
 }

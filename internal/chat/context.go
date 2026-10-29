@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/HugehardJiang/buugoo/internal/llm"
 	"github.com/HugehardJiang/buugoo/internal/models"
 	"github.com/HugehardJiang/buugoo/internal/prompt"
 	"github.com/HugehardJiang/buugoo/internal/quota"
@@ -173,6 +174,10 @@ func StripToolNotes(text string) string { return stripToolNotes(text) }
 
 // stripToolNotes 去掉模型照抄进回复里的工具记录。有结尾标记时去掉整段；没有结尾时去掉开头那行和紧跟着的列表。
 func stripToolNotes(text string) string {
+	// 没能拦住的 DSML 工具调用标记（例如别的路径生成的回复）也去掉。
+	if i := llm.DSMLStart(text); i >= 0 {
+		text = text[:i]
+	}
 	// 模型偶尔会把附上的〔此刻〕信息照抄进回复，一并去掉。
 	for {
 		start := strings.Index(text, prompt.NowStart)

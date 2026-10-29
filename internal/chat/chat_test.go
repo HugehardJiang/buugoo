@@ -1008,3 +1008,44 @@ func TestRegenerateAndDelete(t *testing.T) {
 		t.Fatalf("%+v", msgs)
 	}
 }
+
+// DeepSeek 把工具调用写成 DSML 标记混进正文：不推送、不保存这些文字，并当成真正的工具调用执行。
+func TestDSMLToolCallsInText(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, config.QuotaConfig{})
+	e.models.tools = true
+	var ran []string
+	e.svc.tools = fakeTools{extra: []tools.Extra{{
+		Def:   llm.Tool{Name: "list_reminders", Parameters: map[string]any{"type": "object", "properties": map[string]any{}}},
+		Label: "查看提醒",
+		Run: func(_ context.Context, args json.RawMessage) tools.Result {
+			ran = append(ran, string(args))
+			return tools.Result{OK: true, Output: "现在没有提醒"}
+		},
+	}}}
+	e.chat.script = []*fakeStream{
+		{chunks: []llm.Chunk{{Delta: "先缓口气，回宿舍再动笔。"}, {Delta: "\n\n<｜"}, {Delta: "DSML｜function_calls>\n<｜DSML｜invoke name=\"list_reminders\">\n"},
+			{Delta: "</｜DSML｜invoke>\n</｜DSML｜function_calls>"}}},
+		{chunks: []llm.Chunk{{Delta: "看了下，现在还没有提醒。"}}},
+	}
+	sink := &recordSink{}
+	res, err := e.svc.Send(ctx, e.user, SendInput{Content: "考完了"}, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ran) != 1 {
+		t.Fatalf("应执行 DSML 里的工具: %v", ran)
+	}
+	if strings.Contains(res.Reply.Content, "DSML") || strings.Contains(sink.text.String(), "DSML") || strings.Contains(sink.text.String(), "<｜") {
+		t.Fatalf("reply=%q sink=%q", res.Reply.Content, sink.text.String())
+	}
+	if res.Reply.Content != "先缓口气，回宿舍再动笔。\n\n看了下，现在还没有提醒。" {
+		t.Fatalf("reply=%q", res.Reply.Content)
+	}
+	// 第二轮请求里，助手消息不带 DSML，工具结果对上了调用。
+	req := e.chat.reqs[1]
+	n := len(req.Messages)
+	if a := req.Messages[n-2]; a.Role != llm.RoleAssistant || strings.Contains(a.Content, "DSML") || len(a.ToolCalls) != 1 || req.Messages[n-1].ToolCallID != a.ToolCalls[0].ID {
+		t.Fatalf("%+v", req.Messages[n-2:])
+	}
+}

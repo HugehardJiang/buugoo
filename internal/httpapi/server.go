@@ -11,6 +11,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/dbmove"
 	"github.com/HugehardJiang/buugoo/internal/mcp"
 	"github.com/HugehardJiang/buugoo/internal/memo"
+	"github.com/HugehardJiang/buugoo/internal/opencode"
 	"github.com/HugehardJiang/buugoo/internal/skills"
 	"github.com/HugehardJiang/buugoo/internal/todo"
 	"log/slog"
@@ -67,6 +68,8 @@ type Deps struct {
 	Restart    func()
 	Supervised bool
 	Todos      *todo.Service
+	// OpenCode 是 OpenCode Go 的导入、个人添加和官网同步。
+	OpenCode *opencode.Importer
 	// Billing、Accounts 为空时不提供会员和用户管理（single 模式）。
 	Billing  *billing.Service
 	Accounts *accounts.Service
@@ -156,8 +159,13 @@ func New(d Deps) http.Handler {
 	console.GET("/channels", s.consoleChannels)
 	console.GET("/diagnostics", s.consoleDiagnostics)
 	console.POST("/channels/weixin/:id/logout", s.consoleWeixinKick)
-	console.GET("/opencode", s.consoleOpenCode)
-	console.POST("/opencode/import", s.consoleOpenCodeImport)
+	if s.OpenCode != nil {
+		console.GET("/opencode", s.consoleOpenCode)
+		console.POST("/opencode/import", s.consoleOpenCodeImport)
+		console.POST("/opencode/sync", s.consoleOpenCodeSync)
+		console.POST("/opencode/apply", s.consoleOpenCodeApply)
+		console.PUT("/opencode/options", s.consoleOpenCodeOptions)
+	}
 	if s.DBMove != nil {
 		console.GET("/database", s.consoleDatabase)
 		console.POST("/database/test", s.consoleDatabaseTest)
@@ -245,6 +253,10 @@ func New(d Deps) http.Handler {
 		priv.GET("/memos/:id", s.getMemo)
 		priv.PUT("/memos/:id", s.updateMemo)
 		priv.DELETE("/memos/:id", s.deleteMemo)
+	}
+	if s.OpenCode != nil {
+		priv.GET("/opencode/catalog", s.openCodeCatalog)
+		priv.POST("/opencode/mine", s.addMyOpenCode)
 	}
 	if s.Todos != nil {
 		priv.GET("/todos", s.listTodos)
@@ -407,6 +419,10 @@ func toAPIError(err error) *apiError {
 	var moveErr *dbmove.UserError
 	if errors.As(err, &moveErr) {
 		return &apiError{Status: http.StatusBadRequest, Code: "invalid_input", Message: moveErr.Msg}
+	}
+	var ocErr *opencode.UserError
+	if errors.As(err, &ocErr) {
+		return &apiError{Status: http.StatusBadRequest, Code: "invalid_input", Message: ocErr.Msg}
 	}
 	var todoErr *todo.UserError
 	switch {

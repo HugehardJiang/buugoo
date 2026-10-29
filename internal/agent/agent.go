@@ -298,6 +298,15 @@ func (s *Service) Send(ctx context.Context, u *store.User, text string, admin bo
 			return nil, fmt.Errorf("牛马没有回应：%w", err)
 		}
 		usage.Add(resp.Usage)
+		if clean, dsml, found := llm.ExtractDSML(resp.Content); found {
+			resp.Content = clean
+			if len(resp.ToolCalls) == 0 {
+				for i := range dsml {
+					dsml[i].ID = fmt.Sprintf("dsml_%d_%d", round, i)
+				}
+				resp.ToolCalls = dsml
+			}
+		}
 		if len(resp.ToolCalls) == 0 || req.Tools == nil {
 			reply = strings.TrimSpace(resp.Content)
 			break

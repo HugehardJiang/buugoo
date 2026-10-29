@@ -18,20 +18,38 @@ interface Spec {
   vision?: boolean
   note?: string
 }
+interface Snapshot {
+  date: string
+  source: 'builtin' | 'synced'
+  fetched_at?: string
+  plans: Record<string, { name: string; price: number; per_member?: boolean }>
+  tiers: string[]
+  models: Spec[]
+}
+interface SyncReport {
+  at: string
+  error?: string
+  added?: string[]
+  removed?: string[]
+  changes?: string[]
+  applied?: boolean
+  pending?: boolean
+}
+interface Options { tier: string; rate: number; markup: number; restricted: boolean; auto_apply: boolean }
 interface Info {
-  catalog: Spec[]
-  catalog_date: string
-  plans: Record<string, number>
+  catalog: Snapshot
   base_url: string
-  options: { tier: 'go' | 'plus'; rate: number; markup: number; restricted: boolean }
+  options: Options
   imported: { id: number; model: string; name: string; restricted: boolean }[] | null
+  last_sync?: SyncReport | null
   billing: boolean
-  multi: boolean
 }
 
 const info = ref<Info | null>(null)
 const loadError = ref('')
-const opts = reactive({ tier: 'go' as 'go' | 'plus', rate: 7.2, markup: 1, restricted: true, api_key: '' })
+const opts = reactive({ tier: 'go', rate: 7.2, markup: 1, restricted: true, auto_apply: false, api_key: '' })
+const syncing = ref(false)
+const applying = ref(false)
 const picked = ref<Set<string>>(new Set())
 const busy = ref(false)
 const result = ref('')
@@ -57,7 +75,7 @@ async function load() {
 function factor(s: Spec) {
   const limit = s.limits[opts.tier]
   if (s.free || !limit) return 0
-  return (info.value?.plans[opts.tier] ?? 0) / limit
+  return (info.value?.catalog.plans[opts.tier]?.price ?? 0) / limit
 }
 
 function cny(usd: number, s: Spec) {
@@ -77,7 +95,7 @@ function toggle(id: string) {
 }
 
 function pickAll(on: boolean) {
-  picked.value = on ? new Set(info.value?.catalog.map((s) => s.id)) : new Set()
+  picked.value = on ? new Set(info.value?.catalog.models.map((s) => s.id)) : new Set()
 }
 
 async function submit() {
@@ -86,7 +104,8 @@ async function submit() {
   result.value = ''
   try {
     const r = await props.call<{ message: string; peak_note: string }>('POST', '/opencode/import', {
-      api_key: opts.api_key, models: [...picked.value], tier: opts.tier, rate: Number(opts.rate), markup: Number(opts.markup), restricted: opts.restricted,
+      api_key: opts.api_key, models: [...picked.value], tier: opts.tier, rate: Number(opts.rate), markup: Number(opts.markup),
+      restricted: opts.restricted, auto_apply: opts.auto_apply,
     })
     result.value = r.message + (r.peak_note ? '。' + r.peak_note : '')
     toast(r.message)
@@ -97,6 +116,55 @@ async function submit() {
   } finally {
     busy.value = false
   }
+}
+
+// syncNow 立即从官网检查模型和价格。
+async function syncNow() {
+  syncing.value = true
+  try {
+    const r = await props.call<SyncReport>('POST', '/opencode/sync')
+    toast(r.error ? `检查失败：${r.error}` : r.changes?.length || r.added?.length ? '官网有变化，看下面的说明' : '官网没有变化')
+    await load()
+  } catch (e) {
+    toast(e instanceof ApiError ? e.message : '检查失败')
+  } finally {
+    syncing.value = false
+  }
+}
+
+// applyNow 按官网最新的价格更新已添加模型的计费。
+async function applyNow() {
+  applying.value = true
+  try {
+    await props.call('POST', '/opencode/apply')
+    toast('已按官网最新价格更新计费')
+    await load()
+  } catch (e) {
+    toast(e instanceof ApiError ? e.message : '更新失败')
+  } finally {
+    applying.value = false
+  }
+}
+
+async function toggleAuto() {
+  try {
+    await props.call('PUT', '/opencode/options', { tier: opts.tier, rate: Number(opts.rate), markup: Number(opts.markup), restricted: opts.restricted, auto_apply: opts.auto_apply })
+    toast(opts.auto_apply ? '官网价格变了会自动更新计费' : '官网价格变了先提醒你，确认后再更新')
+  } catch (e) {
+    opts.auto_apply = !opts.auto_apply
+    toast(e instanceof ApiError ? e.message : '保存失败')
+  }
+}
+
+function when(iso?: string) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return `${d.getMonth() + 1}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function planLabel(t: string) {
+  const p = info.value?.catalog.plans[t]
+  return p ? `${p.name}（$${p.price}${p.per_member ? '/人' : ''}/月）` : t
 }
 </script>
 
@@ -109,7 +177,7 @@ async function submit() {
         用你自己的 OpenCode Go 订阅 Key 一键添加模型。默认<strong>只有你在「用户管理」里授权了「专属模型」的用户</strong>能用（管理员总能用）。
         价格按「官方价 × 套餐月费 ÷ 这个模型的月额度 × 汇率 × 加价倍数」折算成你的实际成本，写进计费设置。
         例如 Go 档 GLM-5.2 每月有 $60 额度、套餐 $10，相当于官方价的 1/6。
-        用户想用自己的 Key 的话，在「设置 → 模型」里选「OpenCode Go」预设自己添加，不计费。
+        用户想用自己的 Key 的话，在「设置 → 模型」里点「OpenCode Go」，填上 Key、勾选模型就行，不计费。
       </p>
       <p class="form-flash warn">
         官方说明 Go 套餐是给 OpenCode 等编程助手用的，并会监控滥用。布谷会按要求带上客户端标识和会话编号，但聊天不是编程请求，
@@ -120,8 +188,7 @@ async function submit() {
         <label class="field">
           <span class="field__label">套餐档位</span>
           <select v-model="opts.tier" class="text-input">
-            <option value="go">Go（${{ info.plans.go }}/月）</option>
-            <option value="plus">Go Plus（${{ info.plans.plus }}/月）</option>
+            <option v-for="t in info.catalog.tiers" :key="t" :value="t">{{ planLabel(t) }}</option>
           </select>
         </label>
         <label class="field">
@@ -144,8 +211,34 @@ async function submit() {
       </label>
       <p v-if="!info.billing" class="caption">现在是单用户版，没有计费，只会添加模型。</p>
 
+      <div class="sync">
+        <div class="sync__head">
+          <span class="caption">
+            模型和价格每 12 小时自动从 <a href="https://opencode.ai/docs/go/" target="_blank" rel="noopener noreferrer">官网文档</a> 检查一次（添加过 OpenCode 模型后才会检查）。
+            <template v-if="info.last_sync">上次检查：{{ when(info.last_sync.at) }}<template v-if="info.last_sync.error">，失败了（{{ info.last_sync.error }}），继续用之前的价格表</template>。</template>
+          </span>
+          <button type="button" class="btn btn-sm" :disabled="syncing" @click="syncNow">{{ syncing ? '正在检查' : '立即检查' }}</button>
+        </div>
+        <div v-if="info.last_sync && (info.last_sync.changes?.length || info.last_sync.added?.length || info.last_sync.removed?.length)" class="changes">
+          <p v-if="info.last_sync.added?.length" class="caption">官网新增了：{{ info.last_sync.added.join('、') }}（在下面勾选后导入）</p>
+          <p v-if="info.last_sync.removed?.length" class="caption">官网去掉了：{{ info.last_sync.removed.join('、') }}</p>
+          <template v-if="info.last_sync.changes?.length">
+            <p class="caption">已添加的模型有变化：</p>
+            <ul class="caption"><li v-for="c in info.last_sync.changes" :key="c">{{ c }}</li></ul>
+            <div class="sync__head">
+              <span class="caption">{{ info.last_sync.pending ? '还没有更新计费价格。' : info.last_sync.applied ? '已经按新价格更新了计费。' : '' }}</span>
+              <button v-if="info.last_sync.pending && info.billing" type="button" class="btn btn-sm btn-primary" :disabled="applying" @click="applyNow">{{ applying ? '正在更新' : '按新价格更新计费' }}</button>
+            </div>
+          </template>
+        </div>
+        <label v-if="info.billing" class="check-row">
+          <input v-model="opts.auto_apply" type="checkbox" @change="toggleAuto" />
+          <span>官网价格或额度变了自动更新计费（不勾选时先提醒，你确认后再更新）</span>
+        </label>
+      </div>
+
       <div class="table-head">
-        <span class="caption">价格都是每百万 token。价格表日期 {{ info.catalog_date }}（来自 opencode.ai/docs/go，官方会调整）</span>
+        <span class="caption">价格都是每百万 token。价格表日期 {{ info.catalog.date }}（{{ info.catalog.source === 'synced' ? '从官网同步' : '程序内置' }}）</span>
         <span class="links">
           <button type="button" class="link caption" @click="pickAll(true)">全选</button>
           <button type="button" class="link caption" @click="pickAll(false)">全不选</button>
@@ -157,7 +250,7 @@ async function submit() {
             <tr><th /><th>模型</th><th>月额度</th><th>折算</th><th>价格（输入 / 输出 / 缓存命中）</th></tr>
           </thead>
           <tbody>
-            <tr v-for="s in info.catalog" :key="s.id" :class="{ 'is-picked': picked.has(s.id) }" @click="toggle(s.id)">
+            <tr v-for="s in info.catalog.models" :key="s.id" :class="{ 'is-picked': picked.has(s.id) }" @click="toggle(s.id)">
               <td><input type="checkbox" :checked="picked.has(s.id)" :aria-label="`选择 ${s.name}`" @click.stop="toggle(s.id)" /></td>
               <td>
                 <span class="name">{{ s.name }}</span>
@@ -221,4 +314,9 @@ h2 { margin: 0 0 10px; }
 .ok { color: var(--color-accent-active); }
 .right { text-align: right; margin: 4px 0 0; }
 @media (max-width: 760px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.sync { margin: 14px 0 4px; padding: 12px 14px; border: 1px solid var(--color-divider); border-radius: var(--radius-md); }
+.sync__head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.changes { margin-top: 8px; }
+.changes p, .changes ul { margin: 4px 0; }
+.changes ul { padding-left: 18px; }
 </style>
