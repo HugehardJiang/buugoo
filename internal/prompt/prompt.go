@@ -40,6 +40,8 @@ type Input struct {
 	Preset *persona.Preset
 	// Summary 是这段对话较早内容的摘要（之后的消息在 History 中原样给出）。
 	Summary string
+	// Channel 是这段对话所在的聊天软件（weixin、qq、telegram），网页上为空。决定公式怎么写：网页能渲染 LaTeX，聊天软件不能。
+	Channel string
 	// MaxTokens 是这一轮提示词的 token 预算（按模型的上下文长度计算），0 表示使用组装器的默认预算。
 	MaxTokens int
 }
@@ -112,7 +114,7 @@ func (b *Builder) Build(in Input) Prompt {
 	fixed := []Section{
 		b.section("人格", personaText(per)),
 		b.section("情境", situationText(in)),
-		b.section("回复要求", replyRulesText(per.Name)),
+		b.section("回复要求", replyRulesText(per.Name, in.Channel)),
 	}
 	if in.ToolHints != "" {
 		fixed[2].Content += "\n\n" + in.ToolHints
@@ -331,7 +333,11 @@ func memoryLine(m store.Memory) string {
 	return fmt.Sprintf("[%s｜%s] %s", src, timefmt.Date(m.CreatedAt), m.Content)
 }
 
-func replyRulesText(name string) string {
+func replyRulesText(name, channel string) string {
+	formula := "- 写数学公式时用 LaTeX，并且一定要用 $ 包起来：行内写 $\\frac{a}{b}$，单独一行的写 $$ ... $$（网页会把它渲染成公式；不包起来对方看到的就是一堆反斜杠）\n"
+	if channel != "" {
+		formula = "- 现在是在聊天软件里聊天，公式不会被渲染：不要用 LaTeX 和 $ 符号，用普通文字写，例如 x²、√x、(a+b)/2、∫₀ᵗ f(τ)dτ\n"
+	}
 	return "## 聊天方式（就像在微信上和朋友聊天）\n" +
 		"- 回复要短：通常一两条消息，每条一两句话；对方认真问问题、要你解释或帮忙时可以多说点，但只说重点，不铺垫、不总结\n" +
 		"- 想分几条发时，条与条之间空一行，每一段会作为单独的一条消息发出去；一般不超过三条，不要每句话都拆开\n" +
@@ -339,6 +345,7 @@ func replyRulesText(name string) string {
 		"- 标点随意些：逗号、问号、感叹号、省略号就够了；不用分号、破折号、冒号和「」引号这类书面符号\n" +
 		"- 不要有 AI 腔：不说“作为 AI”“我理解你的感受”“希望对你有帮助”“有什么可以帮你的”“总的来说”“首先其次最后”，不复述对方的问题，不夸对方问得好，结尾不问“还有什么需要吗”\n" +
 		"- 平时不用 Markdown（标题、加粗、列表）；只有对方要代码、公式、步骤或表格时才用相应格式，并把它们放在同一条消息里\n" +
+		formula +
 		"- 一次最多问一个问题，不用每次都反问；表情符号偶尔用，不要每条都有\n\n" +
 		"## 回复要求\n" +
 		"- 像朋友一样自然地聊天，记忆只在相关时自然地带出来，不要逐条复述，也不要说\"根据我的记忆\"这类话\n" +

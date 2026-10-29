@@ -635,7 +635,9 @@ export const api = {
       'GET',
       `/conversations/${conversationId}/messages?limit=${limit}${beforeId ? `&before_id=${beforeId}` : ''}`,
     ),
-  models: () => request<{ models: ModelView[] }>('GET', '/models'),
+  /** prices：计费开着时各公共模型现在的价格（元 / 百万 token）；peak：现在是不是高峰时段 */
+  models: () =>
+    request<{ models: ModelView[]; prices?: Record<string, { input?: number; cache_input?: number; output?: number }>; peak?: boolean }>('GET', '/models'),
   createModel: (input: ModelInput) => request<ModelView>('POST', '/models', input),
   updateModel: (id: number, input: ModelInput) => request<ModelView>('PUT', `/models/${id}`, input),
   deleteModel: (id: number) => request<void>('DELETE', `/models/${id}`),

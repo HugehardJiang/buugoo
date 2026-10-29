@@ -212,3 +212,13 @@ func TestPresetAttitude(t *testing.T) {
 		t.Fatal("默认人格没有态度这一节")
 	}
 }
+
+// 网页上要求公式用 $ 包起来（会渲染），聊天软件里不渲染，要求用普通文字写。
+func TestReplyRulesFormula(t *testing.T) {
+	if web := replyRulesText("布谷", ""); !strings.Contains(web, "LaTeX") || !strings.Contains(web, "$$") {
+		t.Fatal(web)
+	}
+	if wx := replyRulesText("布谷", "weixin"); !strings.Contains(wx, "不要用 LaTeX") {
+		t.Fatal(wx)
+	}
+}

@@ -8,7 +8,25 @@ const md = new MarkdownIt({ html: false, linkify: true, breaks: true }).use(math
 
 // renderMarkdown 渲染助手回复，结果经过 DOMPurify 清理。
 export function renderMarkdown(src: string): string {
-  return DOMPurify.sanitize(md.render(src))
+  return DOMPurify.sanitize(md.render(wrapBareLatex(src)))
+}
+
+// 模型偶尔把 LaTeX 公式直接写成一行、忘了用 $ 包起来（满屏反斜杠）。一整行都是公式时（有 LaTeX 命令、
+// 没有 $、没有中文），当成单独一行的公式渲染。代码块里的不动。
+const latexCmd = /\\(frac|dfrac|int|iint|oint|sum|prod|sqrt|lim|cdot|times|quad|qquad|ge|le|geq|leq|neq|infty|partial|alpha|beta|gamma|delta|theta|lambda|mu|sigma|tau|omega|pi|mathrm|mathbf|left|right|begin)(?![a-zA-Z])/
+const cjk = /[\u3400-\u9fff\uff00-\uffef]/
+export function wrapBareLatex(src: string): string {
+  if (!src.includes('\\')) return src
+  let fence = false
+  return src
+    .split('\n')
+    .map((line) => {
+      const t = line.trim()
+      if (t.startsWith('```')) fence = !fence
+      if (fence || !t || t.includes('$') || t.startsWith('`') || cjk.test(t) || !latexCmd.test(t)) return line
+      return `$$${t}$$`
+    })
+    .join('\n')
 }
 
 const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']

@@ -6,10 +6,13 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/HugehardJiang/buugoo/internal/billing"
 	"github.com/HugehardJiang/buugoo/internal/models"
+	"github.com/HugehardJiang/buugoo/internal/quota"
 )
 
 // ---------- 聊天模型 ----------
@@ -22,7 +25,30 @@ func (s *server) listModels(c echo.Context) error {
 	if ms == nil {
 		ms = []models.View{}
 	}
-	return c.JSON(http.StatusOK, map[string]any{"models": ms})
+	out := map[string]any{"models": ms}
+	// 计费开着时带上每个公共模型现在的价格（元 / 百万 token，分高峰和空闲时按现在的时段），选模型时显示。
+	if s.Billing != nil {
+		p := s.Billing.Pricing(c.Request().Context())
+		peak := p.IsPeak(time.Now())
+		prices := map[uint64]billing.Price{}
+		for _, m := range ms {
+			if m.Scope == models.ScopePersonal {
+				continue
+			}
+			pr, ok := p.Prices[quota.ModelKey(m.ID)]
+			if !ok {
+				continue
+			}
+			if p.Peak != nil && !peak && pr.OffPeak != nil {
+				pr = *pr.OffPeak
+			}
+			pr.OffPeak = nil
+			prices[m.ID] = pr
+		}
+		out["prices"] = prices
+		out["peak"] = p.Peak != nil && peak
+	}
+	return c.JSON(http.StatusOK, out)
 }
 
 func (s *server) createModel(c echo.Context) error {

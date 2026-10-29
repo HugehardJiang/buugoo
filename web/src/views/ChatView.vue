@@ -201,6 +201,8 @@ async function loadSide() {
     .catch(() => {})
   convs.value = c.conversations
   models.value = m.models
+  modelPrices.value = m.prices ?? null
+  pricePeak.value = !!m.peak
   hasModel.value = me.has_model
   embeddingReady.value = me.embedding_ready
 }
@@ -289,6 +291,63 @@ async function patchCurrent(patch: { title?: string; model_id?: number | null; t
 
 const pickerOpen = ref(false)
 const pickerEl = ref<HTMLElement | null>(null)
+const pickerSearch = ref<HTMLInputElement | null>(null)
+const modelQuery = ref('')
+const isMulti = computed(() => session.meta?.mode === 'multi')
+// 计费开着时各公共模型现在的价格（元 / 百万 token）；没开计费时为 null。
+const modelPrices = ref<Record<string, { input?: number; cache_input?: number; output?: number }> | null>(null)
+const pricePeak = ref(false)
+
+watch(pickerOpen, async (v) => {
+  if (!v) return
+  modelQuery.value = ''
+  await nextTick()
+  // 手机上不自动弹出键盘。
+  if (window.matchMedia('(hover: hover)').matches) pickerSearch.value?.focus()
+})
+
+// 按搜索词过滤，再按「公共 / 我的」分组。
+const modelGroups = computed(() => {
+  const q = modelQuery.value.trim().toLowerCase()
+  const hit = models.value.filter((m) => !q || m.name.toLowerCase().includes(q) || m.model.toLowerCase().includes(q))
+  if (!isMulti.value) return [{ label: '', items: hit }]
+  return [
+    { label: '公共模型', items: hit.filter((m) => m.scope !== 'personal') },
+    { label: '我的模型', items: hit.filter((m) => m.scope === 'personal') },
+  ].filter((g) => g.items.length)
+})
+const modelCount = computed(() => modelGroups.value.reduce((n, g) => n + g.items.length, 0))
+
+function yuanPrice(x?: number) {
+  if (!x) return '0'
+  return x >= 100 ? x.toFixed(0) : x >= 10 ? x.toFixed(1).replace(/\.0$/, '') : x.toFixed(2).replace(/\.?0+$/, '')
+}
+
+// modelPrice 返回模型旁边显示的价格和悬停说明。
+function modelPrice(m: ModelView): { text: string; title: string } | null {
+  if (m.scope === 'personal' && isMulti.value) return { text: '自己的 Key', title: '用你自己的 API Key，不扣余额' }
+  if (!modelPrices.value) return null
+  const p = modelPrices.value[String(m.id)]
+  if (!p || (!p.input && !p.output)) return { text: '免费', title: '这个模型不扣余额' }
+  const when = pricePeak.value ? '（现在是高峰时段）' : ''
+  return {
+    text: `¥${yuanPrice(p.input)} / ${yuanPrice(p.output)}`,
+    title: `每百万 token${when}：输入 ¥${yuanPrice(p.input)}，输出 ¥${yuanPrice(p.output)}${p.cache_input ? `，命中缓存的输入 ¥${yuanPrice(p.cache_input)}` : ''}`,
+  }
+}
+
+// 思考等级滑块：在可选等级之间拖动或点刻度。
+const thinkingIndex = computed(() => Math.max(0, thinkingOptions.value.findIndex((o) => o.v === thinkingValue.value)))
+// 刻度文字对准滑块上的档位（滑块两端各留出把手的半径 9px）。
+function tickStyle(i: number) {
+  const n = thinkingOptions.value.length
+  const f = n > 1 ? i / (n - 1) : 0
+  return { left: `calc(9px + (100% - 18px) * ${f})` }
+}
+function setThinkingIndex(i: number) {
+  const o = thinkingOptions.value[i]
+  if (o && o.v !== thinkingValue.value) patchCurrent({ thinking: o.v })
+}
 
 function chooseModel(id: number | null) {
   patchCurrent({ model_id: id })
@@ -619,9 +678,6 @@ function toggle(which: 'memories' | 'thinking', id: number) {
   if (wasAtBottom) scrollToBottom(true)
 }
 
-function modelLabel(m: ModelView) {
-  return m.scope === 'personal' ? `${m.name}（我的）` : m.name
-}
 
 watch(
   () => route.query.c,
@@ -922,43 +978,78 @@ onBeforeUnmount(() => {
               </button>
               <Transition name="pop">
               <div v-if="pickerOpen" class="picker__panel" role="dialog" aria-label="模型与思考等级">
-                <p class="picker__title">模型</p>
+                <div class="picker__search">
+                  <Icon name="search" :size="15" />
+                  <input ref="pickerSearch" v-model="modelQuery" type="search" placeholder="搜索模型" aria-label="搜索模型" />
+                </div>
                 <div class="picker__list">
                   <button
+                    v-if="!modelQuery.trim()"
                     type="button"
                     class="picker__opt"
                     :class="{ 'is-active': current?.model_id == null }"
                     @click="chooseModel(null)"
                   >
-                    <span>默认模型</span>
-                    <small v-if="defaultModel">{{ defaultModel.name }}</small>
+                    <span class="picker__opt-main">
+                      <span class="picker__opt-name">默认模型</span>
+                      <Icon v-if="current?.model_id == null" name="check" :size="15" class="picker__check" />
+                    </span>
+                    <small v-if="defaultModel">跟随设置里的默认：{{ defaultModel.name }}</small>
                   </button>
-                  <button
-                    v-for="m in models"
-                    :key="m.id"
-                    type="button"
-                    class="picker__opt"
-                    :class="{ 'is-active': current?.model_id === m.id }"
-                    @click="chooseModel(m.id)"
-                  >
-                    <span>{{ modelLabel(m) }}</span>
-                    <small>{{ modelTraits(m) }}</small>
-                  </button>
-                </div>
-                <template v-if="thinkingOptions.length">
-                  <p class="picker__title">思考</p>
-                  <div class="type-switch picker__think-switch" role="group" aria-label="思考等级">
+                  <template v-for="g in modelGroups" :key="g.label">
+                    <p v-if="g.label" class="picker__group">{{ g.label }}</p>
                     <button
-                      v-for="o in thinkingOptions"
+                      v-for="m in g.items"
+                      :key="m.id"
+                      type="button"
+                      class="picker__opt"
+                      :class="{ 'is-active': current?.model_id === m.id }"
+                      @click="chooseModel(m.id)"
+                    >
+                      <span class="picker__opt-main">
+                        <span class="picker__opt-name">{{ m.name }}</span>
+                        <Icon v-if="current?.model_id === m.id" name="check" :size="15" class="picker__check" />
+                      </span>
+                      <small class="picker__opt-meta">
+                        <span>{{ modelTraits(m) }}</span>
+                        <span v-if="modelPrice(m)" class="picker__price" :title="modelPrice(m)!.title">{{ modelPrice(m)!.text }}</span>
+                      </small>
+                    </button>
+                  </template>
+                  <p v-if="!modelCount && modelQuery.trim()" class="picker__empty">没有叫「{{ modelQuery.trim() }}」的模型</p>
+                </div>
+                <p v-if="modelPrices" class="picker__note">价格是每百万 token 的输入 / 输出（有免费或套餐额度时先用额度）</p>
+                <div v-if="thinkingOptions.length" class="picker__think-box">
+                  <div class="picker__think-head">
+                    <span>思考</span>
+                    <strong>{{ thinkingOptions[thinkingIndex]?.l }}</strong>
+                  </div>
+                  <input
+                    class="picker__slider"
+                    type="range"
+                    min="0"
+                    :max="thinkingOptions.length - 1"
+                    step="1"
+                    :value="thinkingIndex"
+                    :style="{ '--pct': `${(thinkingIndex / Math.max(1, thinkingOptions.length - 1)) * 100}%` }"
+                    aria-label="思考等级"
+                    :aria-valuetext="thinkingOptions[thinkingIndex]?.l"
+                    @input="setThinkingIndex(Number(($event.target as HTMLInputElement).value))"
+                  />
+                  <div class="picker__ticks">
+                    <button
+                      v-for="(o, i) in thinkingOptions"
                       :key="o.v"
                       type="button"
-                      :class="{ 'is-active': thinkingValue === o.v }"
-                      @click="patchCurrent({ thinking: o.v })"
+                      :class="{ 'is-active': i === thinkingIndex, 'is-past': i < thinkingIndex }"
+                      :style="tickStyle(i)"
+                      @click="setThinkingIndex(i)"
                     >
                       {{ o.l }}
                     </button>
                   </div>
-                </template>
+                  <p class="picker__note">想得越多越准，但回得更慢、用的 token 更多</p>
+                </div>
               </div>
               </Transition>
             </div>
@@ -1133,20 +1224,56 @@ onBeforeUnmount(() => {
 .picker__think { flex-shrink: 0; color: var(--color-muted); }
 .picker__chev { flex-shrink: 0; transform: rotate(-90deg); }
 .picker__panel {
-  position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 20; width: 300px; max-width: calc(100vw - 32px);
-  padding: 12px; border: 1px solid var(--color-divider); border-radius: var(--radius-lg); background: var(--color-surface);
+  position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 20; width: 360px; max-width: calc(100vw - 24px);
+  padding: 10px; border: 1px solid var(--color-divider); border-radius: var(--radius-lg); background: var(--color-surface);
   box-shadow: var(--shadow-float); animation: toast-in 180ms var(--ease-editorial);
 }
-.picker__title { margin: 2px 4px 6px; color: var(--color-muted); font-size: 12px; font-weight: 600; letter-spacing: .06em; }
-.picker__list { display: grid; gap: 2px; max-height: 260px; overflow-y: auto; margin-bottom: 10px; }
-.picker__opt {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-height: 38px; padding: 8px 10px;
-  border-radius: var(--radius-md); color: var(--color-ink); font-size: 14px; text-align: left;
+.picker__search {
+  display: flex; align-items: center; gap: 8px; height: 38px; margin-bottom: 6px; padding: 0 10px;
+  border-radius: var(--radius-md); background: var(--color-canvas-soft); color: var(--color-muted);
 }
-.picker__opt small { flex-shrink: 0; color: var(--color-muted); font-size: 12px; }
+.picker__search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--color-ink); font: inherit; font-size: 14px; }
+.picker__search input::-webkit-search-cancel-button { cursor: pointer; }
+.picker__list { display: grid; gap: 1px; max-height: min(340px, 48vh); overflow-y: auto; margin: 0 -2px; padding: 0 2px; }
+.picker__group { margin: 8px 8px 2px; color: var(--color-muted); font-size: 11px; font-weight: 600; letter-spacing: .06em; }
+.picker__opt {
+  display: grid; gap: 2px; width: 100%; padding: 7px 10px; border-radius: var(--radius-md); color: var(--color-ink); text-align: left;
+  transition: background-color .12s ease;
+}
 .picker__opt:hover { background: var(--color-surface-hover); }
-.picker__opt.is-active { background: var(--color-canvas-soft); box-shadow: inset 3px 0 0 var(--color-accent); }
-.picker__think-switch { grid-auto-columns: minmax(0, 1fr); }
+.picker__opt.is-active { background: var(--color-canvas-soft); }
+.picker__opt-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.picker__opt-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.picker__check { flex-shrink: 0; color: var(--color-accent); }
+.picker__opt small { display: block; color: var(--color-muted); font-size: 12px; line-height: 1.4; }
+.picker__opt-meta { display: flex !important; justify-content: space-between; gap: 10px; }
+.picker__price { flex-shrink: 0; font-variant-numeric: tabular-nums; color: var(--color-text-secondary); }
+.picker__empty { margin: 12px 8px; color: var(--color-muted); font-size: 13px; }
+.picker__note { margin: 6px 8px 0; color: var(--color-muted); font-size: 11px; line-height: 1.5; }
+.picker__think-box { margin-top: 8px; padding: 10px 10px 4px; border-top: 1px solid var(--color-divider); }
+.picker__think-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; color: var(--color-muted); font-size: 12px; font-weight: 600; letter-spacing: .04em; }
+.picker__think-head strong { color: var(--color-ink); font-size: 13px; letter-spacing: 0; }
+.picker__slider {
+  --pct: 0%;
+  width: 100%; height: 22px; margin: 0; background: transparent; cursor: pointer; -webkit-appearance: none; appearance: none;
+}
+.picker__slider::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 999px;
+  background: linear-gradient(to right, var(--color-accent) var(--pct), var(--color-hairline-strong) var(--pct));
+}
+.picker__slider::-moz-range-track { height: 6px; border-radius: 999px; background: var(--color-hairline-strong); }
+.picker__slider::-moz-range-progress { height: 6px; border-radius: 999px; background: var(--color-accent); }
+.picker__slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 18px; height: 18px; margin-top: -6px; border: 2px solid var(--color-accent); border-radius: 50%;
+  background: var(--color-surface); box-shadow: 0 1px 4px rgba(20, 20, 19, .2); transition: transform .12s ease;
+}
+.picker__slider::-moz-range-thumb { width: 14px; height: 14px; border: 2px solid var(--color-accent); border-radius: 50%; background: var(--color-surface); }
+.picker__slider:active::-webkit-slider-thumb { transform: scale(1.12); }
+.picker__slider:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 4px; }
+.picker__ticks { position: relative; height: 24px; margin-top: 2px; }
+.picker__ticks button { position: absolute; top: 0; transform: translateX(-50%); padding: 4px 2px; color: var(--color-muted); font-size: 12px; white-space: nowrap; }
+.picker__ticks button.is-past { color: var(--color-text-secondary); }
+.picker__ticks button.is-active { color: var(--color-ink); font-weight: 600; }
 .composer.is-dragging .composer__box { border-style: dashed; border-color: var(--color-accent); }
 .pending { display: flex; flex-wrap: wrap; gap: 8px; max-width: 960px; margin: 0 auto 8px; }
 .pending__item {
@@ -1181,5 +1308,9 @@ onBeforeUnmount(() => {
   .thread { padding: 16px var(--mobile-gutter) 8px; }
   .composer { padding: 8px var(--mobile-gutter) 10px; }
   .picker__chip { max-width: 52vw; }
+  /* 手机上面板铺满输入框的宽度，不跟着按钮的位置走。 */
+  .composer__box { position: relative; }
+  .picker { position: static; }
+  .picker__panel { left: 0; right: 0; width: auto; max-width: none; }
 }
 </style>

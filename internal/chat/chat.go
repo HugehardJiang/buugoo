@@ -274,6 +274,7 @@ func (s *Service) prepare(ctx context.Context, u *store.User, conv *store.Conver
 		Preset:        preset,
 		Summary:       conv.Summary,
 		MaxTokens:     budget,
+		Channel:       conv.Channel,
 	})
 	return &prepared{conv: conv, history: history, prompt: p, userText: userText, images: images}, nil
 }
