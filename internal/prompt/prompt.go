@@ -42,6 +42,10 @@ type Input struct {
 	Summary string
 	// Channel 是这段对话所在的聊天软件（weixin、qq、telegram），网页上为空。决定公式怎么写：网页能渲染 LaTeX，聊天软件不能。
 	Channel string
+	// TrimStep 大于 1 时，历史放不下就一次舍弃这么多条（不会自动压缩时用，让开头保持不变、缓存能命中）。
+	TrimStep int
+	// ToolContext 是这一轮才有的工具信息（工作目录里的文件等），放在每轮变化的情境里。
+	ToolContext []string
 	// Temporary 表示临时对话（聊完就删、不会被记住）；Isolated 表示临时对话不参考记忆和心情。
 	Temporary bool
 	Isolated  bool
@@ -175,7 +179,8 @@ func (b *Builder) Build(in Input) Prompt {
 
 	// 历史：从最新往前取，直到预算用完。
 	historyBudget := maxTokens - used
-	start := len(in.History)
+	costs := make([]int, len(in.History))
+	start, cut := len(in.History), false
 	for i := len(in.History) - 1; i >= 0; i-- {
 		m := in.History[i]
 		if m.Role != store.RoleUser && m.Role != store.RoleAssistant {
@@ -186,11 +191,20 @@ func (b *Builder) Build(in Input) Prompt {
 			cost += EstimateTokens(m.Reasoning)
 		}
 		if cost > historyBudget {
+			cut = true
 			break
 		}
 		historyBudget -= cost
-		used += cost
+		costs[i] = cost
 		start = i
+	}
+	// 放不下全部历史时，按 TrimStep 条一段地舍弃最早的，而不是每轮多舍弃一条：
+	// 这样开头的聊天记录能连续好几轮保持不变，服务商的提示词缓存才能命中。
+	if step := in.TrimStep; cut && step > 1 && start < len(in.History) {
+		start = min(len(in.History)-1, (start+step-1)/step*step)
+	}
+	for _, c := range costs[start:] {
+		used += c
 	}
 	msgs := []llm.Message{{Role: llm.RoleSystem, Content: sys.String()}}
 	for _, m := range in.History[start:] {
@@ -261,6 +275,9 @@ func situationText(in Input) string {
 		fmt.Fprintf(&s, "\n- 你们上一次说话是 %s（%s）", timefmt.Full(last), humanizeGap(in.Now, last))
 	} else if !in.Temporary {
 		s.WriteString("\n- 这是你们第一次聊天")
+	}
+	for _, t := range in.ToolContext {
+		s.WriteString("\n- " + t)
 	}
 	if in.Temporary {
 		s.WriteString("\n- 这是对方开的临时对话：聊完就会删掉，你之后不会记得这次聊了什么，所以不要说「我记住了」，要记的事请对方在普通对话里说")

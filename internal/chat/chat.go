@@ -233,6 +233,7 @@ type turnInput struct {
 	attachments []store.Attachment
 	model       *models.Resolved
 	toolHints   string
+	toolContext []string
 	emotion     string
 	// skip 是不放进历史的消息（重新生成时的原消息）。
 	skip []uint64
@@ -273,6 +274,8 @@ func (s *Service) prepare(ctx context.Context, u *store.User, conv *store.Conver
 		HistoryImages: histImages,
 		KeepReasoning: in.toolHints != "" && in.model != nil && in.model.ThinkingStyle == store.ThinkingStyleDeepSeek,
 		ToolHints:     in.toolHints,
+		ToolContext:   in.toolContext,
+		TrimStep:      s.trimStep(),
 		Emotion:       in.emotion,
 		Preset:        preset,
 		Summary:       conv.Summary,
@@ -282,6 +285,15 @@ func (s *Service) prepare(ctx context.Context, u *store.User, conv *store.Conver
 		Isolated:      isolated(conv),
 	})
 	return &prepared{conv: conv, history: history, prompt: p, userText: userText, images: images}, nil
+}
+
+// trimStep 是历史放不下时一次舍弃的条数：会自动压缩时放不下就会压缩，一条条舍弃即可；
+// 不压缩时一次舍弃 16 条，开头的聊天记录能连续好几轮不变，提示词缓存才能命中。
+func (s *Service) trimStep() int {
+	if s.summarizer != nil {
+		return 1
+	}
+	return 16
 }
 
 // isolated 报告这段对话是不是不参考记忆和心情的临时对话。
@@ -318,7 +330,8 @@ func (s *Service) Preview(ctx context.Context, u *store.User, convID uint64, con
 	model, _ := s.models.Resolve(ctx, modelUser(u), conv.ModelID)
 	in := turnInput{content: content, model: model}
 	if model != nil {
-		in.toolHints = toolHints(s.toolSet(ctx, u, conv, model, nil))
+		set := s.toolSet(ctx, u, conv, model, nil)
+		in.toolHints, in.toolContext = toolHints(set), set.Context()
 	}
 	if s.emotion != nil && !isolated(conv) {
 		in.emotion, _ = s.emotion.Peek(ctx, u.ID)
@@ -448,7 +461,7 @@ func (s *Service) respond(ctx context.Context, u *store.User, conv *store.Conver
 			s.log.Warn("更新情绪失败", "user_id", u.ID, "err", err)
 		}
 	}
-	in := turnInput{content: content, attachments: atts, model: model, toolHints: toolHints(toolset), emotion: mood}
+	in := turnInput{content: content, attachments: atts, model: model, toolHints: toolHints(toolset), toolContext: toolset.Context(), emotion: mood}
 	if again != nil {
 		in.skip = []uint64{again.user.ID, again.oldReply}
 	}

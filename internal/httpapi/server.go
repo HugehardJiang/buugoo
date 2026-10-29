@@ -81,6 +81,7 @@ type server struct {
 	log         *slog.Logger
 	console     *consoleSessions
 	redeemGuard redeemGuard
+	live        *liveHub
 }
 
 const ctxUserKey = "buugoo.user"
@@ -90,7 +91,7 @@ func New(d Deps) http.Handler {
 	if d.Logger == nil {
 		d.Logger = slog.Default()
 	}
-	s := &server{Deps: d, log: d.Logger.With("component", "http"), console: &consoleSessions{tokens: map[string]time.Time{}}}
+	s := &server{Deps: d, log: d.Logger.With("component", "http"), console: &consoleSessions{tokens: map[string]time.Time{}}, live: newLiveHub()}
 
 	e := echo.New()
 	e.HideBanner = true
@@ -206,6 +207,8 @@ func New(d Deps) http.Handler {
 	priv.GET("/conversations/:id/messages", s.listConversationMessages)
 	priv.DELETE("/conversations/:id/messages/:mid", s.deleteMessage)
 	priv.POST("/conversations/:id/regenerate", s.regenerate)
+	priv.GET("/conversations/:id/live", s.liveReply)
+	priv.POST("/conversations/:id/stop", s.stopReply)
 	priv.GET("/messages", s.listMessages)
 	priv.POST("/chat", s.chat)
 	priv.GET("/models", s.listModels)

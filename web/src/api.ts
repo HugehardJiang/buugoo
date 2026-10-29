@@ -643,12 +643,14 @@ export const api = {
   updateConversation: (id: number, patch: { title?: string; model_id?: number | null; thinking?: Thinking; use_context?: boolean }) =>
     request<Conversation>('PATCH', `/conversations/${id}`, patch),
   deleteConversation: (id: number) => request<void>('DELETE', `/conversations/${id}`),
+  /** 停止正在后台生成的回复（已经生成的部分会保存） */
+  stopReply: (id: number) => request<void>('POST', `/conversations/${id}/stop`),
   /** 关页面时删掉临时对话（keepalive：页面关掉后请求也能发完） */
   discardConversation: (id: number) => {
     fetch(`/api/v1/conversations/${id}`, { method: 'DELETE', headers: headers(false), keepalive: true }).catch(() => {})
   },
   messages: (conversationId: number, beforeId = 0, limit = 50) =>
-    request<{ conversation_id: number; messages: Message[]; has_more: boolean }>(
+    request<{ conversation_id: number; messages: Message[]; has_more: boolean; generating?: boolean }>(
       'GET',
       `/conversations/${conversationId}/messages?limit=${limit}${beforeId ? `&before_id=${beforeId}` : ''}`,
     ),
@@ -772,13 +774,25 @@ export function regenerateChat(conversationId: number, h: ChatHandlers, signal?:
   return streamChat(`/api/v1/conversations/${conversationId}/regenerate`, {}, h, signal)
 }
 
-async function streamChat(url: string, body: unknown, h: ChatHandlers, signal?: AbortSignal): Promise<Message> {
+// followChat 接上一段正在后台生成的回复：先收到已经生成的部分，再接着收。没有在生成的回复时返回 null。
+export async function followChat(conversationId: number, h: ChatHandlers, signal?: AbortSignal): Promise<Message | null> {
+  return streamChat(`/api/v1/conversations/${conversationId}/live`, undefined, h, signal)
+}
+
+// isLostStream 报告是不是连接断了（手机切到后台、网络断开）：回复还在服务器上生成，可以重新接上。
+export function isLostStream(e: unknown) {
+  return e instanceof ApiError && (e.code === 'network' || e.code === 'stream')
+}
+
+async function streamChat(url: string, body: unknown, h: ChatHandlers, signal?: AbortSignal): Promise<Message>
+async function streamChat(url: string, body: undefined, h: ChatHandlers, signal?: AbortSignal): Promise<Message | null>
+async function streamChat(url: string, body: unknown, h: ChatHandlers, signal?: AbortSignal): Promise<Message | null> {
   let resp: Response
   try {
     resp = await fetch(url, {
-      method: 'POST',
-      headers: headers(true),
-      body: JSON.stringify(body),
+      method: body === undefined ? 'GET' : 'POST',
+      headers: headers(body !== undefined),
+      body: body === undefined ? undefined : JSON.stringify(body),
       signal,
     })
   } catch (e) {
@@ -786,6 +800,7 @@ async function streamChat(url: string, body: unknown, h: ChatHandlers, signal?: 
     throw new ApiError(0, 'network', '无法连接到服务器，请检查网络')
   }
   if (!resp.ok) throw await toError(resp)
+  if (resp.status === 204) return null
   if (!resp.body) throw new ApiError(0, 'stream', '浏览器不支持流式响应')
 
   const reader = resp.body.getReader()
@@ -793,7 +808,14 @@ async function streamChat(url: string, body: unknown, h: ChatHandlers, signal?: 
   let buf = ''
   let final: Message | null = null
   for (;;) {
-    const { value, done } = await reader.read()
+    let chunk: ReadableStreamReadResult<Uint8Array>
+    try {
+      chunk = await reader.read()
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') throw e
+      throw new ApiError(0, 'network', '连接断开了', resp.headers.get('X-Request-Id') ?? '', url)
+    }
+    const { value, done } = chunk
     if (done) break
     buf += decoder.decode(value, { stream: true })
     let idx: number

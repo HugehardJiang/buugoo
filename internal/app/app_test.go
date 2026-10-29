@@ -233,7 +233,9 @@ func TestSingleModeEndToEnd(t *testing.T) {
 			text += e.Data["text"].(string)
 		}
 	}
-	if strings.Join(names, ",") != "start,memories,delta,delta,done" || text != "好的，我知道了" {
+	// 网页还没读到的增量会合并成一段（后台生成），所以 delta 的个数不固定。
+	joined := strings.Join(names, ",")
+	if !strings.HasPrefix(joined, "start,memories,delta") || !strings.HasSuffix(joined, ",done") || text != "好的，我知道了" {
 		t.Fatalf("events=%v text=%q", names, text)
 	}
 

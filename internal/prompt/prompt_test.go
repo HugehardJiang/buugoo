@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -220,5 +221,27 @@ func TestReplyRulesFormula(t *testing.T) {
 	}
 	if wx := replyRulesText("布谷", "weixin"); !strings.Contains(wx, "不要用 LaTeX") {
 		t.Fatal(wx)
+	}
+}
+
+func TestTrimStepKeepsHistoryStart(t *testing.T) {
+	p, _ := persona.Load("")
+	b := NewBuilder(p, 12000)
+	var hist []store.Message
+	starts := map[int]bool{}
+	for n := 0; n < 120; n++ {
+		role := store.RoleUser
+		if n%2 == 1 {
+			role = store.RoleAssistant
+		}
+		hist = append(hist, store.Message{ID: uint64(n + 1), Role: role, Content: fmt.Sprintf("第%d条%s", n, strings.Repeat("话", 120))})
+		out := b.Build(Input{Now: time.Now(), History: hist, UserMessage: "嗯", TrimStep: 16})
+		starts[out.DroppedHistory] = true
+		if out.DroppedHistory%16 != 0 {
+			t.Fatalf("应按 16 条一段舍弃：%d", out.DroppedHistory)
+		}
+	}
+	if len(starts) < 2 || len(starts) > 8 {
+		t.Fatalf("开头变化太频繁：%v", starts)
 	}
 }

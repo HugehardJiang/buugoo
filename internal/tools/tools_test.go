@@ -390,8 +390,12 @@ func testWorkspaceRunner(t *testing.T, r Runner, ws *DirWorkspace) {
 	t.Helper()
 	ctx := context.Background()
 	set := New(Options{Python: r, Workspace: ws, Inputs: InputNames(ws.Inputs)})
-	if !strings.Contains(set.Defs()[0].Description, "input/ 目录（只读）：data.csv、data (2).csv") {
-		t.Fatalf("description: %s", set.Defs()[0].Description)
+	// 文件列表每轮会变，放在 Context 里，不放进工具说明（工具说明要每轮一样，缓存才能命中）。
+	if d := set.Defs()[0].Description; strings.Contains(d, "data.csv") || !strings.Contains(d, "input/ 目录（只读）") {
+		t.Fatalf("description: %s", d)
+	}
+	if c := strings.Join(set.Context(), ";"); !strings.Contains(c, "input/ 里有对方发的文件：data.csv、data (2).csv") {
+		t.Fatalf("context: %s", c)
 	}
 	run := func(code string) Result {
 		t.Helper()

@@ -6,6 +6,8 @@ import {
   ApiError,
   regenerateChat,
   sendChat,
+  followChat,
+  isLostStream,
   type ChatHandlers,
   type ModelPrice,
   type Attachment,
@@ -42,6 +44,8 @@ interface Item extends Message {
   key?: number
   // fresh 表示本次新发出的消息，出现时带入场动画。
   fresh?: boolean
+  // reconnecting 表示连接断了、回复还在服务器上生成，正在重新连接。
+  reconnecting?: boolean
 }
 
 // Pending 是输入框中待发送的文件：选择后立即上传，发送消息时带上已上传的 ID。
@@ -85,6 +89,10 @@ const renaming = ref(false)
 const renameText = ref('')
 const deleting = ref(false)
 let controller: AbortController | null = null
+// 回复在服务器上后台生成：切到别的对话时只是不再看它（detaching），回来再接上；只有点「停止」才会中断。
+let detaching = false
+// streamConv 是正在接收回复的对话。
+let streamConv = 0
 const pending = ref<Pending[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 const dragging = ref(false)
@@ -218,6 +226,7 @@ async function loadSide() {
 
 async function openConversation(id: number) {
   if (tempConv.value && tempConv.value.id !== id) discardTemp()
+  detach()
   currentId.value = id
   drawer.value = false
   items.value = []
@@ -233,6 +242,8 @@ async function openConversation(id: number) {
     if (currentId.value !== id) return
     items.value = r.messages
     hasMore.value = r.has_more
+    // 先标成「正在生成」再渲染，免得闪一下「已中断」。
+    if (r.generating) follow(id)
     await scrollToBottom(true)
   } catch (e) {
     loadError.value = errText(e, '加载失败')
@@ -270,7 +281,6 @@ async function loadMore() {
 }
 
 async function newConversation() {
-  if (sending.value) return
   // 当前对话还是空的就直接用它，避免堆出一串空对话。
   if (current.value && !isTemp.value && !items.value.length) {
     drawer.value = false
@@ -295,7 +305,6 @@ function replaceConv(c: Conversation) {
 
 // startTemporary 开一段临时对话：不保存、不写记忆、不影响心情；默认也不参考记忆和心情。
 async function startTemporary() {
-  if (sending.value) return
   if (isTemp.value) {
     textarea.value?.focus()
     return
@@ -572,6 +581,7 @@ async function send() {
   await scrollToBottom(true, true)
 
   controller = new AbortController()
+  streamConv = convId
   try {
     const final = await sendChat(
       convId,
@@ -586,7 +596,9 @@ async function send() {
     )
     Object.assign(r, { ...final, memories: r.memories, tools: final.tools ?? r.tools })
   } catch (e) {
-    if ((e as Error).name === 'AbortError') {
+    if (lostOrDetached(e, r, convId)) {
+      // 回复还在服务器上生成，回来时接上。
+    } else if ((e as Error).name === 'AbortError') {
       r.status = 'interrupted'
     } else {
       r.status = 'error'
@@ -602,6 +614,7 @@ async function send() {
     r.streaming = false
     sending.value = false
     controller = null
+    streamConv = 0
     scrollToBottom()
     // 上下文用量变了（可能刚压缩过，或者这一轮超过了阈值）。
     meter.value?.refresh()
@@ -663,11 +676,14 @@ async function regenerate() {
   const r = items.value[items.value.length - 1]
   await scrollToBottom(true, true)
   controller = new AbortController()
+  streamConv = convId
   try {
     const final = await regenerateChat(convId, replyHandlers(r), controller.signal)
     Object.assign(r, { ...final, memories: r.memories, tools: final.tools ?? r.tools })
   } catch (e) {
-    if ((e as Error).name === 'AbortError') {
+    if (lostOrDetached(e, r, convId)) {
+      // 回复还在服务器上生成，回来时接上。
+    } else if ((e as Error).name === 'AbortError') {
       r.status = 'interrupted'
     } else if (r.id < 0) {
       // 还没开始就失败了（例如超出限额），原来的回复还在。
@@ -681,6 +697,7 @@ async function regenerate() {
     r.streaming = false
     sending.value = false
     controller = null
+    streamConv = 0
     scrollToBottom()
     meter.value?.refresh()
   }
@@ -699,8 +716,107 @@ async function removeMessage(m: Item) {
   }
 }
 
-function stop() {
-  controller?.abort()
+// stop 停止生成：让服务器中断，已经生成的部分会保存下来并通过流发回来；服务器没响应就直接断开。
+async function stop() {
+  const id = streamConv
+  if (!id) return
+  try {
+    await api.stopReply(id)
+  } catch {
+    controller?.abort()
+  }
+}
+
+// detach 不再看正在生成的回复（切到别的对话时），回复在服务器上照样生成完。
+function detach() {
+  if (!controller) return
+  detaching = true
+  controller.abort()
+}
+
+// lostOrDetached 处理「连接断了」和「切走了」：回复还在服务器上生成，不算失败。
+function lostOrDetached(e: unknown, r: Item, convId: number) {
+  if (detaching && (e as Error).name === 'AbortError') {
+    detaching = false
+    return true
+  }
+  if (r.id > 0 && isLostStream(e)) {
+    r.reconnecting = true
+    whenVisible(() => resume(convId))
+    return true
+  }
+  return false
+}
+
+// resume 连接断了以后重新读这段对话、接上还在生成的回复；网络没恢复时每隔几秒再试，先显示的内容不清掉。
+async function resume(convId: number) {
+  for (let i = 0; i < 60; i++) {
+    if (currentId.value !== convId || sending.value) return
+    try {
+      const r = await api.messages(convId, 0, 50)
+      if (currentId.value !== convId || sending.value) return
+      items.value = r.messages
+      hasMore.value = r.has_more
+      if (r.generating) follow(convId)
+      await scrollToBottom(true)
+      return
+    } catch {
+      await new Promise((ok) => setTimeout(ok, document.visibilityState === 'visible' ? 2000 : 5000))
+    }
+  }
+}
+
+// whenVisible 在页面回到前台后执行（手机切回来时网络可能还没恢复，稍等一下）。
+function whenVisible(fn: () => void) {
+  if (document.visibilityState === 'visible') {
+    setTimeout(fn, 800)
+    return
+  }
+  const on = () => {
+    if (document.visibilityState !== 'visible') return
+    document.removeEventListener('visibilitychange', on)
+    setTimeout(fn, 800)
+  }
+  document.addEventListener('visibilitychange', on)
+}
+
+// follow 接上这段对话正在后台生成的回复：先显示已经生成的部分，再接着显示。
+async function follow(convId: number) {
+  if (sending.value || currentId.value !== convId) return
+  const r = [...items.value].reverse().find((m) => m.role === 'assistant')
+  if (!r) return
+  Object.assign(r, { content: '', reasoning: '', tools: [], status: 'complete', error: undefined, streaming: true })
+  sending.value = true
+  controller = new AbortController()
+  streamConv = convId
+  try {
+    const final = await followChat(convId, replyHandlers(r), controller.signal)
+    if (final) Object.assign(r, { ...final, memories: r.memories, tools: final.tools ?? r.tools })
+    else {
+      // 刚好已经生成完了：重新读一遍。
+      r.streaming = false
+      sending.value = false
+      controller = null
+      streamConv = 0
+      if (currentId.value === convId) await openConversation(convId)
+      return
+    }
+  } catch (e) {
+    if (!lostOrDetached(e, r, convId)) {
+      if ((e as Error).name === 'AbortError') r.status = 'interrupted'
+      else {
+        r.status = 'error'
+        r.error = errText(e, '这次没有回复成功')
+      }
+    }
+  } finally {
+    r.streaming = false
+    sending.value = false
+    controller = null
+    streamConv = 0
+    scrollToBottom()
+    meter.value?.refresh()
+  }
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -822,7 +938,7 @@ onBeforeUnmount(() => {
     <aside class="sidebar" :class="{ 'is-open': drawer }" aria-label="对话列表">
       <div class="sidebar__head">
         <span class="eyebrow">对话</span>
-        <button class="btn" :disabled="sending" @click="newConversation">
+        <button class="btn" @click="newConversation">
           <Icon name="plus" :size="16" />新对话
         </button>
       </div>
@@ -835,7 +951,6 @@ onBeforeUnmount(() => {
               :key="c.id"
               class="category-filter"
               :class="{ 'is-active': c.id === currentId }"
-              :disabled="sending && c.id !== currentId"
               @click="openConversation(c.id)"
             >
               <span><i v-if="c.channel" class="src-tag" :class="`src-tag--${c.channel}`">{{ channelLabels[c.channel] }}</i>{{ c.title || (c.channel ? `${channelLabels[c.channel]}里的聊天` : '新对话') }}</span>
@@ -864,7 +979,6 @@ onBeforeUnmount(() => {
               class="icon-btn"
               aria-label="开临时对话"
               title="临时对话：不保存聊天记录，不写进记忆、不影响心情"
-              :disabled="sending"
               @click="startTemporary"
             >
               <Icon name="ghost" :size="18" />
@@ -947,7 +1061,8 @@ onBeforeUnmount(() => {
               <div class="meta">
                 <span>{{ timeOf(row.item.created_at) }}</span>
                 <span v-if="row.item.role === 'assistant' && row.item.model && !row.item.streaming">· {{ row.item.model }}</span>
-                <span v-if="row.item.status === 'interrupted'">· 已停止</span>
+                <span v-if="row.item.reconnecting" class="reconnecting">· 连接断了，回复还在生成，正在重新连接…</span>
+                <span v-else-if="row.item.status === 'interrupted'">· 已停止</span>
                 <span v-if="row.item.status === 'error'" class="err">· {{ row.item.error || '这次没有回复成功' }}</span>
                 <button v-if="row.item.status === 'error'" type="button" class="chip-note diag" @click="copyDiag(row.item)">复制诊断信息</button>
                 <span v-if="row.item.id > 0 && !row.item.streaming" class="msg-actions">
@@ -1337,6 +1452,7 @@ onBeforeUnmount(() => {
 .picker__think-box { margin-top: 8px; padding: 10px 10px 4px; border-top: 1px solid var(--color-divider); }
 .picker__think-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; color: var(--color-muted); font-size: 12px; font-weight: 600; letter-spacing: .04em; }
 .picker__think-head strong { color: var(--color-ink); font-size: 13px; letter-spacing: 0; }
+.reconnecting { animation: breathe 1.6s ease-in-out infinite; }
 .temp-end { color: var(--color-text-secondary); }
 .empty__icon { display: inline-grid; place-items: center; width: 52px; height: 52px; margin-bottom: 14px; border-radius: 16px; background: var(--color-canvas-soft); color: var(--color-text-secondary); }
 .temp-bar {

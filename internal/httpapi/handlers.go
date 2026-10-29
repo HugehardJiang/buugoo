@@ -436,6 +436,8 @@ func (s *server) messages(c echo.Context, convID uint64) error {
 		"conversation_id": conv.ID,
 		"messages":        out,
 		"has_more":        len(msgs) == limit,
+		// generating 表示这段对话有回复正在后台生成（用 /live 接上）。
+		"generating": s.live.busy(u.ID, conv.ID),
 	})
 }
 

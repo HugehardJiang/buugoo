@@ -61,6 +61,7 @@ type Set struct {
 	handlers map[string]handler
 	labels   map[string]string
 	hints    []string
+	context  []string
 }
 
 // Options 决定提供哪些工具。
@@ -124,12 +125,17 @@ func New(o Options) *Set {
 		}
 		files := ""
 		if o.Workspace != nil {
-			files = "。当前目录是这段对话专属的工作目录，保存在这里的文件之后的运行还能用"
+			// 工具说明每轮都要一样（服务商的提示词缓存才能命中），现在有哪些文件放进每轮变化的〔此刻〕里。
+			files = "。当前目录是这段对话专属的工作目录，保存在这里的文件之后的运行还能用；用户在这段对话里发的文件在 input/ 目录（只读）"
+			var now []string
 			if len(o.Saved) > 0 {
-				files += "（现在有：" + strings.Join(o.Saved, "、") + "）"
+				now = append(now, "工作目录里现在有："+strings.Join(o.Saved, "、"))
 			}
 			if len(o.Inputs) > 0 {
-				files += "；用户在这段对话里发的文件在 input/ 目录（只读）：" + strings.Join(o.Inputs, "、")
+				now = append(now, "input/ 里有对方发的文件："+strings.Join(o.Inputs, "、"))
+			}
+			if len(now) > 0 {
+				s.context = append(s.context, "运行代码的"+strings.Join(now, "；"))
 			}
 		}
 		// 画图：保存到当前目录的图片或没有关闭的 matplotlib 图表会直接显示给用户。
@@ -227,6 +233,15 @@ func (s *Set) Label(name string) string {
 		}
 	}
 	return Label(name)
+}
+
+// Context 返回这一轮才有的工具信息（例如工作目录里现在有哪些文件），放进每轮变化的那部分提示词，
+// 不放进工具说明，免得每次有新文件都让提示词缓存失效。
+func (s *Set) Context() []string {
+	if s == nil {
+		return nil
+	}
+	return s.context
 }
 
 // Hints 返回其他模块提供的工具说明（写进系统提示词）。

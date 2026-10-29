@@ -118,7 +118,7 @@ func (s *Service) RunTask(ctx context.Context, u *store.User, task string) (*Pro
 	instruction := "（这不是对方发来的消息，对方现在没有说话。对方之前让你定时做一件事，现在到时间了（" + now.Format("01-02 15:04 Mon") + "）：「" + task + "」。" +
 		"现在就去做：需要最新信息时先用工具搜索、读网页，需要计算或处理数据时运行代码，不要凭印象编。" +
 		"做完后主动把结果发给对方：像朋友在微信上那样说，简洁、挑重点；不要提「定时任务」「系统」这类词，也不要假装对方刚说过什么。）"
-	p, err := s.prepare(ctx, u, conv, turnInput{content: instruction, model: model, toolHints: toolHints(toolset), emotion: mood})
+	p, err := s.prepare(ctx, u, conv, turnInput{content: instruction, model: model, toolHints: toolHints(toolset), toolContext: toolset.Context(), emotion: mood})
 	if err != nil {
 		return nil, err
 	}
