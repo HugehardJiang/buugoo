@@ -7,6 +7,7 @@ import {
   regenerateChat,
   sendChat,
   type ChatHandlers,
+  type ModelPrice,
   type Attachment,
   type PersonaPreset,
   type Usage,
@@ -295,7 +296,7 @@ const pickerSearch = ref<HTMLInputElement | null>(null)
 const modelQuery = ref('')
 const isMulti = computed(() => session.meta?.mode === 'multi')
 // 计费开着时各公共模型现在的价格（元 / 百万 token）；没开计费时为 null。
-const modelPrices = ref<Record<string, { input?: number; cache_input?: number; output?: number }> | null>(null)
+const modelPrices = ref<Record<string, ModelPrice> | null>(null)
 const pricePeak = ref(false)
 
 watch(pickerOpen, async (v) => {
@@ -323,17 +324,23 @@ function yuanPrice(x?: number) {
   return x >= 100 ? x.toFixed(0) : x >= 10 ? x.toFixed(1).replace(/\.0$/, '') : x.toFixed(2).replace(/\.?0+$/, '')
 }
 
-// modelPrice 返回模型旁边显示的价格和悬停说明。
-function modelPrice(m: ModelView): { text: string; title: string } | null {
+// modelPrice 返回模型旁边显示的价格（现在这个时段的）、时段标签和悬停说明。
+function modelPrice(m: ModelView): { text: string; title: string; tag?: string } | null {
   if (m.scope === 'personal' && isMulti.value) return { text: '自己的 Key', title: '用你自己的 API Key，不扣余额' }
   if (!modelPrices.value) return null
   const p = modelPrices.value[String(m.id)]
   if (!p || (!p.input && !p.output)) return { text: '免费', title: '这个模型不扣余额' }
-  const when = pricePeak.value ? '（现在是高峰时段）' : ''
-  return {
-    text: `¥${yuanPrice(p.input)} / ${yuanPrice(p.output)}`,
-    title: `每百万 token${when}：输入 ¥${yuanPrice(p.input)}，输出 ¥${yuanPrice(p.output)}${p.cache_input ? `，命中缓存的输入 ¥${yuanPrice(p.cache_input)}` : ''}`,
+  const line = (x: { input?: number; cache_input?: number; output?: number }) =>
+    `输入 ¥${yuanPrice(x.input)}，输出 ¥${yuanPrice(x.output)}${x.cache_input ? `，命中缓存 ¥${yuanPrice(x.cache_input)}` : ''}`
+  if (p.off_peak) {
+    const now = pricePeak.value ? p : p.off_peak
+    return {
+      text: `¥${yuanPrice(now.input)} / ${yuanPrice(now.output)}`,
+      tag: pricePeak.value ? '高峰' : '空闲',
+      title: `分时段计价，每百万 token\n高峰：${line(p)}\n空闲：${line(p.off_peak)}\n现在是${pricePeak.value ? '高峰' : '空闲'}时段`,
+    }
   }
+  return { text: `¥${yuanPrice(p.input)} / ${yuanPrice(p.output)}`, title: `每百万 token：${line(p)}` }
 }
 
 // 思考等级滑块：在可选等级之间拖动或点刻度。
@@ -1012,7 +1019,10 @@ onBeforeUnmount(() => {
                       </span>
                       <small class="picker__opt-meta">
                         <span>{{ modelTraits(m) }}</span>
-                        <span v-if="modelPrice(m)" class="picker__price" :title="modelPrice(m)!.title">{{ modelPrice(m)!.text }}</span>
+                        <span v-if="modelPrice(m)" class="picker__price" :title="modelPrice(m)!.title">
+                          <span v-if="modelPrice(m)!.tag" class="picker__tag" :class="{ 'is-peak': modelPrice(m)!.tag === '高峰' }">{{ modelPrice(m)!.tag }}</span>
+                          {{ modelPrice(m)!.text }}
+                        </span>
                       </small>
                     </button>
                   </template>
@@ -1247,7 +1257,9 @@ onBeforeUnmount(() => {
 .picker__check { flex-shrink: 0; color: var(--color-accent); }
 .picker__opt small { display: block; color: var(--color-muted); font-size: 12px; line-height: 1.4; }
 .picker__opt-meta { display: flex !important; justify-content: space-between; gap: 10px; }
-.picker__price { flex-shrink: 0; font-variant-numeric: tabular-nums; color: var(--color-text-secondary); }
+.picker__price { flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; color: var(--color-text-secondary); }
+.picker__tag { padding: 0 5px; border-radius: 4px; background: var(--color-accent-tint, rgba(91, 122, 74, .12)); color: var(--color-accent-active); font-size: 10px; line-height: 16px; }
+.picker__tag.is-peak { background: rgba(181, 120, 40, .12); color: #9a5b12; }
 .picker__empty { margin: 12px 8px; color: var(--color-muted); font-size: 13px; }
 .picker__note { margin: 6px 8px 0; color: var(--color-muted); font-size: 11px; line-height: 1.5; }
 .picker__think-box { margin-top: 8px; padding: 10px 10px 4px; border-top: 1px solid var(--color-divider); }

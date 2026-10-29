@@ -26,7 +26,8 @@ func (s *server) listModels(c echo.Context) error {
 		ms = []models.View{}
 	}
 	out := map[string]any{"models": ms}
-	// 计费开着时带上每个公共模型现在的价格（元 / 百万 token，分高峰和空闲时按现在的时段），选模型时显示。
+	// 计费开着时带上每个公共模型的价格（元 / 百万 token），选模型时显示。分时段计价的模型带上空闲价，
+	// peak 表示现在是不是高峰时段。
 	if s.Billing != nil {
 		p := s.Billing.Pricing(c.Request().Context())
 		peak := p.IsPeak(time.Now())
@@ -39,10 +40,9 @@ func (s *server) listModels(c echo.Context) error {
 			if !ok {
 				continue
 			}
-			if p.Peak != nil && !peak && pr.OffPeak != nil {
-				pr = *pr.OffPeak
+			if p.Peak == nil {
+				pr.OffPeak = nil // 没开分时段计价时全天一个价
 			}
-			pr.OffPeak = nil
 			prices[m.ID] = pr
 		}
 		out["prices"] = prices

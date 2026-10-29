@@ -425,6 +425,14 @@ export interface Pricing {
   peak?: PeakRule
 }
 
+/** 模型价格（元 / 百万 token）；off_peak 是分时段计价时的空闲价 */
+export interface ModelPrice {
+  input?: number
+  cache_input?: number
+  output?: number
+  off_peak?: { input?: number; cache_input?: number; output?: number }
+}
+
 export interface Todo {
   id: number
   title: string
@@ -637,7 +645,7 @@ export const api = {
     ),
   /** prices：计费开着时各公共模型现在的价格（元 / 百万 token）；peak：现在是不是高峰时段 */
   models: () =>
-    request<{ models: ModelView[]; prices?: Record<string, { input?: number; cache_input?: number; output?: number }>; peak?: boolean }>('GET', '/models'),
+    request<{ models: ModelView[]; prices?: Record<string, ModelPrice>; peak?: boolean }>('GET', '/models'),
   createModel: (input: ModelInput) => request<ModelView>('POST', '/models', input),
   updateModel: (id: number, input: ModelInput) => request<ModelView>('PUT', `/models/${id}`, input),
   deleteModel: (id: number) => request<void>('DELETE', `/models/${id}`),
