@@ -1311,7 +1311,7 @@ onBeforeUnmount(() => {
 .thread { max-width: 760px; margin: 0 auto; padding: 24px 32px 12px; }
 .more { text-align: center; margin-bottom: 12px; }
 .empty { margin-top: 14vh; text-align: center; }
-.empty h2 { font-size: 30px; line-height: 1.2; margin-bottom: 10px; }
+.empty h2 { font-size: clamp(30px, 4vw, 40px); line-height: 1.15; letter-spacing: -.015em; margin-bottom: 12px; }
 .empty p { font-size: 16px; line-height: 1.65; margin: 0; }
 .day { display: flex; align-items: center; gap: 12px; margin: 22px 0 14px; color: var(--color-muted); font-size: 12px; }
 .day::before, .day::after { content: ''; flex: 1; height: 1px; background: var(--color-divider); }
@@ -1345,17 +1345,17 @@ onBeforeUnmount(() => {
 .msg.user { align-items: flex-end; }
 .msg.user :deep(.att-list) { margin-bottom: 6px; }
 .bubble {
-  max-width: min(560px, 86%); padding: 9px 14px; border-radius: 16px 16px 4px 16px; background: var(--color-accent-tint);
+  max-width: min(560px, 86%); padding: 10px 15px; border-radius: 18px 18px 4px 18px; background: var(--color-accent-tint);
   color: var(--color-ink); font-size: 16px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
 }
 /* 助手的回复像微信一样拆成几条气泡，一条条冒出来 */
 .bubbles { display: grid; gap: 6px; justify-items: start; max-width: min(640px, 92%); }
 .bubbles:empty { display: none; }
 .bubble--bot {
-  max-width: 100%; min-width: 0; border: 1px solid var(--color-divider); border-radius: 4px 16px 16px 16px; background: var(--color-surface);
+  max-width: 100%; min-width: 0; border-radius: 4px 18px 18px 18px; background: var(--color-card);
   white-space: normal;
 }
-.bubble--bot + .bubble--bot { border-top-left-radius: 16px; }
+.bubble--bot + .bubble--bot { border-top-left-radius: 18px; }
 .bubble--bot :deep(pre) { max-width: 100%; }
 .bubble--bot :deep(.math-display) { max-width: 100%; }
 .is-fresh .bubble--bot { animation: bubble-in 320ms var(--ease-editorial) both; transform-origin: left top; }
@@ -1393,11 +1393,11 @@ onBeforeUnmount(() => {
 .recalled .badge-pill { flex-shrink: 0; background: var(--color-surface); }
 .composer { padding: 10px 32px calc(14px + env(safe-area-inset-bottom)); }
 .composer__box {
-  display: flex; flex-direction: column; max-width: 960px; margin: 0 auto; padding: 10px 10px 8px 14px;
-  border: 1px solid var(--color-hairline-strong); border-radius: var(--radius-xl); background: var(--color-surface);
-  transition: border-color .18s ease, box-shadow .18s ease;
+  display: flex; flex-direction: column; max-width: 960px; margin: 0 auto; padding: 12px 12px 10px 16px;
+  border: 1px solid var(--color-divider); border-radius: var(--radius-card); background: var(--color-surface);
+  box-shadow: 0 4px 20px rgba(20, 20, 19, .04); transition: border-color .18s ease, box-shadow .18s ease;
 }
-.composer__box:focus-within { border-color: var(--color-accent); box-shadow: 0 0 0 3px rgba(91, 122, 74, .14); }
+.composer__box:focus-within { border-color: var(--color-hairline-strong); box-shadow: 0 6px 28px rgba(20, 20, 19, .08); }
 .composer__input {
   width: 100%; min-height: 44px; max-height: 220px; padding: 4px 4px 6px 0; border: 0; outline: 0; resize: none;
   background: transparent; color: var(--color-ink); font-size: 15px; line-height: 1.6;
