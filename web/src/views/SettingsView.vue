@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, ApiError, type Invite } from '../api'
 import AgentPanel from '../components/AgentPanel.vue'
@@ -10,6 +10,7 @@ import Modal from '../components/Modal.vue'
 import ModelsPanel from '../components/ModelsPanel.vue'
 import PersonaPanel from '../components/PersonaPanel.vue'
 import { dateTime } from '../format'
+import Icon from '../Icon.vue'
 import { memoriesUnlocked, setMemoriesUnlocked } from '../memoryLock'
 import { session } from '../session'
 import { toast } from '../toast'
@@ -100,14 +101,44 @@ async function copy(text: string) {
   }
 }
 
-onMounted(async () => {
-  await load()
-  // 从聊天页的提示跳转过来时滚动到对应区块。
-  if (route.hash) {
-    await nextTick()
-    document.querySelector(route.hash)?.scrollIntoView({ block: 'start' })
-  }
+onMounted(load)
+
+// 左边分类、右边内容（参考 claude.ai 的设置）。分类记在地址的 #hash 里，旧链接（#models 等）照样能打开。
+type IconName = 'message' | 'sparkle' | 'code' | 'grid' | 'brain' | 'refresh' | 'globe' | 'link' | 'settings'
+interface Tab { id: string; label: string; icon: IconName; group: string; keys: string }
+const tabs = computed<Tab[]>(() => [
+  { id: 'agent', label: '牛马', icon: 'message', group: '偏好', keys: '设置助手 agent' },
+  { id: 'persona', label: '性格', icon: 'sparkle', group: '偏好', keys: '人格 预设 风格' },
+  { id: 'models', label: '模型', icon: 'code', group: '偏好', keys: 'api key opencode 思考' },
+  { id: 'extensions', label: '技能与插件', icon: 'grid', group: '偏好', keys: 'skill mcp 插件' },
+  { id: 'memory', label: '大脑皮层', icon: 'brain', group: '偏好', keys: '记忆 心情 情绪 整理' },
+  ...(isAdmin.value
+    ? [
+        { id: 'utility', label: '辅助模型', icon: 'refresh' as const, group: '管理', keys: '后台 记忆整理' },
+        { id: 'embedding', label: '向量模型', icon: 'globe' as const, group: '管理', keys: 'embedding 记忆检索' },
+      ]
+    : []),
+  ...(isMulti.value && isAdmin.value ? [{ id: 'invites', label: '邀请码', icon: 'link' as const, group: '管理', keys: '注册 邀请' }] : []),
+  ...(isAdmin.value || !isMulti.value ? [{ id: 'console', label: '管理后台', icon: 'settings' as const, group: '管理', keys: '系统设置 用户 计费' }] : []),
+])
+const query = ref('')
+const groups = computed(() => {
+  const q = query.value.trim().toLowerCase()
+  const hit = tabs.value.filter((t) => !q || `${t.label} ${t.keys}`.toLowerCase().includes(q))
+  return ['偏好', '管理'].map((g) => ({ label: g, items: hit.filter((t) => t.group === g) })).filter((g) => g.items.length)
 })
+const tab = ref('persona')
+watch(
+  [() => route.hash, tabs],
+  () => {
+    const id = route.hash.replace('#', '')
+    tab.value = tabs.value.some((t) => t.id === id) ? id : 'persona'
+  },
+  { immediate: true },
+)
+function pick(id: string) {
+  router.replace({ hash: `#${id}` })
+}
 </script>
 
 <template>
@@ -118,24 +149,47 @@ onMounted(async () => {
       </div>
     </header>
 
-    <div class="page">
-      <div class="page__inner">
+    <div class="page settings-page">
+      <div class="settings">
+        <nav class="settings__nav" aria-label="设置分类">
+          <label class="settings__search">
+            <Icon name="search" :size="15" />
+            <input v-model="query" type="search" placeholder="搜索" aria-label="搜索设置" />
+          </label>
+          <template v-for="g in groups" :key="g.label">
+            <p class="settings__group">{{ g.label }}</p>
+            <button
+              v-for="t in g.items"
+              :key="t.id"
+              type="button"
+              class="settings__tab"
+              :class="{ 'is-active': tab === t.id }"
+              :aria-current="tab === t.id ? 'page' : undefined"
+              @click="pick(t.id)"
+            >
+              <Icon :name="t.icon" :size="17" />{{ t.label }}
+            </button>
+          </template>
+          <p v-if="!groups.length" class="caption settings__none">没有找到</p>
+        </nav>
+
+      <div class="settings__content">
         <p v-if="error" class="form-flash form-flash--error">{{ error }}</p>
         <p v-if="message" class="form-flash">{{ message }}</p>
 
-        <AgentPanel />
+        <AgentPanel v-if="tab === 'agent'" />
 
-        <PersonaPanel />
+        <PersonaPanel v-if="tab === 'persona'" />
 
-        <ModelsPanel />
+        <ModelsPanel v-if="tab === 'models'" />
 
-        <ExtensionsPanel />
+        <ExtensionsPanel v-if="tab === 'extensions'" />
 
-        <UtilityPanel v-if="isAdmin" />
+        <UtilityPanel v-if="isAdmin && tab === 'utility'" />
 
-        <EmbeddingPanel v-if="isAdmin" />
+        <EmbeddingPanel v-if="isAdmin && tab === 'embedding'" />
 
-        <section id="memory" class="panel panel--inset">
+        <section v-if="tab === 'memory'" id="memory" class="panel panel--inset">
           <h2>大脑皮层</h2>
           <template v-if="memoriesUnlocked">
             <p class="muted">已经翻开，可以在导航里的「大脑皮层」查看{{ name }}记住的事和此刻的心情。</p>
@@ -159,7 +213,7 @@ onMounted(async () => {
           </div>
         </section>
 
-        <section v-if="isMulti && isAdmin" class="panel panel--inset">
+        <section v-if="isMulti && isAdmin && tab === 'invites'" class="panel panel--inset">
           <h2>邀请码</h2>
           <form class="invite-form" @submit.prevent="createInvite">
             <div class="field">
@@ -189,7 +243,7 @@ onMounted(async () => {
           </div>
         </section>
 
-        <section v-if="isAdmin || !isMulti" class="panel panel--inset">
+        <section v-if="(isAdmin || !isMulti) && tab === 'console'" class="panel panel--inset">
           <h2>管理后台</h2>
           <p class="muted">在网页上查看和修改全部系统设置（需要管理员密码）。修改后需要在服务器上重启服务才会生效。</p>
           <div class="actions">
@@ -198,6 +252,7 @@ onMounted(async () => {
         </section>
 
         <p class="caption version">BUUGOO {{ session.meta?.version }}</p>
+      </div>
 
         <Modal
           :open="peeking"
@@ -217,6 +272,39 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* 左边分类、右边内容（参考 claude.ai 的设置） */
+.settings-page { padding-top: 8px; }
+.settings { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; max-width: 1040px; margin: 0 auto; }
+.settings__nav { position: sticky; top: 0; align-self: start; display: grid; gap: 1px; min-width: 0; }
+.settings__search {
+  display: flex; align-items: center; gap: 8px; height: 36px; margin-bottom: 14px; padding: 0 10px;
+  border: 1px solid var(--color-divider); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-muted);
+}
+.settings__search input { flex: 1; width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--color-ink); font-size: 14px; }
+.settings__group { margin: 12px 10px 6px; color: var(--color-muted); font-size: 13px; }
+.settings__group:first-of-type { margin-top: 0; }
+.settings__tab {
+  display: flex; align-items: center; gap: 11px; height: 38px; padding: 0 10px; border-radius: var(--radius-md);
+  color: var(--color-ink); font-size: 15px; text-align: left; transition: background-color .15s ease;
+}
+.settings__tab :deep(svg) { color: var(--color-text-secondary); }
+.settings__tab:hover { background: var(--color-hover-wash); }
+.settings__tab.is-active { background: rgba(20, 20, 19, .075); }
+.settings__none { margin: 4px 10px; }
+/* 右边的内容不用卡片底色：标题 + 细分隔线（和 claude.ai 一样） */
+.settings__content { min-width: 0; padding-bottom: 24px; }
+.settings__content :deep(.panel) { padding: 0; border-radius: 0; background: transparent; }
+.settings__content :deep(.panel + .panel) { margin-top: 36px; }
+.settings__content :deep(.panel > h2), .settings__content :deep(.panel > header h2), .settings__content :deep(.panel h2:first-child) {
+  margin-bottom: 8px; font-size: 18px; font-weight: 600;
+}
+@media (max-width: 767px) {
+  .settings { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .settings__nav { position: static; display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+  .settings__search, .settings__group { display: none; }
+  .settings__tab { flex-shrink: 0; height: 34px; padding: 0 12px; border: 1px solid var(--color-divider); border-radius: var(--radius-pill); font-size: 14px; white-space: nowrap; }
+  .settings__tab :deep(svg) { display: none; }
+}
 .panel p { margin: 0; }
 .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
 .invite-form { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 0 12px; align-items: start; }

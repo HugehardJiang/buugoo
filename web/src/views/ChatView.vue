@@ -33,6 +33,7 @@ import { dayKey, dayLabel, formatSize, renderMarkdown, shortWhen, timeOf } from 
 import { memoriesUnlocked } from '../memoryLock'
 import Collapse from '../components/Collapse.vue'
 import { session } from '../session'
+import { recentQuery, wideScreen } from '../sidebarState'
 import { toast } from '../toast'
 import { copyDiagnostics } from '../diag'
 
@@ -260,7 +261,20 @@ async function loadInitial() {
   const wanted = Number(route.query.c)
   const target = convs.value.find((c) => c.id === wanted) ?? convs.value[0]
   if (target) await openConversation(target.id)
+  if (route.query.new) await startNewFromSidebar()
 }
+
+// 侧栏的「新对话」：跳到 /?new=… ，这里新建（或复用空的）对话。
+async function startNewFromSidebar() {
+  await newConversation()
+  textarea.value?.focus()
+}
+watch(
+  () => route.query.new,
+  (v, old) => {
+    if (v && v !== old && convs.value.length) startNewFromSidebar()
+  },
+)
 
 async function loadMore() {
   if (!items.value.length || loadingMore.value) return
@@ -839,10 +853,24 @@ function toolFiles(m: Item): Attachment[] {
 }
 const channelLabels: Record<string, string> = { weixin: '微信', qq: 'QQ', telegram: 'Telegram' }
 // 对话列表分两类：网页上的普通聊天，和微信、QQ、Telegram 里的外部聊天（每个聊天软件一段对话）。
+// 侧栏「搜索」里输入的词筛选对话。
+const shownConvs = computed(() => {
+  const q = recentQuery.value.trim().toLowerCase()
+  return q ? convs.value.filter((c) => (c.title || '新对话').toLowerCase().includes(q)) : convs.value
+})
 const convSections = computed(() => [
-  { key: 'web', label: '普通聊天', items: convs.value.filter((c) => !c.channel) },
-  { key: 'ext', label: '外部聊天', items: convs.value.filter((c) => !!c.channel) },
+  { key: 'web', label: '普通聊天', items: shownConvs.value.filter((c) => !c.channel) },
+  { key: 'ext', label: '外部聊天', items: shownConvs.value.filter((c) => !!c.channel) },
 ])
+
+// 空对话时的问候（参考 claude.ai：问候和输入框一起放在页面中间）。
+const greeting = computed(() => {
+  const h = new Date().getHours()
+  const part = h < 5 ? '夜深了' : h < 11 ? '早上好' : h < 13 ? '中午好' : h < 18 ? '下午好' : '晚上好'
+  const who = session.user?.display_name || session.user?.username || ''
+  return who ? `${part}，${who}` : part
+})
+const isEmpty = computed(() => !items.value.length && !loadError.value && !!current.value)
 
 function toggle(which: 'memories' | 'thinking', id: number) {
   // id 是 uid(item)
@@ -935,14 +963,16 @@ onBeforeUnmount(() => {
     <Transition name="fade">
       <div v-if="drawer" class="drawer-backdrop" @click="drawer = false" />
     </Transition>
-    <aside class="sidebar" :class="{ 'is-open': drawer }" aria-label="对话列表">
+    <aside class="sidebar" :class="{ 'is-open': drawer, 'is-merged': wideScreen }" aria-label="对话列表">
       <div class="sidebar__head">
         <span class="eyebrow">对话</span>
         <button class="btn" @click="newConversation">
           <Icon name="plus" :size="16" />新对话
         </button>
       </div>
-      <nav class="sidebar__list" aria-label="对话">
+      <!-- 宽屏时对话列表放进左侧合并的侧栏（App.vue 的 #app-recents），和 claude.ai 一样 -->
+      <Teleport to="#app-recents" :disabled="!wideScreen" defer>
+      <nav class="sidebar__list" :class="{ 'is-side': wideScreen }" aria-label="对话">
         <template v-for="sec in convSections" :key="sec.key">
           <p v-if="sec.items.length || sec.key === 'web'" class="conv-sec">{{ sec.label }}</p>
           <TransitionGroup tag="div" name="list" class="category-filter-list">
@@ -957,20 +987,21 @@ onBeforeUnmount(() => {
               <small>{{ shortWhen(c.last_message_at ?? c.created_at) }}</small>
             </button>
           </TransitionGroup>
-          <p v-if="sec.key === 'web' && !sec.items.length" class="caption conv-empty">还没有网页上的对话</p>
+          <p v-if="sec.key === 'web' && !sec.items.length" class="caption conv-empty">{{ recentQuery ? '没有找到' : '还没有网页上的对话' }}</p>
         </template>
       </nav>
+      </Teleport>
       <p class="caption sidebar__foot">每段对话各自独立，但{{ name }}记得的事在所有对话里都通用。</p>
     </aside>
 
-    <main class="main chat">
+    <main class="main chat" :class="{ 'is-empty': isEmpty }">
       <header class="topbar">
         <button class="icon-btn menu-btn" aria-label="对话列表" @click="drawer = true"><Icon name="menu" /></button>
         <div class="topbar__titles">
-          <h1 class="conv-title">{{ title }}</h1>
+          <h1 v-if="!isEmpty || isTemp" class="conv-title">{{ title }}</h1>
         </div>
         <div v-if="current" class="topbar__actions">
-          <ContextMeter ref="meter" :conversation-id="currentId" :busy="sending" @status="(s) => (compactPending = !!s?.pending)" />
+          <span v-show="!isEmpty" class="meter-wrap"><ContextMeter ref="meter" :conversation-id="currentId" :busy="sending" @status="(s) => (compactPending = !!s?.pending)" /></span>
           <template v-if="isTemp">
             <button class="btn btn-sm temp-end" :disabled="sending" title="结束并删除这段临时对话" @click="endTemporary">结束<span class="hide-sm">临时对话</span></button>
           </template>
@@ -983,8 +1014,10 @@ onBeforeUnmount(() => {
             >
               <Icon name="ghost" :size="18" />
             </button>
-            <button class="icon-btn" aria-label="重命名对话" title="重命名" @click="startRename"><Icon name="edit" :size="18" /></button>
-            <button class="icon-btn" aria-label="删除对话" title="删除" :disabled="sending" @click="deleting = true"><Icon name="trash" :size="18" /></button>
+            <template v-if="!isEmpty">
+              <button class="icon-btn" aria-label="重命名对话" title="重命名" @click="startRename"><Icon name="edit" :size="18" /></button>
+              <button class="icon-btn" aria-label="删除对话" title="删除" :disabled="sending" @click="deleting = true"><Icon name="trash" :size="18" /></button>
+            </template>
           </template>
         </div>
       </header>
@@ -1015,8 +1048,7 @@ onBeforeUnmount(() => {
               <p class="muted">这里聊的不会保存，不会写进{{ name }}的记忆，也不会影响它的心情。点「结束」或离开这个页面就删掉。</p>
             </div>
             <div v-else-if="!items.length && !loadError && current" key="normal" class="empty">
-              <h2>最近过得怎么样。</h2>
-              <p class="muted">随便说点什么。{{ name }}会记住你提到的事，下次自然地接上。</p>
+              <h2 class="greet"><img src="/logo.png" alt="" class="greet__logo" />{{ greeting }}</h2>
               <RouterLink v-if="persona" to="/settings#persona" class="persona-chip" title="换一种性格">
                 <Icon name="sparkle" :size="14" />
                 <span>现在的性格：{{ persona.label === '默认' ? '默认' : persona.label }}</span>
@@ -1307,6 +1339,30 @@ onBeforeUnmount(() => {
 .link { color: var(--color-accent-active); text-decoration: underline; text-underline-offset: 3px; }
 
 .chat { min-height: 0; }
+/* 空对话：问候和输入框一起放在页面中间（参考 claude.ai） */
+.chat.is-empty .scroller { display: flex; flex: 1 1 0; flex-direction: column; justify-content: flex-end; }
+.chat.is-empty .thread { width: 100%; padding-bottom: 20px; }
+.chat.is-empty .composer { flex: 1 1 0; }
+.chat.is-empty .empty { margin-top: 0; }
+.meter-wrap { display: inline-flex; align-items: center; }
+.chat.is-empty .composer__input { min-height: 72px; }
+.greet {
+  display: flex; align-items: center; justify-content: center; gap: 12px; margin: 0 0 6px;
+  font-family: var(--font-display); font-size: clamp(28px, 3.4vw, 38px); font-weight: 500; letter-spacing: -.015em; line-height: 1.2;
+}
+.greet__logo { width: 1.05em; height: 1.05em; object-fit: contain; }
+/* 放进左侧合并侧栏的对话列表：和 claude.ai 的「最近」一样，只显示标题 */
+.sidebar.is-merged { display: none; }
+.sidebar__list.is-side { flex: none; overflow: visible; padding: 0; }
+.is-side .category-filter-list { gap: 1px; }
+.is-side .category-filter { min-height: 36px; padding: 0 10px; color: var(--color-ink); font-size: 14.5px; }
+.is-side .category-filter::before, .is-side .category-filter small { display: none; }
+.is-side .category-filter > span { padding-left: 0; }
+.is-side .category-filter:hover { background: var(--color-hover-wash); }
+.is-side .category-filter.is-active { background: rgba(20, 20, 19, .075); }
+.is-side .conv-sec { margin: 12px 10px 4px; font-size: 12px; }
+.is-side .conv-sec:first-child { display: none; }
+.is-side .conv-empty { margin: 4px 10px; }
 .scroller { flex: 1; overflow-y: auto; }
 .thread { max-width: 760px; margin: 0 auto; padding: 24px 32px 12px; }
 .more { text-align: center; margin-bottom: 12px; }
@@ -1323,7 +1379,7 @@ onBeforeUnmount(() => {
 .thinking__live { animation: breathe 1.6s ease-in-out infinite; }
 @keyframes breathe { 50% { opacity: .45; } }
 .persona-chip {
-  display: inline-flex; align-items: center; gap: 6px; height: 32px; margin-top: 18px; padding: 0 6px 0 12px;
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; margin-top: 10px; padding: 0 6px 0 12px;
   border: 1px solid var(--color-divider); border-radius: var(--radius-pill); background: var(--color-surface);
   color: var(--color-text-secondary); font-size: 13px; transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
 }
@@ -1338,7 +1394,7 @@ onBeforeUnmount(() => {
 .jump:hover { color: var(--color-ink); border-color: var(--color-hairline-strong); }
 .jump__icon { transform: rotate(90deg); }
 .quota-note {
-  display: flex; align-items: center; gap: 6px; max-width: 960px; margin: 0 auto 8px; padding: 8px 12px;
+  display: flex; align-items: center; gap: 6px; max-width: 760px; margin: 0 auto 8px; padding: 8px 12px;
   border: 1px solid rgba(181, 51, 51, .25); border-radius: var(--radius-md); background: var(--color-danger-tint);
   color: var(--color-danger); font-size: 13px;
 }
@@ -1393,7 +1449,7 @@ onBeforeUnmount(() => {
 .recalled .badge-pill { flex-shrink: 0; background: var(--color-surface); }
 .composer { padding: 10px 32px calc(14px + env(safe-area-inset-bottom)); }
 .composer__box {
-  display: flex; flex-direction: column; max-width: 960px; margin: 0 auto; padding: 12px 12px 10px 16px;
+  display: flex; flex-direction: column; max-width: 760px; margin: 0 auto; padding: 14px 12px 10px 18px;
   border: 1px solid var(--color-divider); border-radius: var(--radius-card); background: var(--color-surface);
   box-shadow: 0 4px 20px rgba(20, 20, 19, .04); transition: border-color .18s ease, box-shadow .18s ease;
 }
@@ -1457,7 +1513,7 @@ onBeforeUnmount(() => {
 .empty__icon { display: inline-grid; place-items: center; width: 52px; height: 52px; margin-bottom: 14px; border-radius: 16px; background: var(--color-canvas-soft); color: var(--color-text-secondary); }
 .temp-bar {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px;
-  max-width: 960px; margin: 0 auto 8px; padding: 0 6px; color: var(--color-muted); font-size: 12.5px;
+  max-width: 760px; margin: 0 auto 8px; padding: 0 6px; color: var(--color-muted); font-size: 12.5px;
 }
 .temp-bar__label { display: inline-flex; align-items: center; gap: 6px; }
 .temp-switch { display: inline-flex; align-items: center; gap: 8px; color: var(--color-text-secondary); cursor: pointer; user-select: none; }
@@ -1476,7 +1532,7 @@ onBeforeUnmount(() => {
 .temp-switch input:disabled + .temp-switch__track { opacity: .5; }
 .composer__box.is-temp { border-style: dashed; background: var(--color-canvas-soft); }
 .composer.is-dragging .composer__box { border-style: dashed; border-color: var(--color-accent); }
-.pending { display: flex; flex-wrap: wrap; gap: 8px; max-width: 960px; margin: 0 auto 8px; }
+.pending { display: flex; flex-wrap: wrap; gap: 8px; max-width: 760px; margin: 0 auto 8px; }
 .pending__item {
   position: relative; display: flex; align-items: center; height: 56px; min-width: 56px; max-width: 220px;
   border: 1px solid var(--color-divider); border-radius: var(--radius-md); background: var(--color-surface); overflow: hidden;
