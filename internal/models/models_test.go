@@ -440,3 +440,26 @@ func TestUtilityChoice(t *testing.T) {
 		t.Fatal(v, err)
 	}
 }
+
+// 默认模型看不了图时，先用管理员添加的公共模型帮忙看图，配置文件里的模型只是兜底。
+func TestVisionHelperPrefersPublic(t *testing.T) {
+	ctx := context.Background()
+	svc, _ := newService(t, config.ModeMulti, "builtin-key")
+	svc.cfg.LLM.Chat.Vision = true
+	admin := User{ID: 1, IsAdmin: true}
+	text, err := svc.Create(ctx, admin, Input{Name: "只看文字", BaseURL: "https://a.example.com/v1", APIKey: "k", Model: "text", Public: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetDefault(ctx, admin, text.ID); err != nil {
+		t.Fatal(err)
+	}
+	eye, err := svc.Create(ctx, admin, Input{Name: "能看图", BaseURL: "https://b.example.com/v1", APIKey: "k", Model: "eye", Vision: true, Public: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := svc.VisionHelper(ctx, User{ID: 2})
+	if err != nil || h.ID != eye.ID {
+		t.Fatalf("应先用公共的看图模型: %+v %v", h, err)
+	}
+}

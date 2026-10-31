@@ -604,13 +604,14 @@ func (s *Service) VisionHelper(ctx context.Context, u User) (*Resolved, error) {
 			cands = append(cands, m.ID)
 		}
 	}
-	if builtinVision {
-		cands = append(cands, BuiltinID)
-	}
+	// 默认模型看不了图时，先找管理员添加的公共模型（例如 OpenCode 的），配置文件里的模型放在后面兜底。
 	for _, m := range ms {
 		if m.Vision && m.Public() {
 			cands = append(cands, m.ID)
 		}
+	}
+	if builtinVision {
+		cands = append(cands, BuiltinID)
 	}
 	for _, m := range ms {
 		if m.Vision && !m.Public() {
