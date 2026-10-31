@@ -160,9 +160,22 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
         </RouterLink>
       </nav>
       <div v-show="!collapsed" class="side__recents">
-        <div v-if="searching" class="side__search">
-          <Icon name="search" :size="15" />
-          <input ref="searchInput" v-model="recentQuery" type="search" placeholder="搜索对话" aria-label="搜索对话" @keydown.esc="toggleSearch" />
+        <!-- 搜索框平滑地展开、收起（高度和透明度一起过渡） -->
+        <div class="side__search-wrap" :class="{ 'is-open': searching }" :aria-hidden="!searching">
+          <div class="side__search-inner">
+            <div class="side__search">
+              <Icon name="search" :size="15" />
+              <input
+                ref="searchInput"
+                v-model="recentQuery"
+                type="search"
+                placeholder="搜索对话"
+                aria-label="搜索对话"
+                :tabindex="searching ? 0 : -1"
+                @keydown.esc="toggleSearch"
+              />
+            </div>
+          </div>
         </div>
         <div class="side__scroll">
           <template v-if="extConvs.length">
@@ -255,11 +268,18 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
 .side__ico--new { width: 22px; height: 22px; flex-basis: 22px; margin-left: -1px; border-radius: 50%; background: var(--color-ink); color: #fff !important; }
 .side.is-collapsed .side__label { display: none; }
 .side__recents { display: flex; flex: 1; min-height: 0; flex-direction: column; padding: 10px 8px 0; }
+.side__search-wrap {
+  display: grid; grid-template-rows: 0fr; opacity: 0; transform: translateY(-4px);
+  transition: grid-template-rows .26s var(--ease-editorial), opacity .2s ease, transform .26s var(--ease-editorial);
+}
+.side__search-wrap.is-open { grid-template-rows: 1fr; opacity: 1; transform: none; }
+.side__search-inner { min-height: 0; overflow: hidden; }
 .side__search {
-  display: flex; align-items: center; gap: 8px; height: 36px; margin: 0 2px 8px; padding: 0 10px;
+  display: flex; align-items: center; gap: 8px; height: 36px; margin: 2px 2px 8px; padding: 0 10px;
   border: 1px solid var(--color-hairline-strong); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-muted);
 }
 .side__search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--color-ink); font-size: 14px; }
+.side__search input::-webkit-search-cancel-button { display: none; }
 .side__sec {
   display: inline-flex; align-self: flex-start; align-items: center; gap: 4px; height: 28px; margin: 0 0 2px; padding: 0 10px;
   border-radius: var(--radius-sm); color: var(--color-muted); font-size: 13px;

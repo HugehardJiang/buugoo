@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// 思考等级滑块：拖动时把手跟着手指走，松手后带一点回弹地吸到最近的档位；
+// 思考等级滑块：拖动时把手跟着手指走，松手后平滑地吸到最近的档位；
 // 也可以点档位文字、点轨道，或用方向键 / Home / End 调。
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 export interface ThinkingStop {
   v: string
@@ -17,8 +17,21 @@ const track = ref<HTMLElement | null>(null)
 // 拖动中的位置（0~1）；不在拖动时为 null，显示选中的档位。
 const drag = ref<number | null>(null)
 
+// picked 是刚选的档位：保存到服务器要一会儿，这期间先停在新选的位置，不弹回旧档位再跳过来。
+// 服务器确认（modelValue 变成它）后清掉；保存失败（几秒内没变）就回到原来的档位。
+const picked = ref<string | null>(null)
+let pickTimer: ReturnType<typeof setTimeout> | undefined
+watch(
+  () => props.modelValue,
+  () => {
+    picked.value = null
+    clearTimeout(pickTimer)
+  },
+)
+const value = computed(() => picked.value ?? props.modelValue)
+
 const last = computed(() => Math.max(1, props.stops.length - 1))
-const index = computed(() => Math.max(0, props.stops.findIndex((s) => s.v === props.modelValue)))
+const index = computed(() => Math.max(0, props.stops.findIndex((s) => s.v === value.value)))
 // 拖动时显示离手指最近的档位，松手前就能看到会选中哪一档。
 const shown = computed(() => (drag.value == null ? index.value : Math.round(drag.value * last.value)))
 const pos = computed(() => (drag.value ?? index.value / last.value) * 100)
@@ -35,7 +48,11 @@ function fraction(e: PointerEvent) {
 
 function choose(i: number) {
   const s = props.stops[Math.min(props.stops.length - 1, Math.max(0, i))]
-  if (s && s.v !== props.modelValue) emit('update:modelValue', s.v)
+  if (!s || s.v === value.value) return
+  picked.value = s.v
+  clearTimeout(pickTimer)
+  pickTimer = setTimeout(() => (picked.value = null), 4000)
+  emit('update:modelValue', s.v)
 }
 
 function onDown(e: PointerEvent) {
@@ -117,7 +134,7 @@ function onKey(e: KeyboardEvent) {
 
 <style scoped>
 /* 两端各留出把手的半径，档位和文字都对准把手中心。 */
-.ts { --r: 9px; --spring: cubic-bezier(.34, 1.56, .64, 1); user-select: none; -webkit-user-select: none; }
+.ts { --r: 9px; --spring: cubic-bezier(.22, 1, .36, 1); user-select: none; -webkit-user-select: none; }
 .ts__rail {
   position: relative; height: 26px; margin: 0 var(--r); cursor: pointer; touch-action: none; outline: none;
 }

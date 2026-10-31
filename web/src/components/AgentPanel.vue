@@ -205,7 +205,7 @@ function steps(m: AgentMessage): string {
         现在的模型「{{ state.model.name }}」不支持工具调用，牛马用不了。请在上面换一个支持工具的模型。
       </p>
 
-      <div ref="scroller" class="log" aria-live="polite">
+      <div ref="scroller" class="log" :class="{ 'is-empty': !messages.length && !sending }" aria-live="polite">
         <div v-if="!messages.length && !sending" class="empty">
           <p class="caption">可以这样说：</p>
           <div class="examples">
@@ -287,6 +287,8 @@ function steps(m: AgentMessage): string {
   border: 1px solid var(--color-divider); border-radius: var(--radius-lg); background: var(--color-canvas-soft);
 }
 .empty { margin: auto 0; }
+/* 还没聊的时候不占那么高，只放几个示例 */
+.log.is-empty { height: auto; min-height: 0; }
 .examples { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .example {
   padding: 6px 10px; border: 1px solid var(--color-divider); border-radius: 999px; background: var(--color-surface);

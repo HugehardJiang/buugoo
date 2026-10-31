@@ -273,19 +273,19 @@ function pick(id: string) {
 
 <style scoped>
 /* 左边分类、右边内容（参考 claude.ai 的设置） */
-.settings-page { padding-top: 8px; }
-.settings { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; max-width: 1040px; margin: 0 auto; }
+.settings-page { padding-top: 4px; padding-left: 24px; padding-right: 24px; }
+.settings { display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 28px; max-width: 1000px; margin: 0 auto; }
 .settings__nav { position: sticky; top: 0; align-self: start; display: grid; gap: 1px; min-width: 0; }
 .settings__search {
-  display: flex; align-items: center; gap: 8px; height: 36px; margin-bottom: 14px; padding: 0 10px;
+  display: flex; align-items: center; gap: 8px; height: 34px; margin-bottom: 10px; padding: 0 10px;
   border: 1px solid var(--color-divider); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-muted);
 }
 .settings__search input { flex: 1; width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--color-ink); font-size: 14px; }
-.settings__group { margin: 12px 10px 6px; color: var(--color-muted); font-size: 13px; }
+.settings__group { margin: 10px 10px 4px; color: var(--color-muted); font-size: 12.5px; }
 .settings__group:first-of-type { margin-top: 0; }
 .settings__tab {
-  display: flex; align-items: center; gap: 11px; height: 38px; padding: 0 10px; border-radius: var(--radius-md);
-  color: var(--color-ink); font-size: 15px; text-align: left; transition: background-color .15s ease;
+  display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: var(--radius-md);
+  color: var(--color-ink); font-size: 14.5px; text-align: left; transition: background-color .15s ease;
 }
 .settings__tab :deep(svg) { color: var(--color-text-secondary); }
 .settings__tab:hover { background: var(--color-hover-wash); }
@@ -296,8 +296,14 @@ function pick(id: string) {
 .settings__content :deep(.panel) { padding: 0; border-radius: 0; background: transparent; }
 .settings__content :deep(.panel + .panel) { margin-top: 36px; }
 .settings__content :deep(.panel > h2), .settings__content :deep(.panel > header h2), .settings__content :deep(.panel h2:first-child) {
-  margin-bottom: 8px; font-size: 18px; font-weight: 600;
+  margin-bottom: 4px; font-size: 18px; font-weight: 600;
 }
+/* 每一项开头的说明：小一号、行距紧一点，不占太多地方 */
+.settings__content :deep(.panel .intro), .settings__content :deep(.panel > p.muted) {
+  margin-bottom: 14px; color: var(--color-text-secondary); font-size: 14px; line-height: 1.6;
+}
+.settings__content :deep(.panel .actions) { margin-top: 12px; }
+.settings__content :deep(.field) { margin-bottom: 12px; }
 @media (max-width: 767px) {
   .settings { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .settings__nav { position: static; display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
@@ -314,7 +320,7 @@ function pick(id: string) {
 .invite { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 0; border-top: 1px solid var(--color-divider); }
 .invite .code { font-size: 14px; letter-spacing: .06em; }
 .spacer { flex: 1; }
-.version { text-align: center; margin-top: 28px; }
+.version { text-align: center; margin-top: 20px; }
 .compact { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--color-divider); }
 .compact .caption { flex: 1; }
 .peek-note { margin: 0; font-size: 14px; line-height: 1.65; }
