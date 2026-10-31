@@ -931,14 +931,16 @@ func TestForgottenReminderNudge(t *testing.T) {
 	e.chat.script = []*fakeStream{
 		{chunks: []llm.Chunk{{Delta: "好，明天15:30喊你赶大物慕课作业"}}},
 		{chunks: []llm.Chunk{{ToolCalls: []llm.ToolCallDelta{{Index: 0, ID: "r1", Name: "set_reminder", Arguments: `{"content":"赶大物慕课作业"}`}}}}},
-		{chunks: []llm.Chunk{}},
+		// 补设之后模型不听话，把「到点要发的提醒」也写了出来：不能发给对方，也不能保存。
+		{chunks: []llm.Chunk{{Delta: "咕，三点半了"}, {Delta: "，该写大物慕课作业了"}}},
 	}
-	res, err := e.svc.Send(ctx, e.user, SendInput{Content: "明天下午三点半喊我写大物慕课作业"}, &recordSink{})
+	sink := &recordSink{}
+	res, err := e.svc.Send(ctx, e.user, SendInput{Content: "明天下午三点半喊我写大物慕课作业"}, sink)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(set) != 1 || res.Reply.Content != "好，明天15:30喊你赶大物慕课作业" {
-		t.Fatalf("set=%v reply=%q", set, res.Reply.Content)
+	if len(set) != 1 || res.Reply.Content != "好，明天15:30喊你赶大物慕课作业" || strings.Contains(sink.text.String(), "三点半了") {
+		t.Fatalf("set=%v reply=%q pushed=%q", set, res.Reply.Content, sink.text.String())
 	}
 	nudge := e.chat.reqs[1].Messages
 	if last := nudge[len(nudge)-1]; last.Role != llm.RoleUser || !strings.Contains(last.Content, "没有调用 set_reminder") {

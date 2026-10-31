@@ -573,6 +573,9 @@ type turn struct {
 	calledWith map[string]bool
 	// reminderNudged 表示已经提醒过模型补设提醒（每轮回复最多一次）。
 	reminderNudged bool
+	// silent 为 true 时模型之后输出的正文不推送也不保存：补设提醒那几步只该调工具，
+	// 模型有时会接着把「到点要发的提醒」也写出来，看起来就像提前提醒了。
+	silent bool
 	// userText 是对方这一条消息的原文（不含附上的〔此刻〕信息）。
 	userText string
 }
@@ -653,7 +656,7 @@ func (t *turn) run(start func() error) error {
 			}
 			// 嘴上答应了到点提醒、却没有调用工具（提醒根本没设上）：让模型马上补设，只补一次。
 			if !t.reminderNudged && t.forgotReminder() {
-				t.reminderNudged = true
+				t.reminderNudged, t.silent = true, true
 				t.msgs = append(t.msgs, llm.Message{Role: llm.RoleAssistant, Content: roundText, Reasoning: roundReasoning},
 					llm.Message{Role: llm.RoleUser, Content: reminderNudge})
 				continue
@@ -806,7 +809,7 @@ func (t *turn) consume(stream llm.ChatStream) (string, string, []llm.ToolCall, e
 	for {
 		chunk, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
-			if rest := filter.Flush(); rest != "" {
+			if rest := filter.Flush(); rest != "" && !t.silent {
 				if sep {
 					rest = "\n\n" + rest
 				}
@@ -840,7 +843,7 @@ func (t *turn) consume(stream llm.ChatStream) (string, string, []llm.ToolCall, e
 		}
 		text.WriteString(chunk.Delta)
 		delta := filter.Push(chunk.Delta)
-		if delta == "" {
+		if delta == "" || t.silent {
 			continue
 		}
 		if sep {

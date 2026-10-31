@@ -35,3 +35,6 @@ export const recentConvs = ref<Conversation[]>([])
 // activeConvId 是聊天页正在看的对话；openConvHandler 是聊天页提供的「打开对话」（在聊天页时直接切换，不用跳转）。
 export const activeConvId = ref(0)
 export const openConvHandler = { fn: null as ((id: number) => void) | null }
+
+// navOpen 是手机上的导航抽屉是否打开。
+export const navOpen = ref(false)

@@ -212,7 +212,8 @@ func create(ctx context.Context, repo store.ReminderRepo, userID uint64, kind st
 	}
 	res.OK = true
 	res.Summary = fmt.Sprintf("%s %s", r.DueAt.In(loc).Format("01-02 15:04"), RepeatLabel(r, loc))
-	res.Output = fmt.Sprintf("已设好%s #%d：下次 %s（%s），内容：%s。对方可以在网页「定时任务」页里查看、修改或暂停。",
+	res.Output = fmt.Sprintf("已设好%s #%d：下次 %s（%s），内容：%s。对方可以在网页「定时任务」页里查看、修改或暂停。"+
+		"到时间系统会自动发给对方，现在不要把提醒的话说出来，也不要假装时间已经到了。",
 		kindLabel(kind), r.ID, r.DueAt.In(loc).Format("2006-01-02 15:04 Mon"), RepeatLabel(r, loc), r.Content)
 	return res
 }

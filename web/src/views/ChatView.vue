@@ -33,7 +33,7 @@ import { dayKey, dayLabel, formatSize, renderMarkdown, shortWhen, timeOf } from 
 import { memoriesUnlocked } from '../memoryLock'
 import Collapse from '../components/Collapse.vue'
 import { session } from '../session'
-import { activeConvId, openConvHandler, recentConvs, recentQuery, wideScreen } from '../sidebarState'
+import { activeConvId, openConvHandler, recentConvs, recentQuery } from '../sidebarState'
 import { toast } from '../toast'
 import { copyDiagnostics } from '../diag'
 
@@ -90,6 +90,7 @@ const textarea = ref<HTMLTextAreaElement | null>(null)
 const openMemories = ref<Set<number>>(new Set())
 const openThinking = ref<Set<number>>(new Set())
 const drawer = ref(false)
+const moreOpen = ref(false)
 const renaming = ref(false)
 const renameText = ref('')
 const deleting = ref(false)
@@ -443,6 +444,7 @@ function chooseModel(id: number | null) {
 
 // 点击面板外部或按 Esc 时收起。
 function onDocPointer(e: PointerEvent) {
+  if (moreOpen.value && !(e.target as Element).closest?.('.more-menu')) moreOpen.value = false
   if (pickerOpen.value && pickerEl.value && !pickerEl.value.contains(e.target as Node)) pickerOpen.value = false
 }
 function onDocKey(e: KeyboardEvent) {
@@ -970,7 +972,7 @@ onBeforeUnmount(() => {
     <Transition name="fade">
       <div v-if="drawer" class="drawer-backdrop" @click="drawer = false" />
     </Transition>
-    <aside class="sidebar" :class="{ 'is-open': drawer, 'is-merged': wideScreen }" aria-label="对话列表">
+    <aside class="sidebar is-merged" aria-label="对话列表">
       <div class="sidebar__head">
         <span class="eyebrow">对话</span>
         <button class="btn" @click="newConversation">
@@ -1000,7 +1002,6 @@ onBeforeUnmount(() => {
 
     <main class="main chat" :class="{ 'is-empty': isEmpty }">
       <header class="topbar">
-        <button class="icon-btn menu-btn" aria-label="对话列表" @click="drawer = true"><Icon name="menu" /></button>
         <div class="topbar__titles">
           <h1 v-if="!isEmpty || isTemp" class="conv-title">{{ title }}</h1>
         </div>
@@ -1019,8 +1020,18 @@ onBeforeUnmount(() => {
               <Icon name="ghost" :size="18" />
             </button>
             <template v-if="!isEmpty">
-              <button class="icon-btn" aria-label="重命名对话" title="重命名" @click="startRename"><Icon name="edit" :size="18" /></button>
-              <button class="icon-btn" aria-label="删除对话" title="删除" :disabled="sending" @click="deleting = true"><Icon name="trash" :size="18" /></button>
+              <button class="icon-btn wide-only" aria-label="重命名对话" title="重命名" @click="startRename"><Icon name="edit" :size="18" /></button>
+              <button class="icon-btn wide-only" aria-label="删除对话" title="删除" :disabled="sending" @click="deleting = true"><Icon name="trash" :size="18" /></button>
+              <!-- 手机上重命名和删除收进「⋯」，给标题留地方 -->
+              <div class="more-menu narrow-only">
+                <button class="icon-btn" aria-label="更多操作" :aria-expanded="moreOpen" @click="moreOpen = !moreOpen"><Icon name="more" :size="18" /></button>
+                <Transition name="pop">
+                  <div v-if="moreOpen" class="more-menu__panel" role="menu" @click="moreOpen = false">
+                    <button type="button" role="menuitem" @click="startRename"><Icon name="edit" :size="16" />重命名</button>
+                    <button type="button" role="menuitem" class="is-danger" :disabled="sending" @click="deleting = true"><Icon name="trash" :size="16" />删除对话</button>
+                  </div>
+                </Transition>
+              </div>
             </template>
           </template>
         </div>
@@ -1349,6 +1360,24 @@ onBeforeUnmount(() => {
 .chat.is-empty .composer { flex: 1 1 0; }
 .chat.is-empty .empty { margin-top: 0; }
 .meter-wrap { display: inline-flex; align-items: center; }
+.narrow-only { display: none; }
+.more-menu { position: relative; }
+.more-menu__panel {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; display: grid; min-width: 150px; padding: 6px;
+  border: 1px solid var(--color-divider); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-modal);
+}
+.more-menu__panel button {
+  display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 10px; border-radius: var(--radius-md); color: var(--color-ink); font-size: 15px;
+}
+.more-menu__panel button:hover { background: var(--color-hover-wash); }
+.more-menu__panel .is-danger { color: var(--color-danger); }
+@media (max-width: 767px) {
+  .wide-only { display: none !important; }
+  .narrow-only { display: block; }
+  .meter-wrap :deep(.meter__cache) { display: none; }
+  .topbar__actions { gap: 0; }
+  .conv-title { font-size: 16px; }
+}
 .chat.is-empty .composer__input { min-height: 72px; }
 .greet {
   display: flex; align-items: center; justify-content: center; gap: 12px; margin: 0 0 6px;

@@ -224,7 +224,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--color-accent);
 .category-filter:hover { background: var(--color-surface-hover); color: var(--color-ink); }
 .category-filter.is-active { --category-mark: var(--color-accent); background: var(--color-canvas-soft); color: var(--color-ink); }
 
-/* 桌面端（有合并侧栏时）：主区域不需要再显示窄图标栏 */
+/* 窄屏（没有常驻侧栏）：左上角是打开导航抽屉的按钮，标题栏给它让出位置 */
+.workspace:not(.has-side) .topbar { padding-left: 56px; }
+.workspace:not(.has-side) { flex-direction: row; }
 /* Workspace shell: app rail + main */
 .workspace { display: flex; height: 100%; overflow: hidden; }
 .app-rail {

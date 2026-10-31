@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import { api } from './api'
 import { connectedCount, refreshChannels } from './channelState'
-import { activeConvId, openConvHandler, recentConvs, recentQuery, searching, sidebarCollapsed, wideScreen } from './sidebarState'
+import { activeConvId, navOpen, openConvHandler, recentConvs, recentQuery, searching, sidebarCollapsed, wideScreen } from './sidebarState'
 import Avatar from './components/Avatar.vue'
 import Lightbox from './components/Lightbox.vue'
 import { memoriesUnlocked } from './memoryLock'
@@ -29,11 +29,6 @@ const items = computed<NavItem[]>(() => [
   ...(session.meta?.uploads ? [{ to: '/files', route: 'files', label: '文件', icon: 'folder' as const, more: true }] : []),
   ...(session.meta?.channels ? [{ to: '/channels', route: 'channels', label: '聊天软件', icon: 'link' as const, more: true }] : []),
 ])
-const moreItems = computed(() => items.value.filter((it) => it.more))
-const moreOpen = ref(false)
-// 现在的页面收在「更多」里时，「更多」显示为选中。
-const moreActive = computed(() => route.name === 'settings' || moreItems.value.some((it) => it.route === route.name))
-watch(() => route.fullPath, () => (moreOpen.value = false))
 
 // 聊天软件入口上的绿点：自己连上了几个聊天软件。登录后读取，之后每分钟刷新一次。
 const linked = computed(() => connectedCount())
@@ -54,6 +49,8 @@ onBeforeUnmount(() => clearInterval(channelTimer))
 // 聊天页会把自己的对话列表放进 #app-recents；其他页面在这里读一份最近的对话。
 const sideItems = computed(() => items.value.filter((it) => it.route !== 'chat'))
 const recentsOpen = ref(true)
+// 只有桌面端能收起成窄栏；手机上的抽屉总是完整的。
+const collapsed = computed(() => wideScreen.value && sidebarCollapsed.value)
 const searchInput = ref<HTMLInputElement | null>(null)
 const onChat = computed(() => route.name === 'chat')
 // 「最近」分成网页上的对话和聊天软件里的对话（微信、QQ、Telegram），每个页面显示的都一样。
@@ -70,6 +67,7 @@ function convTitle(c: { title: string; channel?: string }) {
   return c.title || (c.channel ? `${channelLabels[c.channel]}里的聊天` : '新对话')
 }
 function openConv(id: number) {
+  navOpen.value = false
   if (onChat.value && openConvHandler.fn) openConvHandler.fn(id)
   else router.push({ path: '/', query: { c: String(id) } })
 }
@@ -85,6 +83,9 @@ watch(
   },
   { immediate: true },
 )
+
+// 手机上点了导航里的东西就收起抽屉。
+watch(() => route.fullPath, () => (navOpen.value = false))
 
 function newChat() {
   router.push({ path: '/', query: { new: String(Date.now()) } })
@@ -112,9 +113,19 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
     <p>无法连接到{{ name }}的服务。请确认 buugoo serve 正在运行，然后刷新页面。</p>
   </div>
   <div v-else-if="inWorkspace" class="workspace" :class="{ 'has-side': wideScreen }">
-    <aside v-if="wideScreen" class="side" :class="{ 'is-collapsed': sidebarCollapsed }" aria-label="主导航">
+    <!-- 手机和窄屏：侧栏变成从左边滑出来的抽屉（和 claude.ai 手机版一样），左上角的按钮打开 -->
+    <button v-if="!wideScreen" type="button" class="nav-toggle" aria-label="打开导航" @click="navOpen = true"><Icon name="menu" /></button>
+    <Transition name="fade">
+      <div v-if="!wideScreen && navOpen" class="side-backdrop" @click="navOpen = false" />
+    </Transition>
+    <aside
+      class="side"
+      :class="{ 'is-collapsed': wideScreen && sidebarCollapsed, 'is-drawer': !wideScreen, 'is-open': !wideScreen && navOpen }"
+      aria-label="主导航"
+    >
       <div class="side__head">
         <button
+          v-if="wideScreen"
           type="button"
           class="side__icon-btn"
           :title="sidebarCollapsed ? '展开侧栏' : '收起侧栏'"
@@ -123,7 +134,8 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
         >
           <Icon name="sidebar" :size="18" />
         </button>
-        <RouterLink v-if="!sidebarCollapsed" to="/" class="side__brand">{{ name }}</RouterLink>
+        <RouterLink v-if="!sidebarCollapsed || !wideScreen" to="/" class="side__brand">{{ name }}</RouterLink>
+        <button v-if="!wideScreen" type="button" class="side__icon-btn side__close" aria-label="关闭导航" @click="navOpen = false"><Icon name="x" :size="18" /></button>
       </div>
       <nav class="side__nav">
         <button type="button" class="side__item" title="新对话" @click="newChat">
@@ -147,7 +159,7 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
           <span class="side__label">{{ it.label }}</span>
         </RouterLink>
       </nav>
-      <div v-show="!sidebarCollapsed" class="side__recents">
+      <div v-show="!collapsed" class="side__recents">
         <div v-if="searching" class="side__search">
           <Icon name="search" :size="15" />
           <input ref="searchInput" v-model="recentQuery" type="search" placeholder="搜索对话" aria-label="搜索对话" @keydown.esc="toggleSearch" />
@@ -193,94 +205,16 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
       <div class="side__foot">
         <RouterLink to="/profile" class="side__me" :class="{ 'is-active': route.name === 'profile' }" title="个人中心">
           <Avatar :seed="session.user?.avatar_seed ?? ''" :size="30" label="" />
-          <span v-if="!sidebarCollapsed" class="side__me-text">
+          <span v-if="!collapsed" class="side__me-text">
             <strong>{{ userName }}</strong>
             <small>{{ userNote }}</small>
           </span>
         </RouterLink>
-        <RouterLink v-if="!sidebarCollapsed" to="/settings" class="side__icon-btn" :class="{ 'is-active': route.name === 'settings' }" title="设置" aria-label="设置">
+        <RouterLink v-if="!collapsed" to="/settings" class="side__icon-btn" :class="{ 'is-active': route.name === 'settings' }" title="设置" aria-label="设置">
           <Icon name="settings" :size="18" />
         </RouterLink>
       </div>
     </aside>
-    <nav v-else class="app-rail" aria-label="主导航">
-      <div class="app-rail__brand"><img src="/logo.png" :alt="name" /></div>
-      <div class="app-rail__nav">
-        <RouterLink
-          v-for="it in items"
-          :key="it.to"
-          :to="it.to"
-          class="app-rail__item"
-          :class="{ 'is-active': route.name === it.route, 'app-rail__item--more': it.more }"
-          :title="it.label"
-          :aria-label="it.label"
-        >
-          <span class="app-rail__icon">
-            <Icon :name="it.icon" />
-            <span
-              v-if="it.route === 'channels'"
-              class="app-rail__dot"
-              :class="{ 'is-on': linked > 0 }"
-              :title="linked ? `已连接 ${linked} 个` : '还没有连接'"
-            />
-          </span>
-          <span class="app-rail__label">{{ it.short ?? it.label }}</span>
-        </RouterLink>
-        <span class="app-rail__spacer" />
-        <RouterLink
-          to="/profile"
-          class="app-rail__item"
-          :class="{ 'is-active': route.name === 'profile' }"
-          title="个人中心"
-          aria-label="个人中心"
-        >
-          <span class="app-rail__icon app-rail__avatar"><Avatar :seed="session.user?.avatar_seed ?? ''" :size="24" label="" /></span>
-          <span class="app-rail__label">我的</span>
-        </RouterLink>
-        <RouterLink
-          to="/settings"
-          class="app-rail__item app-rail__item--more"
-          :class="{ 'is-active': route.name === 'settings' }"
-          title="设置"
-          aria-label="设置"
-        >
-          <span class="app-rail__icon"><Icon name="settings" /></span>
-          <span class="app-rail__label">设置</span>
-        </RouterLink>
-        <button
-          type="button"
-          class="app-rail__item app-rail__more-btn"
-          :class="{ 'is-active': moreActive || moreOpen }"
-          :aria-expanded="moreOpen"
-          aria-label="更多"
-          @click="moreOpen = !moreOpen"
-        >
-          <span class="app-rail__icon">
-            <Icon name="grid" />
-            <span v-if="session.meta?.channels && linked > 0" class="app-rail__dot is-on" />
-          </span>
-          <span class="app-rail__label">更多</span>
-        </button>
-      </div>
-    </nav>
-    <Transition name="sheet">
-      <div v-if="moreOpen" class="more-sheet" @click.self="moreOpen = false">
-        <div class="more-sheet__panel" role="menu" aria-label="更多">
-          <RouterLink v-for="it in moreItems" :key="it.to" :to="it.to" class="more-sheet__item" role="menuitem" :class="{ 'is-active': route.name === it.route }">
-            <span class="app-rail__icon">
-              <Icon :name="it.icon" />
-              <span v-if="it.route === 'channels'" class="app-rail__dot" :class="{ 'is-on': linked > 0 }" />
-            </span>
-            <span>{{ it.label }}</span>
-            <span v-if="it.route === 'channels'" class="caption">{{ linked ? `已连接 ${linked} 个` : '还没有连接' }}</span>
-          </RouterLink>
-          <RouterLink to="/settings" class="more-sheet__item" role="menuitem" :class="{ 'is-active': route.name === 'settings' }">
-            <span class="app-rail__icon"><Icon name="settings" /></span>
-            <span>设置</span>
-          </RouterLink>
-        </div>
-      </div>
-    </Transition>
     <RouterView v-slot="{ Component }">
       <component :is="Component" :key="route.name" />
     </RouterView>
@@ -353,31 +287,21 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
 .side__me-text { display: grid; min-width: 0; line-height: 1.25; }
 .side__me-text strong { overflow: hidden; color: var(--color-ink); font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .side__me-text small { overflow: hidden; color: var(--color-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.app-rail__avatar :deep(.avatar) { box-shadow: 0 0 0 1.5px var(--color-divider); }
-.is-active .app-rail__avatar :deep(.avatar) { box-shadow: 0 0 0 2px var(--color-accent); }
-.app-rail__more-btn { display: none; border: 0; background: none; font: inherit; cursor: pointer; }
-.more-sheet { display: none; }
-@media (max-width: 767px) {
-  .app-rail__item--more { display: none !important; }
-  .app-rail__more-btn { display: flex; }
-  .more-sheet {
-    display: block; position: fixed; inset: 0; z-index: 40; background: rgba(20, 20, 19, .18);
-  }
-  .more-sheet__panel {
-    position: absolute; left: 10px; right: 10px; bottom: calc(58px + env(safe-area-inset-bottom) + 8px);
-    display: grid; gap: 2px; padding: 8px; border-radius: var(--radius-lg); background: var(--color-surface);
-    box-shadow: 0 12px 32px rgba(20, 20, 19, .16), 0 0 0 1px rgba(20, 20, 19, .05);
-  }
-  .more-sheet__item {
-    display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 12px; border-radius: var(--radius-md);
-    color: var(--color-text-secondary); font-size: 15px; text-decoration: none;
-  }
-  .more-sheet__item .caption { margin-left: auto; }
-  .more-sheet__item.is-active, .more-sheet__item:hover { background: var(--color-hover-wash); color: var(--color-ink); }
-  .sheet-enter-active, .sheet-leave-active { transition: opacity .18s ease; }
-  .sheet-enter-active .more-sheet__panel, .sheet-leave-active .more-sheet__panel { transition: transform .22s var(--ease-editorial, ease); }
-  .sheet-enter-from, .sheet-leave-to { opacity: 0; }
-  .sheet-enter-from .more-sheet__panel, .sheet-leave-to .more-sheet__panel { transform: translateY(12px); }
+/* 手机和窄屏：侧栏是抽屉，左上角一个按钮打开 */
+.nav-toggle {
+  position: fixed; top: 12px; left: 10px; z-index: 20; display: inline-grid; place-items: center; width: 38px; height: 38px;
+  border-radius: var(--radius-md); color: var(--color-ink);
 }
+.nav-toggle:active { background: var(--color-hover-wash); }
+.side.is-drawer {
+  position: fixed; top: 0; bottom: 0; left: 0; z-index: 40; width: min(300px, 84vw); flex: none;
+  border-right: 0; box-shadow: 0 12px 40px rgba(20, 20, 19, .18);
+  padding-bottom: env(safe-area-inset-bottom);
+  transform: translateX(-102%); transition: transform .28s var(--ease-editorial);
+}
+.side.is-drawer.is-open { transform: none; }
+.side__close { margin-left: auto; }
+.side.is-drawer .side__item, .side.is-drawer .side__conv { height: 42px; line-height: 42px; font-size: 16px; }
+.side-backdrop { position: fixed; inset: 0; z-index: 39; background: var(--color-backdrop); }
 .fatal { max-width: 420px; margin: 18vh auto 0; padding: 0 16px; text-align: center; color: var(--color-text-secondary); }
 </style>
