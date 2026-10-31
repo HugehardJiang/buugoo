@@ -207,3 +207,36 @@ func TestTokens(t *testing.T) {
 		t.Fatal("过短密钥应报错")
 	}
 }
+
+func TestImpersonate(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+	svc, err := NewService(ctx, newCfg(config.ModeMulti, config.RegistrationOpen), st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	own, err := svc.Register(ctx, RegisterInput{Username: "carol", Password: "password1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if svc.Impersonated(own.Token) {
+		t.Fatal("自己登录的令牌不是临时登录")
+	}
+	sess, err := svc.Impersonate(ctx, own.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !svc.Impersonated(sess.Token) || time.Until(sess.ExpiresAt) > ImpersonateTTL+time.Minute {
+		t.Fatalf("应是 1 小时内失效的临时令牌: %v", sess.ExpiresAt)
+	}
+	if u, err := svc.Authenticate(ctx, sess.Token); err != nil || u.ID != own.User.ID {
+		t.Fatal(u, err)
+	}
+	// 用户退出所有设备后，临时令牌也失效。
+	if err := svc.LogoutAll(ctx, own.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Authenticate(ctx, sess.Token); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("临时令牌应失效: %v", err)
+	}
+}

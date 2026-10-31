@@ -5,6 +5,8 @@ import { api, tokenStore, type Meta, type Session, type User } from './api'
 export const session = reactive({
   meta: null as Meta | null,
   user: null as User | null,
+  // impersonated 表示这个标签页是管理员临时登录到这个账号。
+  impersonated: false,
   loaded: false,
 })
 
@@ -20,7 +22,9 @@ export async function bootstrap() {
   session.meta = await api.meta()
   if (!session.meta.password_required || tokenStore.get()) {
     try {
-      session.user = (await api.me()).user
+      const me = await api.me()
+      session.user = me.user
+      session.impersonated = !!me.impersonated
     } catch {
       tokenStore.set('')
       session.user = null
@@ -37,4 +41,5 @@ export function applySession(s: Session) {
 export function logout() {
   tokenStore.set('')
   session.user = null
+  session.impersonated = false
 }

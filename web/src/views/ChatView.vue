@@ -119,8 +119,16 @@ const name = computed(() => session.meta?.name ?? '布谷')
 const isAdmin = computed(() => !!session.user?.is_admin)
 // 临时对话不在对话列表里，单独放着；离开它（打开别的对话、关掉页面）时删除。
 const tempConv = ref<Conversation | null>(null)
+// 草稿对话：点「新对话」时只在网页上开一个空白对话（编号 DRAFT），发第一条消息时才真正建出来，
+// 不聊就不会在列表里留下空对话（和 claude.ai 一样）。
+const DRAFT = -1
+const draftConv = ref<Conversation | null>(null)
+const isDraft = computed(() => currentId.value === DRAFT && !!draftConv.value)
 const current = computed(
-  () => convs.value.find((c) => c.id === currentId.value) ?? (tempConv.value?.id === currentId.value ? tempConv.value : null),
+  () =>
+    convs.value.find((c) => c.id === currentId.value) ??
+    (tempConv.value?.id === currentId.value ? tempConv.value : null) ??
+    (currentId.value === DRAFT ? draftConv.value : null),
 )
 const isTemp = computed(() => !!current.value?.temporary)
 const title = computed(() => (isTemp.value ? '临时对话' : current.value?.title || '新对话'))
@@ -232,6 +240,7 @@ async function loadSide() {
 
 async function openConversation(id: number) {
   if (tempConv.value && tempConv.value.id !== id) discardTemp()
+  if (id !== DRAFT) draftConv.value = null
   detach()
   currentId.value = id
   drawer.value = false
@@ -306,14 +315,37 @@ async function newConversation() {
     textarea.value?.focus()
     return
   }
-  try {
-    const c = await api.createConversation()
-    convs.value = [c, ...convs.value]
-    await openConversation(c.id)
-    textarea.value?.focus()
-  } catch (e) {
-    toast(errText(e, '新建对话失败'))
+  openDraft()
+  await nextTick()
+  textarea.value?.focus()
+}
+
+// openDraft 打开一个还没保存的空白对话，模型和思考等级沿用最近一段对话的设置。
+function openDraft() {
+  if (tempConv.value) discardTemp()
+  detach()
+  const recent = convs.value.find((c) => !c.channel) ?? convs.value[0]
+  draftConv.value = {
+    id: DRAFT, title: '', model_id: recent?.model_id ?? null, thinking: recent?.thinking ?? 'off',
+    created_at: new Date().toISOString(), last_message_at: null,
   }
+  currentId.value = DRAFT
+  drawer.value = false
+  items.value = []
+  hasMore.value = false
+  loadError.value = ''
+  if (route.query.c || route.query.new) router.replace({ query: {} })
+}
+
+// saveDraft 发第一条消息前把草稿真正建出来，返回新对话的编号。
+async function saveDraft(): Promise<number> {
+  const d = draftConv.value!
+  const c = await api.createConversation({ model_id: d.model_id, thinking: d.thinking })
+  convs.value = [c, ...convs.value]
+  draftConv.value = null
+  currentId.value = c.id
+  router.replace({ query: { c: String(c.id) } })
+  return c.id
 }
 
 function replaceConv(c: Conversation) {
@@ -374,6 +406,11 @@ function onUnload() {
 
 async function patchCurrent(patch: { title?: string; model_id?: number | null; thinking?: Thinking; use_context?: boolean }) {
   if (!current.value) return
+  // 草稿还没保存：先记在网页上，发第一条消息时一起带上。
+  if (isDraft.value) {
+    Object.assign(draftConv.value!, patch)
+    return
+  }
   try {
     replaceConv(await api.updateConversation(current.value.id, patch))
   } catch (e) {
@@ -580,7 +617,15 @@ function onDrop(e: DragEvent) {
 async function send() {
   const content = input.value.trim()
   if (!canSend.value || sending.value || !current.value) return
-  const convId = current.value.id
+  let convId = current.value.id
+  if (isDraft.value) {
+    try {
+      convId = await saveDraft()
+    } catch (e) {
+      toast(errText(e, '新建对话失败'))
+      return
+    }
+  }
   const files = readyFiles.value
   const attachments = files.map((p) => p.att!)
   const sentPending = pending.value
@@ -922,7 +967,7 @@ let pollTimer: ReturnType<typeof setInterval> | undefined
 async function checkNew() {
   refreshConvs()
   const id = currentId.value
-  if (!id || sending.value || document.visibilityState !== 'visible') return
+  if (id <= 0 || sending.value || document.visibilityState !== 'visible') return
   try {
     const { latest_id } = await api.latestMessage(id)
     const known = items.value.reduce((m, it) => Math.max(m, it.id), 0)
@@ -1006,7 +1051,7 @@ onBeforeUnmount(() => {
           <h1 v-if="!isEmpty || isTemp" class="conv-title">{{ title }}</h1>
         </div>
         <div v-if="current" class="topbar__actions">
-          <span v-show="!isEmpty" class="meter-wrap"><ContextMeter ref="meter" :conversation-id="currentId" :busy="sending" @status="(s) => (compactPending = !!s?.pending)" /></span>
+           <span v-if="currentId > 0" v-show="!isEmpty" class="meter-wrap"><ContextMeter ref="meter" :conversation-id="currentId" :busy="sending" @status="(s) => (compactPending = !!s?.pending)" /></span>
           <template v-if="isTemp">
             <button class="btn btn-sm temp-end" :disabled="sending" title="结束并删除这段临时对话" @click="endTemporary">结束<span class="hide-sm">临时对话</span></button>
           </template>

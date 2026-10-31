@@ -540,9 +540,33 @@ export class ApiError extends Error {
 
 const TOKEN_KEY = 'buugoo.token'
 
+// IMP_KEY 是管理员临时登录到别人账号时用的令牌：只存在这个标签页里（sessionStorage），
+// 不会顶掉自己在别的标签页里的登录，关掉标签页就没了。
+const IMP_KEY = 'buugoo.imp'
+
+// impersonating 报告这个标签页是不是管理员的临时登录。
+export function impersonating(): boolean {
+  try {
+    return !!sessionStorage.getItem(IMP_KEY)
+  } catch {
+    return false
+  }
+}
+
+// startImpersonation 在这个标签页里改用临时登录的令牌。
+export function startImpersonation(token: string) {
+  try {
+    sessionStorage.setItem(IMP_KEY, token)
+  } catch {
+    // 存不下就没法临时登录。
+  }
+}
+
 export const tokenStore = {
   get(): string {
     try {
+      const imp = sessionStorage.getItem(IMP_KEY)
+      if (imp) return imp
       return localStorage.getItem(TOKEN_KEY) ?? ''
     } catch {
       return ''
@@ -550,6 +574,12 @@ export const tokenStore = {
   },
   set(token: string) {
     try {
+      // 临时登录的标签页里退出或令牌失效，只结束临时登录，不动自己保存的登录。
+      if (sessionStorage.getItem(IMP_KEY)) {
+        if (token) sessionStorage.setItem(IMP_KEY, token)
+        else sessionStorage.removeItem(IMP_KEY)
+        return
+      }
       if (token) localStorage.setItem(TOKEN_KEY, token)
       else localStorage.removeItem(TOKEN_KEY)
     } catch {
@@ -645,7 +675,7 @@ export const api = {
   logoutAll: () => request<void>('POST', '/auth/logout-all'),
   changePassword: (old_password: string, new_password: string) =>
     request<Session>('POST', '/auth/password', { old_password, new_password }),
-  me: () => request<{ user: User; quota: Quota; has_model: boolean; embedding_ready: boolean }>('GET', '/me'),
+  me: () => request<{ user: User; quota: Quota; has_model: boolean; embedding_ready: boolean; impersonated?: boolean }>('GET', '/me'),
   conversations: () => request<{ conversations: Conversation[] }>('GET', '/conversations'),
   createConversation: (
     input: { title?: string; model_id?: number | null; thinking?: Thinking; temporary?: boolean; use_context?: boolean } = {},

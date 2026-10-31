@@ -8,7 +8,7 @@ import { activeConvId, navOpen, openConvHandler, recentConvs, recentQuery, searc
 import Avatar from './components/Avatar.vue'
 import Lightbox from './components/Lightbox.vue'
 import { memoriesUnlocked } from './memoryLock'
-import { needsLogin, session } from './session'
+import { logout, needsLogin, session } from './session'
 import { toasts } from './toast'
 
 const route = useRoute()
@@ -87,6 +87,13 @@ watch(
 // 手机上点了导航里的东西就收起抽屉。
 watch(() => route.fullPath, () => (navOpen.value = false))
 
+// 结束临时登录：只清掉这个标签页的临时令牌，关掉标签页（打不开就回首页）。
+function endImpersonation() {
+  logout()
+  window.close()
+  location.href = '/'
+}
+
 function newChat() {
   router.push({ path: '/', query: { new: String(Date.now()) } })
 }
@@ -108,11 +115,16 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
 </script>
 
 <template>
+  <!-- 管理员临时登录到别人账号时一直显示，免得忘了自己在用谁的账号 -->
+  <div v-if="session.impersonated && session.user" class="imp-bar" role="status">
+    <span>正在临时登录「{{ userName }}」的账号排查问题 · 操作和本人一样生效</span>
+    <button type="button" @click="endImpersonation">结束临时登录</button>
+  </div>
   <div v-if="session.loaded && !session.meta" class="fatal">
     <img src="/logo.png" alt="BUUGOO" width="40" height="40" />
     <p>无法连接到{{ name }}的服务。请确认 buugoo serve 正在运行，然后刷新页面。</p>
   </div>
-  <div v-else-if="inWorkspace" class="workspace" :class="{ 'has-side': wideScreen }">
+  <div v-else-if="inWorkspace" class="workspace" :class="{ 'has-side': wideScreen, 'has-imp': session.impersonated }">
     <!-- 手机和窄屏：侧栏变成从左边滑出来的抽屉（和 claude.ai 手机版一样），左上角的按钮打开 -->
     <button v-if="!wideScreen" type="button" class="nav-toggle" aria-label="打开导航" @click="navOpen = true"><Icon name="menu" /></button>
     <Transition name="fade">
@@ -323,5 +335,12 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
 .side__close { margin-left: auto; }
 .side.is-drawer .side__item, .side.is-drawer .side__conv { height: 42px; line-height: 42px; font-size: 16px; }
 .side-backdrop { position: fixed; inset: 0; z-index: 39; background: var(--color-backdrop); }
+.imp-bar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 70; display: flex; align-items: center; justify-content: center; gap: 12px;
+  height: 32px; padding: 0 12px; background: #f3e3c3; color: #6b4a12; font-size: 13px; white-space: nowrap; overflow: hidden;
+}
+.imp-bar span { overflow: hidden; text-overflow: ellipsis; }
+.imp-bar button { flex-shrink: 0; padding: 2px 10px; border: 1px solid rgba(107, 74, 18, .3); border-radius: var(--radius-pill); color: inherit; font-size: 12px; }
+.imp-bar button:hover { background: rgba(107, 74, 18, .08); }
 .fatal { max-width: 420px; margin: 18vh auto 0; padding: 0 16px; text-align: center; color: var(--color-text-secondary); }
 </style>

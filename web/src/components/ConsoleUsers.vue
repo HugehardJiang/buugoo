@@ -103,6 +103,27 @@ async function open(id: number) {
   }
 }
 
+// impersonate 临时登录到这个用户的账号（1 小时有效），在新标签页里打开，不影响自己的登录。
+async function impersonate() {
+  const d = detail.value
+  if (!d || busy.value) return
+  if (!confirm(`临时登录到「${d.user.display_name || d.user.username}」的账号？\n\n会在新标签页里打开，1 小时内有效，记进审计日志。在里面发消息、改设置都和本人操作一样生效（也会扣这个账号的额度和余额）。改密码、退出所有设备、换头像不能做。`)) return
+  // 先同步打开标签页，免得等接口返回后被浏览器当成弹窗拦掉。
+  const w = window.open('about:blank', '_blank')
+  busy.value = true
+  try {
+    const r = await props.call<{ token: string }>('POST', `/users/${d.user.id}/impersonate`)
+    const url = `${location.origin}/#imp=${encodeURIComponent(r.token)}`
+    if (w) w.location.href = url
+    else location.href = url
+  } catch (e) {
+    w?.close()
+    toast(e instanceof ApiError ? e.message : '临时登录失败')
+  } finally {
+    busy.value = false
+  }
+}
+
 async function act(path: string, body: unknown, ok: string) {
   const d = detail.value
   if (!d || busy.value) return
@@ -231,8 +252,12 @@ function costTotal(items: { amount: number }[]) {
         <div class="box">
           <h3>账号</h3>
           <div class="inline">
+            <span class="caption grow">排查问题时可以临时登录到这个账号，看看对方看到的是什么（新标签页打开，1 小时内有效）。</span>
+            <button type="button" class="btn btn-sm" :disabled="busy" @click="impersonate">临时登录</button>
+          </div>
+          <div class="inline">
             <input v-model="newPassword" class="text-input" type="text" autocomplete="off" placeholder="新密码（至少 8 位）" aria-label="新密码" />
-            <button type="button" class="btn btn-sm" :disabled="busy || newPassword.length < 8" @click="act('password', { password: newPassword }, '密码已重置，他之前的登录都已失效')">重置密码</button>
+            <button type="button" class="btn btn-sm" :disabled="busy || newPassword.length < 8" @click="act('password', { password: newPassword }, '密码已重置，之前的登录都已失效')">重置密码</button>
             <button type="button" class="btn btn-sm" :disabled="busy" @click="act('admin', { admin: !detail.user.is_admin }, detail.user.is_admin ? '已取消管理员' : '已设为管理员')">
               {{ detail.user.is_admin ? '取消管理员' : '设为管理员' }}
             </button>

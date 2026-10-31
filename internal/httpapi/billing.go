@@ -31,6 +31,7 @@ func (s *server) routeBilling(api, priv, console *echo.Group) {
 	m.GET("/users/:id", s.consoleUser)
 	m.POST("/users/:id/disable", s.consoleDisableUser)
 	m.POST("/users/:id/admin", s.consoleSetAdmin)
+	m.POST("/users/:id/impersonate", s.consoleImpersonate)
 	m.POST("/users/:id/restricted-models", s.consoleSetRestrictedModels)
 	m.POST("/users/:id/password", s.consoleResetPassword)
 	m.POST("/users/:id/grant", s.consoleGrant)
@@ -135,6 +136,20 @@ func (s *server) consoleDisableUser(c echo.Context) error {
 	}
 	s.audit(c, "管理后台停用/恢复了用户", "user", id, "disabled", req.Disabled)
 	return c.NoContent(http.StatusNoContent)
+}
+
+// consoleImpersonate 临时登录到某个用户的账号排查问题：签发 1 小时有效的令牌，记进审计日志。
+func (s *server) consoleImpersonate(c echo.Context) error {
+	id, err := pathID(c)
+	if err != nil {
+		return err
+	}
+	sess, err := s.Auth.Impersonate(c.Request().Context(), id)
+	if err != nil {
+		return err
+	}
+	s.audit(c, "管理后台临时登录了用户的账号", "user", id, "username", sess.User.Username)
+	return c.JSON(http.StatusOK, map[string]any{"token": sess.Token, "expires_at": sess.ExpiresAt, "username": sess.User.Username})
 }
 
 func (s *server) consoleSetAdmin(c echo.Context) error {

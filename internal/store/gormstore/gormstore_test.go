@@ -335,3 +335,27 @@ func TestMessageCacheStats(t *testing.T) {
 		}
 	})
 }
+
+func TestStaleEmptyConversations(t *testing.T) {
+	forEachDriver(t, func(t *testing.T, s *DB) {
+		ctx := context.Background()
+		empty := &store.Conversation{UserID: 1}
+		used := &store.Conversation{UserID: 1}
+		wx := &store.Conversation{UserID: 1, Channel: "weixin"}
+		for _, c := range []*store.Conversation{empty, used, wx} {
+			if err := s.Conversations().Create(ctx, c); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := s.Messages().Create(ctx, &store.Message{ConversationID: used.ID, UserID: 1, Role: store.RoleUser, Content: "hi", Status: store.MessageComplete}); err != nil {
+			t.Fatal(err)
+		}
+		list, err := s.Conversations().StaleEmpty(ctx, time.Now().Add(time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(list) != 1 || list[0].ID != empty.ID {
+			t.Fatalf("应只找到空的网页对话: %+v", list)
+		}
+	})
+}

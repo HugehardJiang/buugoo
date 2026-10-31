@@ -148,12 +148,34 @@ func (s *Service) CleanupTemporary(ctx context.Context) int {
 	return n
 }
 
-// RunCleanup 每 30 分钟清理一次闲置的临时对话，直到 ctx 取消。
+// EmptyIdle 是一条消息都没有的对话放多久后自动删除（以前点「新对话」就会建一个，没聊也一直留着）。
+const EmptyIdle = 24 * time.Hour
+
+// CleanupEmpty 删除放了很久、一条消息都没有的网页对话，返回删了几个。
+func (s *Service) CleanupEmpty(ctx context.Context) int {
+	stale, err := s.store.Conversations().StaleEmpty(ctx, s.now().Add(-EmptyIdle))
+	if err != nil {
+		s.log.Error("查找空对话失败", "err", err)
+		return 0
+	}
+	n := 0
+	for _, c := range stale {
+		if err := s.DeleteConversation(ctx, &store.User{ID: c.UserID}, c.ID); err != nil {
+			s.log.Error("删除空对话失败", "conversation_id", c.ID, "err", err)
+			continue
+		}
+		n++
+	}
+	return n
+}
+
+// RunCleanup 每 30 分钟清理一次闲置的临时对话和放了很久的空对话，直到 ctx 取消。
 func (s *Service) RunCleanup(ctx context.Context) {
 	t := time.NewTicker(30 * time.Minute)
 	defer t.Stop()
 	for {
 		s.CleanupTemporary(ctx)
+		s.CleanupEmpty(ctx)
 		select {
 		case <-ctx.Done():
 			return

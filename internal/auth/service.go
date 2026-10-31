@@ -227,6 +227,38 @@ func validateCredentials(username, password string) error {
 	return nil
 }
 
+// ImpersonateTTL 是管理员临时登录的有效期。
+const ImpersonateTTL = time.Hour
+
+// Impersonate 给管理员签发临时登录某个账号的令牌（排查问题用，1 小时后失效）。
+// 用户「退出所有设备」或修改密码后令牌立即失效。
+func (s *Service) Impersonate(ctx context.Context, userID uint64) (*Session, error) {
+	if s.mode != config.ModeMulti {
+		return nil, &ValidationError{"单用户版只有一个账号，不需要临时登录"}
+	}
+	u, err := s.store.Users().GetByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if u.DisabledAt != nil {
+		return nil, ErrAccountDisabled
+	}
+	tok, exp, err := s.tokens.IssueTemp(u.ID, u.TokenVersion, ImpersonateTTL, "console")
+	if err != nil {
+		return nil, err
+	}
+	return &Session{Token: tok, ExpiresAt: exp, User: u}, nil
+}
+
+// Impersonated 报告令牌是不是管理员临时登录用的。
+func (s *Service) Impersonated(token string) bool {
+	if token == "" {
+		return false
+	}
+	c, err := s.tokens.Parse(token)
+	return err == nil && c.Imp != ""
+}
+
 // Authenticate 校验令牌并返回对应用户。single 模式未设置访问密码时 token 可为空。
 func (s *Service) Authenticate(ctx context.Context, token string) (*store.User, error) {
 	if s.mode == config.ModeSingle && s.cfg.AccessPassword == "" {

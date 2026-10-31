@@ -258,6 +258,8 @@ func (s *server) me(c echo.Context) error {
 		"user": toUser(u), "quota": st,
 		"has_model":       len(ms) > 0,
 		"embedding_ready": s.Models.EmbeddingReady(ctx),
+		// impersonated 表示这是管理员临时登录到这个账号，网页上会显示提示条。
+		"impersonated": impersonated(c),
 	})
 }
 

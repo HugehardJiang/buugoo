@@ -177,6 +177,8 @@ type ConversationRepo interface {
 	ClearModel(ctx context.Context, modelID uint64) error
 	// StaleTemporary 列出所有用户在 before 之前就没动静的临时对话（定时清理用）。
 	StaleTemporary(ctx context.Context, before time.Time) ([]Conversation, error)
+	// StaleEmpty 列出 before 之前就没动过、一条消息都没有的网页对话（不含聊天软件的对话和临时对话）。
+	StaleEmpty(ctx context.Context, before time.Time) ([]Conversation, error)
 }
 
 // ModelRepo 是模型配置数据访问接口。

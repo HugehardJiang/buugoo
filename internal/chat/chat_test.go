@@ -1163,3 +1163,30 @@ func TestTemporaryConversation(t *testing.T) {
 		t.Fatalf("普通对话应保留: %+v", list)
 	}
 }
+
+func TestCleanupEmpty(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, config.QuotaConfig{})
+	empty, _ := e.svc.CreateConversation(ctx, e.user, ConversationPatch{})
+	used, _ := e.svc.CreateConversation(ctx, e.user, ConversationPatch{})
+	if _, err := e.svc.Send(ctx, e.user, SendInput{ConversationID: used.ID, Content: "你好"}, &recordSink{}); err != nil {
+		t.Fatal(err)
+	}
+	wx, _ := e.svc.CreateConversation(ctx, e.user, ConversationPatch{Channel: "weixin"})
+	// 刚建的不删。
+	if n := e.svc.CleanupEmpty(ctx); n != 0 {
+		t.Fatalf("刚建的空对话不该删：%d", n)
+	}
+	e.svc.now = func() time.Time { return time.Now().Add(EmptyIdle + time.Hour) }
+	if n := e.svc.CleanupEmpty(ctx); n != 1 {
+		t.Fatalf("应只删 1 个空的网页对话，实际 %d", n)
+	}
+	if _, err := e.db.Conversations().Get(ctx, e.user.ID, empty.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal("空对话应已删除")
+	}
+	for _, id := range []uint64{used.ID, wx.ID} {
+		if _, err := e.db.Conversations().Get(ctx, e.user.ID, id); err != nil {
+			t.Fatalf("聊过的对话和聊天软件的对话要保留：%d %v", id, err)
+		}
+	}
+}

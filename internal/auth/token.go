@@ -15,6 +15,8 @@ const issuer = "buugoo"
 type Claims struct {
 	// TokenVersion 必须与用户当前的 token_version 一致，否则令牌已失效。
 	TokenVersion int `json:"tv"`
+	// Imp 不为空表示这是管理员临时登录到这个账号（排查问题用），值是谁签发的。
+	Imp string `json:"imp,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -40,10 +42,20 @@ func NewTokens(secret string, ttl time.Duration) (*Tokens, error) {
 
 // Issue 为用户签发令牌。
 func (t *Tokens) Issue(userID uint64, tokenVersion int) (string, time.Time, error) {
+	return t.issue(userID, tokenVersion, t.ttl, "")
+}
+
+// IssueTemp 签发管理员临时登录用的短期令牌。
+func (t *Tokens) IssueTemp(userID uint64, tokenVersion int, ttl time.Duration, by string) (string, time.Time, error) {
+	return t.issue(userID, tokenVersion, ttl, by)
+}
+
+func (t *Tokens) issue(userID uint64, tokenVersion int, ttl time.Duration, imp string) (string, time.Time, error) {
 	now := t.now()
-	exp := now.Add(t.ttl)
+	exp := now.Add(ttl)
 	claims := Claims{
 		TokenVersion: tokenVersion,
+		Imp:          imp,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    issuer,
 			Subject:   strconv.FormatUint(userID, 10),

@@ -223,6 +223,15 @@ func (r conversationRepo) List(ctx context.Context, userID uint64) ([]store.Conv
 	return out, mapErr(err)
 }
 
+func (r conversationRepo) StaleEmpty(ctx context.Context, before time.Time) ([]store.Conversation, error) {
+	var out []store.Conversation
+	err := r.db.WithContext(ctx).
+		Where("temporary = ? AND channel = ? AND updated_at < ? AND last_message_at IS NULL", false, "", before).
+		Where("NOT EXISTS (SELECT 1 FROM messages WHERE messages.conversation_id = conversations.id)").
+		Limit(500).Find(&out).Error
+	return out, mapErr(err)
+}
+
 func (r conversationRepo) StaleTemporary(ctx context.Context, before time.Time) ([]store.Conversation, error) {
 	var out []store.Conversation
 	err := r.db.WithContext(ctx).Where("temporary = ? AND updated_at < ? AND (last_message_at IS NULL OR last_message_at < ?)", true, before, before).

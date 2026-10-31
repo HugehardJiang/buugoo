@@ -86,6 +86,9 @@ type server struct {
 
 const ctxUserKey = "buugoo.user"
 
+// ctxImpKey 标记这次请求来自管理员的临时登录。
+const ctxImpKey = "buugoo.impersonated"
+
 // New 创建 HTTP 处理器。
 func New(d Deps) http.Handler {
 	if d.Logger == nil {
@@ -176,14 +179,14 @@ func New(d Deps) http.Handler {
 	}
 
 	priv := api.Group("", s.requireUser)
-	priv.POST("/auth/logout-all", s.logoutAll)
-	priv.POST("/auth/password", s.changePassword)
+	priv.POST("/auth/logout-all", s.notImpersonated(s.logoutAll))
+	priv.POST("/auth/password", s.notImpersonated(s.changePassword))
 	priv.GET("/me", s.me)
 	priv.GET("/diagnostics", s.myDiagnostics)
 	priv.PUT("/me/proactive", s.setProactive)
 	priv.GET("/me/profile", s.profile)
 	priv.PUT("/me/profile", s.updateProfile)
-	priv.POST("/me/avatar", s.regenerateAvatar)
+	priv.POST("/me/avatar", s.notImpersonated(s.regenerateAvatar))
 	priv.GET("/channels", s.myChannels)
 	priv.POST("/channels/code", s.newBindCode)
 	priv.DELETE("/channels/bindings/:id", s.unbind)
@@ -362,6 +365,23 @@ func (s *server) requireUser(next echo.HandlerFunc) echo.HandlerFunc {
 			return err
 		}
 		c.Set(ctxUserKey, u)
+		c.Set(ctxImpKey, s.Auth.Impersonated(token))
+		return next(c)
+	}
+}
+
+// impersonated 报告这次请求是不是管理员临时登录到这个账号。
+func impersonated(c echo.Context) bool {
+	v, _ := c.Get(ctxImpKey).(bool)
+	return v
+}
+
+// notImpersonated 挡住临时登录时不该替用户做的事（改密码、退出所有设备、用掉换头像的次数）。
+func (s *server) notImpersonated(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		if impersonated(c) {
+			return &apiError{Status: http.StatusForbidden, Code: "impersonated", Message: "临时登录时不能做这个操作，请让用户自己来"}
+		}
 		return next(c)
 	}
 }
