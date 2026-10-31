@@ -35,6 +35,17 @@ type Backup struct {
 // ErrBackupDeclined 表示用户拒绝在没有备份的情况下继续。
 var ErrBackupDeclined = errors.New("没有完成数据库备份，已取消更新")
 
+// freePath 返回还不存在的备份文件名：同一秒里备份了两次（例如回滚后马上再更新）时加上 -2、-3……
+func freePath(base, ext string) string {
+	out := base + ext
+	for i := 2; ; i++ {
+		if _, err := os.Stat(out); errors.Is(err, os.ErrNotExist) {
+			return out
+		}
+		out = fmt.Sprintf("%s-%d%s", base, i, ext)
+	}
+}
+
 // BackupDatabase 在 <data_dir>/backups 下备份数据库。
 // SQLite 使用 VACUUM INTO 生成一致性快照；MySQL 调用 mysqldump，找不到时询问是否继续。
 func BackupDatabase(ctx context.Context, cfg *config.Config, label string, confirm func(string) bool) (*Backup, error) {
@@ -49,7 +60,7 @@ func BackupDatabase(ctx context.Context, cfg *config.Config, label string, confi
 		if _, err := os.Stat(dbPath); errors.Is(err, os.ErrNotExist) {
 			return &Backup{Kind: BackupNone}, nil // 还没有数据库，无需备份
 		}
-		out := filepath.Join(dir, fmt.Sprintf("buugoo-%s-%s.db", stamp, label))
+		out := freePath(filepath.Join(dir, fmt.Sprintf("buugoo-%s-%s", stamp, label)), ".db")
 		db, err := gormstore.Open(cfg.Database, nil)
 		if err != nil {
 			return nil, fmt.Errorf("打开数据库: %w", err)
@@ -60,7 +71,7 @@ func BackupDatabase(ctx context.Context, cfg *config.Config, label string, confi
 		}
 		return &Backup{Kind: BackupSQLite, Path: out, DBPath: dbPath}, nil
 	case config.DriverMySQL:
-		out := filepath.Join(dir, fmt.Sprintf("buugoo-%s-%s.sql", stamp, label))
+		out := freePath(filepath.Join(dir, fmt.Sprintf("buugoo-%s-%s", stamp, label)), ".sql")
 		if _, err := exec.LookPath("mysqldump"); err != nil {
 			msg := "未找到 mysqldump，无法自动备份 MySQL 数据库。请先手动备份（例如在宝塔面板中备份数据库），确认已备份后继续"
 			if confirm == nil || !confirm(msg) {
