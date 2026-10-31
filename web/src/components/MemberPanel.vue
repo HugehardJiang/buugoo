@@ -13,7 +13,6 @@ const code = ref('')
 const redeeming = ref(false)
 const redeemError = ref('')
 const showLogs = ref(false)
-const showCosts = ref(false)
 const labels = ref<Record<string, string>>({})
 
 const todayCost = computed(() => (account.value?.today ?? []).reduce((n, c) => n + c.amount, 0))
@@ -63,45 +62,78 @@ async function redeem() {
 function pct(used: number, limit: number) {
   return Math.min(100, Math.round((used / limit) * 100))
 }
+
+// 顶部的一句话（参考 claude.ai 的用量页）。
+const planName = computed(() => account.value?.subscription?.plan_name ?? (quota.value?.free ? '免费' : '按量付费'))
+const maxPct = computed(() => usage.value.reduce((m, u) => Math.max(m, pct(u.used, u.limit)), 0))
+const resetText = computed(() => {
+  const q = quota.value
+  if (!q?.reset_at) return q?.period === 'month' ? '每月重置' : '每天重置'
+  return `${dateTime(q.reset_at)} 重置`
+})
+const summary = computed(() => {
+  const q = quota.value
+  if (!q) return ''
+  if (q.exempt) return '你是管理员，不受额度限制。'
+  if (q.paying) return q.free ? '这个周期的额度用完了，现在每次使用都按价格从余额里扣。' : '没有免费额度，每次使用按价格从余额里扣。'
+  if (!usage.value.length) return q.free ? '额度不限，放心用。' : '没有免费额度，每次使用按价格从余额里扣。'
+  if (maxPct.value >= 90) return `额度快用完了，${resetText.value}。`
+  if (maxPct.value >= 60) return `已经用了一大半，${resetText.value}。`
+  return `进度正常，在${resetText.value.replace(' 重置', '')}重置前额度还很充裕。`
+})
+// 本月各项的消费，按金额排序，条的长短是占本月总花费的比例。
+const monthRows = computed(() => {
+  const list = [...(account.value?.month ?? [])].sort((a, b) => b.amount - a.amount)
+  const total = list.reduce((n, c) => n + c.amount, 0) || 1
+  return list.map((c) => ({ ...c, share: Math.round((c.amount / total) * 100) }))
+})
 </script>
 
 <template>
-  <section id="member" class="panel panel--inset">
-    <h2>会员</h2>
+  <section id="member" class="panel panel--inset usage">
+    <div class="usage__head">
+      <h2>你的用量</h2>
+      <span v-if="account" class="usage__plan">{{ planName }}</span>
+    </div>
     <p v-if="loadError" class="form-flash form-flash--error">{{ loadError }}</p>
     <template v-else-if="account && quota">
-      <div class="status">
-        <div class="status__plan">
-          <p class="caption">当前</p>
-          <p v-if="account.subscription" class="plan-name">{{ account.subscription.plan_name }}</p>
-          <p v-else class="plan-name">{{ quota.free ? '免费用户' : '按量付费' }}</p>
-          <p v-if="account.subscription" class="caption">{{ dateTime(account.subscription.expires_at) }} 到期</p>
-          <p v-if="quota.exempt" class="caption">管理员不受限额限制</p>
-          <p class="balance-label caption">余额</p>
-          <p class="balance" :class="{ neg: account.balance < 0 }">{{ yuan(account.balance) }}</p>
-          <p class="caption">今天花了 {{ yuan(todayCost) }} · 本月 {{ yuan(monthCost) }}</p>
-        </div>
-        <div class="status__usage">
-          <p class="caption">{{ quota.period === 'month' ? '本月' : '今天' }}的额度</p>
-          <template v-if="usage.length">
-            <div v-for="u in usage" :key="u.label" class="meter">
-              <div class="meter__label"><span>{{ u.label }}</span><span>{{ u.unit === 'tokens' ? `${mtok(u.used)} / ${mtok(u.limit)}` : `${u.used} / ${u.limit}` }}</span></div>
-              <div class="workspace-progress"><i :style="{ width: `${pct(u.used, u.limit)}%` }" /></div>
-            </div>
-          </template>
-          <p v-else class="caption">{{ quota.free ? '不限' : '没有免费额度，每次使用按价格扣余额' }}</p>
-          <p v-if="quota.reset_at && usage.length" class="caption">{{ dateTime(quota.reset_at) }} 重置</p>
-          <p v-if="quota.paying && !quota.exempt" class="paying">{{ quota.free ? '额度用完了，' : '' }}现在每次使用都按价格从余额里扣</p>
+      <p class="usage__summary">{{ summary }}</p>
+
+      <div v-if="usage.length" class="rows">
+        <div v-for="u in usage" :key="u.label" class="row">
+          <div class="row__label">
+            <span>{{ quota.period === 'month' ? '本月' : '今天' }}的{{ u.label }}</span>
+            <small>{{ u.unit === 'tokens' ? `${mtok(u.used)} / ${mtok(u.limit)}` : `${u.used} / ${u.limit}` }} · {{ resetText }}</small>
+          </div>
+          <div class="bar" role="progressbar" :aria-valuenow="pct(u.used, u.limit)" aria-valuemin="0" aria-valuemax="100">
+            <i :style="{ width: `${pct(u.used, u.limit)}%` }" :class="{ 'is-high': pct(u.used, u.limit) >= 90 }" />
+          </div>
+          <span class="row__pct">已使用 {{ pct(u.used, u.limit) }}%</span>
         </div>
       </div>
 
-      <button v-if="account.month.length" type="button" class="link caption" @click="showCosts = !showCosts">{{ showCosts ? '收起消费明细' : '查看本月消费明细' }}</button>
-      <ul v-if="showCosts" class="costs">
-        <li v-for="c in account.month" :key="c.key">
-          <span>{{ labels[c.key] ?? c.key }}<span class="caption"> · {{ c.tokens ? `${mtok(c.tokens)} 百万 token` : `${c.calls} 次` }}</span></span>
-          <span>{{ yuan(c.amount) }}</span>
-        </li>
-      </ul>
+      <h3 class="sec">余额</h3>
+      <div class="line">
+        <div class="row__label">
+          <span>可用余额</span>
+          <small>今天花了 {{ yuan(todayCost) }} · 本月 {{ yuan(monthCost) }}<template v-if="account.subscription"> · 套餐 {{ dateTime(account.subscription.expires_at) }} 到期</template></small>
+        </div>
+        <strong class="balance" :class="{ neg: account.balance < 0 }">{{ yuan(account.balance) }}</strong>
+      </div>
+
+      <template v-if="monthRows.length">
+        <h3 class="sec">本月各项的用量</h3>
+        <div class="rows">
+          <div v-for="c in monthRows" :key="c.key" class="row">
+            <div class="row__label">
+              <span>{{ labels[c.key] ?? c.key }}</span>
+              <small>{{ c.tokens ? `${mtok(c.tokens)} 百万 token` : `${c.calls} 次` }}</small>
+            </div>
+            <div class="bar"><i :style="{ width: `${Math.max(c.share, 1)}%` }" /></div>
+            <span class="row__pct">{{ yuan(c.amount) }}</span>
+          </div>
+        </div>
+      </template>
 
       <form class="redeem" @submit.prevent="redeem">
         <label class="field__label" for="redeem-code">兑换卡密（开通套餐或充值）</label>
@@ -138,21 +170,27 @@ function pct(used: number, limit: number) {
 </template>
 
 <style scoped>
-h2 { margin: 0 0 14px; }
+/* 参考 claude.ai 的用量页：一句话总结，下面每一项一行（名称、细进度条、百分比），细线分隔 */
+.usage__head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+.usage__head h2 { margin: 0; }
+.usage__plan { color: var(--color-muted); font-size: 14px; }
+.usage__summary { margin: 0 0 6px; padding-bottom: 14px; border-bottom: 1px solid var(--color-divider); color: var(--color-ink); font-size: 16px; }
 .skel { height: 140px; border-radius: var(--radius-md); }
-.status { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--color-divider); }
-.status p { margin: 0 0 4px; }
-.plan-name { font-family: var(--font-display); font-size: 22px; color: var(--color-ink); }
-.meter { margin-bottom: 8px; }
-.meter__label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
-.balance-label { margin-top: 12px !important; }
-.balance { font-family: var(--font-display); font-size: 26px; color: var(--color-ink); }
+.rows { display: grid; }
+.row { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr) 96px; align-items: center; gap: 24px; padding: 16px 0; }
+.row__label { display: grid; gap: 3px; min-width: 0; }
+.row__label span { color: var(--color-ink); font-size: 15px; }
+.row__label small { color: var(--color-muted); font-size: 13px; }
+.bar { height: 8px; overflow: hidden; border-radius: 999px; background: var(--color-divider); }
+.bar i { display: block; height: 100%; border-radius: inherit; background: var(--color-accent); transition: width .5s var(--ease-editorial); }
+.bar i.is-high { background: var(--color-warning); }
+.row__pct { color: var(--color-text-secondary); font-size: 14px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.sec { margin: 28px 0 4px; font-size: 16px; font-weight: 600; }
+.line { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0 16px; border-bottom: 1px solid var(--color-divider); }
+.balance { color: var(--color-ink); font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .neg { color: var(--color-danger) !important; }
-.paying { margin-top: 8px !important; font-size: 13px; color: var(--color-accent-active); }
-.costs { margin: 8px 0 0; padding: 0; list-style: none; }
-.costs li { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 14px; border-bottom: 1px solid var(--color-divider); }
-.redeem { padding: 16px 0; }
-.redeem__row { display: flex; gap: 8px; margin-top: 6px; }
+.redeem { padding: 22px 0 16px; }
+.redeem__row { display: flex; gap: 8px; margin-top: 8px; }
 .redeem__row .text-input { flex: 1; min-width: 0; }
 .mono { font-family: var(--font-mono); letter-spacing: .04em; }
 .plans { padding-top: 4px; }
@@ -166,5 +204,8 @@ h2 { margin: 0 0 14px; }
 .buy { align-self: flex-start; margin-top: auto; }
 .link { padding: 0; margin-top: 8px; text-decoration: underline; text-underline-offset: 3px; }
 .logs { margin: 8px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.8; }
-@media (max-width: 560px) { .status { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 640px) {
+  .row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; }
+  .bar { grid-column: 1 / -1; grid-row: 2; }
+}
 </style>

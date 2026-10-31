@@ -186,8 +186,9 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	todoSvc := todo.New(db.Gorm(), loc)
 	toolsProv.todos = todoSvc
 	toolsProv.limiter = limiter
+	toolsProv.store, toolsProv.loc = db, loc
 	if cfg.Proactive.Reminders {
-		toolsProv.reminders, toolsProv.loc = db.Reminders(), loc
+		toolsProv.reminders = db.Reminders()
 	}
 	emo := emotion.New(db.Emotions(), cfg.Emotion, loc, log)
 	// 用户选的预设性格可以放大或减小情绪起伏（例如「人工智鸟」更容易生气、更难哄好）。

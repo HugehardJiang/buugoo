@@ -356,6 +356,10 @@ func memoryLine(m store.Memory) string {
 	if m.Source == store.SourceInferred {
 		src = "你的推测"
 	}
+	// 记得出处的记忆带上编号，需要时可以用 recall_chat 翻看原来的聊天。
+	if m.SourceMessageID != nil && m.ConversationID != nil {
+		return fmt.Sprintf("[%s｜%s｜#%d] %s", src, timefmt.Date(m.CreatedAt), m.ID, m.Content)
+	}
 	return fmt.Sprintf("[%s｜%s] %s", src, timefmt.Date(m.CreatedAt), m.Content)
 }
 

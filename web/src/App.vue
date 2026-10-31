@@ -2,9 +2,9 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Icon from './Icon.vue'
-import { api, type Conversation } from './api'
+import { api } from './api'
 import { connectedCount, refreshChannels } from './channelState'
-import { recentQuery, searching, sidebarCollapsed, wideScreen } from './sidebarState'
+import { activeConvId, openConvHandler, recentConvs, recentQuery, searching, sidebarCollapsed, wideScreen } from './sidebarState'
 import Avatar from './components/Avatar.vue'
 import Lightbox from './components/Lightbox.vue'
 import { memoriesUnlocked } from './memoryLock'
@@ -53,20 +53,32 @@ onBeforeUnmount(() => clearInterval(channelTimer))
 // 桌面端侧栏（参考 claude.ai）：上面是功能入口，中间是最近的对话，最下面是自己。
 // 聊天页会把自己的对话列表放进 #app-recents；其他页面在这里读一份最近的对话。
 const sideItems = computed(() => items.value.filter((it) => it.route !== 'chat'))
-const recents = ref<Conversation[]>([])
 const recentsOpen = ref(true)
 const searchInput = ref<HTMLInputElement | null>(null)
 const onChat = computed(() => route.name === 'chat')
-const shownRecents = computed(() => {
+// 「最近」分成网页上的对话和聊天软件里的对话（微信、QQ、Telegram），每个页面显示的都一样。
+const channelLabels: Record<string, string> = { weixin: '微信', qq: 'QQ', telegram: 'Telegram' }
+const filteredConvs = computed(() => {
   const q = recentQuery.value.trim().toLowerCase()
-  return recents.value.filter((c) => !q || (c.title || '新对话').toLowerCase().includes(q)).slice(0, 40)
+  return recentConvs.value.filter((c) => !q || convTitle(c).toLowerCase().includes(q))
 })
+// 聊天软件里的对话放在「最近」上面（像 claude.ai 的「已置顶」），不用翻到底才看得到。
+const extConvs = computed(() => filteredConvs.value.filter((c) => !!c.channel))
+const webConvs = computed(() => filteredConvs.value.filter((c) => !c.channel))
+const extOpen = ref(true)
+function convTitle(c: { title: string; channel?: string }) {
+  return c.title || (c.channel ? `${channelLabels[c.channel]}里的聊天` : '新对话')
+}
+function openConv(id: number) {
+  if (onChat.value && openConvHandler.fn) openConvHandler.fn(id)
+  else router.push({ path: '/', query: { c: String(id) } })
+}
 watch(
   () => inWorkspace.value && wideScreen.value && !onChat.value && !needsLogin(),
   async (on) => {
     if (!on) return
     try {
-      recents.value = (await api.conversations()).conversations
+      recentConvs.value = (await api.conversations()).conversations
     } catch {
       // 只是侧栏的列表，读不到就空着。
     }
@@ -140,16 +152,42 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
           <Icon name="search" :size="15" />
           <input ref="searchInput" v-model="recentQuery" type="search" placeholder="搜索对话" aria-label="搜索对话" @keydown.esc="toggleSearch" />
         </div>
-        <button type="button" class="side__sec" :aria-expanded="recentsOpen" @click="recentsOpen = !recentsOpen">
-          最近 <Icon name="chevron" :size="11" class="side__caret" :class="{ 'is-closed': !recentsOpen }" />
-        </button>
-        <div v-show="recentsOpen" id="app-recents" class="side__list">
-          <template v-if="!onChat">
-            <RouterLink v-for="c in shownRecents" :key="c.id" :to="{ path: '/', query: { c: String(c.id) } }" class="side__conv">
-              {{ c.title || '新对话' }}
-            </RouterLink>
-            <p v-if="!shownRecents.length" class="side__empty">{{ recentQuery ? '没有找到' : '还没有对话' }}</p>
+        <div class="side__scroll">
+          <template v-if="extConvs.length">
+            <button type="button" class="side__sec" :aria-expanded="extOpen" @click="extOpen = !extOpen">
+              外部聊天 <Icon name="chevron" :size="11" class="side__caret" :class="{ 'is-closed': !extOpen }" />
+            </button>
+            <div v-show="extOpen" class="side__group">
+              <button
+                v-for="c in extConvs"
+                :key="c.id"
+                type="button"
+                class="side__conv"
+                :class="{ 'is-active': onChat && c.id === activeConvId }"
+                :title="convTitle(c)"
+                @click="openConv(c.id)"
+              >
+                <i class="side__tag" :class="`side__tag--${c.channel}`">{{ channelLabels[c.channel!] }}</i>{{ convTitle(c) }}
+              </button>
+            </div>
           </template>
+          <button type="button" class="side__sec" :aria-expanded="recentsOpen" @click="recentsOpen = !recentsOpen">
+            最近 <Icon name="chevron" :size="11" class="side__caret" :class="{ 'is-closed': !recentsOpen }" />
+          </button>
+          <div v-show="recentsOpen" class="side__group">
+            <button
+              v-for="c in webConvs"
+              :key="c.id"
+              type="button"
+              class="side__conv"
+              :class="{ 'is-active': onChat && c.id === activeConvId }"
+              :title="convTitle(c)"
+              @click="openConv(c.id)"
+            >
+              {{ convTitle(c) }}
+            </button>
+            <p v-if="!webConvs.length" class="side__empty">{{ recentQuery ? '没有找到' : '还没有对话' }}</p>
+          </div>
         </div>
       </div>
       <div class="side__foot">
@@ -295,12 +333,17 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
 .side__sec:hover { color: var(--color-text-secondary); }
 .side__caret { transform: rotate(90deg); transition: transform .2s ease; }
 .side__caret.is-closed { transform: rotate(0deg); }
-.side__list { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 12px; }
+.side__scroll { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 12px; }
+.side__group { margin-bottom: 10px; }
 .side__conv {
-  display: block; height: 36px; padding: 0 10px; overflow: hidden; border-radius: var(--radius-md); color: var(--color-ink);
-  font-size: 14.5px; line-height: 36px; white-space: nowrap; text-overflow: ellipsis;
+  display: block; width: 100%; height: 36px; padding: 0 10px; overflow: hidden; border-radius: var(--radius-md); color: var(--color-ink);
+  font-size: 14.5px; line-height: 36px; text-align: left; white-space: nowrap; text-overflow: ellipsis;
 }
 .side__conv:hover { background: var(--color-hover-wash); }
+.side__conv.is-active { background: rgba(20, 20, 19, .075); }
+.side__tag { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px; background: var(--color-accent-tint); color: var(--color-accent-active); font-size: 11px; font-style: normal; line-height: 17px; vertical-align: 1px; }
+.side__tag--qq { background: #dbeafe; color: #1d4ed8; }
+.side__tag--telegram { background: #e0f2fe; color: #0369a1; }
 .side__empty { margin: 4px 10px; color: var(--color-muted); font-size: 13px; }
 .side__foot { display: flex; align-items: center; gap: 4px; padding: 10px 8px 12px; border-top: 1px solid var(--color-divider); }
 .side.is-collapsed .side__foot { justify-content: center; }

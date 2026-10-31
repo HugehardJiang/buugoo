@@ -33,7 +33,7 @@ import { dayKey, dayLabel, formatSize, renderMarkdown, shortWhen, timeOf } from 
 import { memoriesUnlocked } from '../memoryLock'
 import Collapse from '../components/Collapse.vue'
 import { session } from '../session'
-import { recentQuery, wideScreen } from '../sidebarState'
+import { activeConvId, openConvHandler, recentConvs, recentQuery, wideScreen } from '../sidebarState'
 import { toast } from '../toast'
 import { copyDiagnostics } from '../diag'
 
@@ -64,8 +64,12 @@ interface Pending {
 const route = useRoute()
 const router = useRouter()
 
-const convs = ref<Conversation[]>([])
+// 先用侧栏里已有的列表，读到最新的之前也不会是空的（免得侧栏闪一下）。
+const convs = ref<Conversation[]>([...recentConvs.value])
 const currentId = ref(0)
+// 对话列表和正在看的对话同步给左侧栏。
+watch(convs, (v) => (recentConvs.value = v), { deep: true })
+watch(currentId, (v) => (activeConvId.value = v))
 
 // copyDiag 复制这条失败回复的诊断信息。
 function copyDiag(m: { id: number; model?: string; error?: string; created_at: string }) {
@@ -942,6 +946,7 @@ function onVisible() {
   if (document.visibilityState === 'visible') checkNew()
 }
 onMounted(() => {
+  openConvHandler.fn = (id) => openConversation(id)
   loadInitial()
   pollTimer = setInterval(checkNew, 20000)
   document.addEventListener('visibilitychange', onVisible)
@@ -953,6 +958,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVisible)
   window.removeEventListener('focus', checkNew)
   window.removeEventListener('pagehide', onUnload)
+  openConvHandler.fn = null
+  activeConvId.value = 0
   // 去了别的页面：临时对话也就结束了。
   discardTemp()
 })
@@ -970,9 +977,7 @@ onBeforeUnmount(() => {
           <Icon name="plus" :size="16" />新对话
         </button>
       </div>
-      <!-- 宽屏时对话列表放进左侧合并的侧栏（App.vue 的 #app-recents），和 claude.ai 一样 -->
-      <Teleport to="#app-recents" :disabled="!wideScreen" defer>
-      <nav class="sidebar__list" :class="{ 'is-side': wideScreen }" aria-label="对话">
+      <nav class="sidebar__list" aria-label="对话">
         <template v-for="sec in convSections" :key="sec.key">
           <p v-if="sec.items.length || sec.key === 'web'" class="conv-sec">{{ sec.label }}</p>
           <TransitionGroup tag="div" name="list" class="category-filter-list">
@@ -990,7 +995,6 @@ onBeforeUnmount(() => {
           <p v-if="sec.key === 'web' && !sec.items.length" class="caption conv-empty">{{ recentQuery ? '没有找到' : '还没有网页上的对话' }}</p>
         </template>
       </nav>
-      </Teleport>
       <p class="caption sidebar__foot">每段对话各自独立，但{{ name }}记得的事在所有对话里都通用。</p>
     </aside>
 
@@ -1351,18 +1355,7 @@ onBeforeUnmount(() => {
   font-family: var(--font-display); font-size: clamp(28px, 3.4vw, 38px); font-weight: 500; letter-spacing: -.015em; line-height: 1.2;
 }
 .greet__logo { width: 1.05em; height: 1.05em; object-fit: contain; }
-/* 放进左侧合并侧栏的对话列表：和 claude.ai 的「最近」一样，只显示标题 */
 .sidebar.is-merged { display: none; }
-.sidebar__list.is-side { flex: none; overflow: visible; padding: 0; }
-.is-side .category-filter-list { gap: 1px; }
-.is-side .category-filter { min-height: 36px; padding: 0 10px; color: var(--color-ink); font-size: 14.5px; }
-.is-side .category-filter::before, .is-side .category-filter small { display: none; }
-.is-side .category-filter > span { padding-left: 0; }
-.is-side .category-filter:hover { background: var(--color-hover-wash); }
-.is-side .category-filter.is-active { background: rgba(20, 20, 19, .075); }
-.is-side .conv-sec { margin: 12px 10px 4px; font-size: 12px; }
-.is-side .conv-sec:first-child { display: none; }
-.is-side .conv-empty { margin: 4px 10px; }
 .scroller { flex: 1; overflow-y: auto; }
 .thread { max-width: 760px; margin: 0 auto; padding: 24px 32px 12px; }
 .more { text-align: center; margin-bottom: 12px; }

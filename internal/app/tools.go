@@ -48,6 +48,8 @@ type toolProvider struct {
 	todos *todo.Service
 	// limiter 不为空时给联网搜索和读网页计量（多用户版）。
 	limiter *quota.Limiter
+	// store 不为空时提供翻看记忆出处的工具。
+	store store.Store
 }
 
 func newToolProvider(cfg *config.Config, log *slog.Logger) *toolProvider {
@@ -206,6 +208,10 @@ func (p *toolProvider) For(ctx context.Context, u *store.User, conv *store.Conve
 	}
 	if p.memos != nil {
 		opts.Extra = append(opts.Extra, memo.Tools(p.memos, u.ID, turnID())...)
+	}
+	// 翻看记忆出处的工具：临时对话里不参考记忆时不提供。
+	if p.store != nil && (conv == nil || !conv.Temporary || conv.UseContext) {
+		opts.Extra = append(opts.Extra, recallTools(p.store, u.ID, p.loc)...)
 	}
 	if p.todos != nil {
 		opts.Extra = append(opts.Extra, todo.Tools(p.todos, u.ID, turnID(), time.Now)...)

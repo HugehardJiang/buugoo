@@ -28,3 +28,10 @@ export const searching = ref(false)
 const mq = typeof window !== 'undefined' ? window.matchMedia('(min-width: 961px)') : null
 export const wideScreen = ref(mq?.matches ?? true)
 mq?.addEventListener('change', (e) => (wideScreen.value = e.matches))
+
+// 侧栏「最近」里的对话：聊天页读到最新的列表后放进来，其他页面也用它，切换页面时列表不会消失或闪一下。
+import type { Conversation } from './api'
+export const recentConvs = ref<Conversation[]>([])
+// activeConvId 是聊天页正在看的对话；openConvHandler 是聊天页提供的「打开对话」（在聊天页时直接切换，不用跳转）。
+export const activeConvId = ref(0)
+export const openConvHandler = { fn: null as ((id: number) => void) | null }
