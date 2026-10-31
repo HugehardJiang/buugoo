@@ -36,10 +36,11 @@ const blank = (): ModelInput => ({
   restricted: false,
 })
 // 上下文长度在表单里以十万 token 为单位填写，留空表示自动识别。
-const contextUnits = ref('')
+// 注意：type="number" 的输入框经 v-model 拿到的是数字（清空时是空字符串），不能直接当字符串用。
+const contextUnits = ref<string | number>('')
 watch(contextUnits, (v) => {
-  const n = parseFloat(v)
-  form.context_tokens = v.trim() === '' || !(n > 0) ? 0 : Math.round(n * 100000)
+  const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''))
+  form.context_tokens = Number.isFinite(n) && n > 0 ? Math.round(n * 100000) : 0
 })
 const sourceLabels: Record<string, string> = { manual: '手动填写', api: '服务商接口', table: '常见模型表', default: '识别不出，按默认' }
 function wan(n: number) {

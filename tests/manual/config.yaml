@@ -1,0 +1,18 @@
+# 本地手工测试用的配置：多用户模式 + 模拟模型服务（tests/manual/fake_llm.py）。
+# 用法见 CONTRIBUTING.md「本地跑起来」。这里的密码和密钥只用于本机测试，不要用在正式环境。
+mode: multi
+data_dir: ./data
+server:
+  listen: 127.0.0.1:18080
+auth:
+  jwt_secret: "local-test-only-0123456789abcdef0123"
+  registration: open
+llm:
+  chat:
+    base_url: http://127.0.0.1:19090/v1
+    api_key: fake
+    model: deepseek-flash
+admin:
+  password: "local-admin-pass"
+quota:
+  daily_messages: 20

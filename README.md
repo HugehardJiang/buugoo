@@ -491,7 +491,7 @@ echo "你好" | buugoo chat             # 从标准输入逐行发送
 
 ## 开发
 
-需要 Go 1.27 和 Node.js 22。
+需要 Go 1.27 和 Node.js 22。修改代码、测试、提交、发布的标准流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ```bash
 make web            # 构建前端并复制到 internal/web/dist（供 go:embed）
