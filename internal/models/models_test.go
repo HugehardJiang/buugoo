@@ -463,3 +463,32 @@ func TestVisionHelperPrefersPublic(t *testing.T) {
 		t.Fatalf("应先用公共的看图模型: %+v %v", h, err)
 	}
 }
+
+func TestDeletedLabel(t *testing.T) {
+	svc, db := newService(t, config.ModeMulti, "")
+	ctx := context.Background()
+	admin := User{ID: 1, IsAdmin: true}
+	in := input("GLM 公共", "sk-public-1234567890")
+	in.Public, in.Model = true, "glm-5.2"
+	pub, err := svc.Create(ctx, admin, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Delete(ctx, admin, pub.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := svc.DeletedLabel(ctx, pub.ID); got != "GLM 公共（glm-5.2）（已删除）" {
+		t.Errorf("删除时记下的名字：%q", got)
+	}
+	// 以前删掉的（没记下名字）：从回复记录里找模型名。
+	id := uint64(80)
+	if err := db.Messages().Create(ctx, &store.Message{ConversationID: 1, UserID: 1, Role: store.RoleAssistant, Content: "x", Model: "deepseek-v4.1-flash", ModelID: &id}); err != nil {
+		t.Fatal(err)
+	}
+	if got := svc.DeletedLabel(ctx, 80); got != "deepseek-v4.1-flash（已删除的模型）" {
+		t.Errorf("从回复里找：%q", got)
+	}
+	if got := svc.DeletedLabel(ctx, 81); got != "已删除的模型 #81" {
+		t.Errorf("都找不到：%q", got)
+	}
+}

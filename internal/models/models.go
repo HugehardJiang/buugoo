@@ -9,10 +9,13 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -467,13 +470,69 @@ func (s *Service) Update(ctx context.Context, u User, id uint64, in Input) (View
 
 // Delete 删除模型，使用它的对话改回默认模型。
 func (s *Service) Delete(ctx context.Context, u User, id uint64) error {
-	if _, err := s.editable(ctx, u, id); err != nil {
+	m, err := s.editable(ctx, u, id)
+	if err != nil {
 		return err
 	}
 	if err := s.store.Models().Delete(ctx, id); err != nil {
 		return err
 	}
+	// 记下名字：删掉以后，之前的消费记录里还能显示是哪个模型。
+	if m.Public() {
+		s.rememberDeleted(ctx, id, label(m.Name, m.Model))
+	}
 	return s.store.Conversations().ClearModel(ctx, id)
+}
+
+// metaDeleted 记着删掉的公共模型的名字（模型编号 → 名字）。
+const metaDeleted = "models.deleted_names"
+
+// maxDeleted 是最多记多少个（只留最近删的）。
+const maxDeleted = 300
+
+func label(name, model string) string {
+	if model != "" && model != name {
+		return name + "（" + model + "）"
+	}
+	return name
+}
+
+func (s *Service) deletedNames(ctx context.Context) map[string]string {
+	out := map[string]string{}
+	if raw, ok, err := s.store.Meta().Get(ctx, metaDeleted); err == nil && ok {
+		_ = json.Unmarshal([]byte(raw), &out)
+	}
+	return out
+}
+
+func (s *Service) rememberDeleted(ctx context.Context, id uint64, name string) {
+	names := s.deletedNames(ctx)
+	names[strconv.FormatUint(id, 10)] = name
+	for len(names) > maxDeleted {
+		// 编号越小删得越早（大致如此），先丢掉最小的。
+		var min uint64 = math.MaxUint64
+		for k := range names {
+			if n, err := strconv.ParseUint(k, 10, 64); err == nil && n < min {
+				min = n
+			}
+		}
+		delete(names, strconv.FormatUint(min, 10))
+	}
+	if b, err := json.Marshal(names); err == nil {
+		_ = s.store.Meta().Set(ctx, metaDeleted, string(b))
+	}
+}
+
+// DeletedLabel 返回已经删掉的模型的名字（消费记录里显示用）：先看删除时记下的名字，
+// 再看用它生成的回复里记的模型名；都没有时返回「已删除的模型 #编号」。
+func (s *Service) DeletedLabel(ctx context.Context, id uint64) string {
+	if name := s.deletedNames(ctx)[strconv.FormatUint(id, 10)]; name != "" {
+		return name + "（已删除）"
+	}
+	if model, err := s.store.Messages().ModelName(ctx, id); err == nil && model != "" {
+		return model + "（已删除的模型）"
+	}
+	return fmt.Sprintf("已删除的模型 #%d", id)
 }
 
 // SetDefault 设为默认模型：个人模型设为自己的默认，公共模型设为全站默认（仅管理员）。

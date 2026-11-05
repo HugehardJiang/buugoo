@@ -420,6 +420,16 @@ func (r messageRepo) After(ctx context.Context, userID, conversationID, afterID 
 	return out, mapErr(err)
 }
 
+func (r messageRepo) ModelName(ctx context.Context, modelID uint64) (string, error) {
+	var names []string
+	err := r.db.WithContext(ctx).Model(&store.Message{}).Where("model_id = ? AND model <> ''", modelID).
+		Order("id DESC").Limit(1).Pluck("model", &names).Error
+	if err != nil || len(names) == 0 {
+		return "", mapErr(err)
+	}
+	return names[0], nil
+}
+
 func (r messageRepo) LastUserMessage(ctx context.Context, userID uint64) (*store.Message, error) {
 	var m store.Message
 	err := r.db.WithContext(ctx).Where("user_id = ? AND role = ?", userID, store.RoleUser).Order("id DESC").Limit(1).Take(&m).Error

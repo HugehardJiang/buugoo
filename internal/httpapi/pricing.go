@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 
@@ -64,7 +66,8 @@ func (s *server) pricingItems(c echo.Context) ([]pricingItem, error) {
 }
 
 // costLabels 是计价项的名字（消费明细里显示），出错时返回空表（网页上显示计价项本身）。
-func (s *server) costLabels(c echo.Context) map[string]string {
+// acc 是要显示的消费记录：里面有已经删掉的模型时，也补上它的名字。
+func (s *server) costLabels(c echo.Context, acc *billing.Account) map[string]string {
 	out := map[string]string{}
 	items, err := s.pricingItems(c)
 	if err != nil {
@@ -74,6 +77,30 @@ func (s *server) costLabels(c echo.Context) map[string]string {
 		out[it.Key] = it.Label
 		// API 接入的调用单独记账（api:model:3），显示为「API · 模型名」。
 		out["api:"+it.Key] = "API · " + it.Label
+	}
+	if acc == nil {
+		return out
+	}
+	for _, list := range [][]billing.CostItem{acc.Today, acc.Month} {
+		for _, it := range list {
+			if _, ok := out[it.Key]; ok {
+				continue
+			}
+			key, api := strings.CutPrefix(it.Key, "api:")
+			rest, ok := strings.CutPrefix(key, "model:")
+			if !ok {
+				continue
+			}
+			id, err := strconv.ParseUint(rest, 10, 64)
+			if err != nil {
+				continue
+			}
+			name := s.Models.DeletedLabel(c.Request().Context(), id)
+			if api {
+				name = "API · " + name
+			}
+			out[it.Key] = name
+		}
 	}
 	return out
 }

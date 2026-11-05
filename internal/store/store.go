@@ -198,6 +198,8 @@ type ModelRepo interface {
 // MessageRepo 是消息数据访问接口。
 type MessageRepo interface {
 	Create(ctx context.Context, m *Message) error
+	// ModelName 返回最近一条用这个模型生成的回复记下的模型名（模型删掉后在消费记录里显示用），没有时为空。
+	ModelName(ctx context.Context, modelID uint64) (string, error)
 	// Finish 更新助手消息的内容、状态与用量（流式输出结束后调用）。
 	Finish(ctx context.Context, m *Message) error
 	// CacheStats 返回对话里缓存命中的情况：最近一条有缓存信息的回复的命中率，和全部有缓存信息的回复合计的命中率

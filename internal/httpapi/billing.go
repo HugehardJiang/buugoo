@@ -116,7 +116,7 @@ func (s *server) consoleUser(c echo.Context) error {
 		return err
 	}
 	return c.JSON(http.StatusOK, map[string]any{"user": toUser(u), "disabled_at": u.DisabledAt, "disabled_reason": u.DisabledReason,
-		"restricted_models": u.RestrictedModels, "account": acc, "quota": st, "labels": s.costLabels(c)})
+		"restricted_models": u.RestrictedModels, "account": acc, "quota": st, "labels": s.costLabels(c, acc)})
 }
 
 func (s *server) consoleDisableUser(c echo.Context) error {
@@ -498,7 +498,7 @@ func (s *server) myBilling(c echo.Context) error {
 	for i, p := range ps {
 		plans[i] = toPlanDTO(p, false)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"account": acc, "quota": st, "plans": plans, "labels": s.costLabels(c)})
+	return c.JSON(http.StatusOK, map[string]any{"account": acc, "quota": st, "plans": plans, "labels": s.costLabels(c, acc)})
 }
 
 // redeemGuard 记每个账号连续兑换失败的次数，输错太多次锁一段时间（防止撞卡密）。
