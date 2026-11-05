@@ -256,8 +256,13 @@ function finishEdit() {
   .memo { grid-template-columns: minmax(0, 1fr); }
   .memo__list { position: static; }
   .memo.has-page .memo__list, .memo:not(.has-page) .memo__body, .memo__placeholder { display: none; }
-  .back { display: inline-flex; }
-  .body-head { flex-wrap: wrap; }
+  .back { display: inline-flex; margin-left: -8px; }
+  /* 手机上：第一行是「全部 / 保存状态 / 按钮」，标题单独占第二行，不和按钮挤在一起被拆得一字一行。 */
+  .body-head { flex-wrap: wrap; row-gap: 6px; }
+  .body-head .status { margin-left: auto; }
+  .body-head .btn { white-space: nowrap; }
+  .title, .title-input { order: 10; flex: 1 0 100%; }
+  .title { font-size: 20px; line-height: 1.35; overflow-wrap: break-word; word-break: normal; }
   .editor { min-height: 50vh; }
 }
 </style>

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -304,6 +305,14 @@ func TestJobsAndMeta(t *testing.T) {
 		}
 		if v, ok, err := s.Meta().Get(ctx, "k"); !ok || err != nil || v != "v2" {
 			t.Fatalf("v=%q ok=%v err=%v", v, ok, err)
+		}
+		// 较大的值（如 OpenCode 价格表）在 MySQL 上也要存得下（v20 之前是 VARCHAR(4096)）。
+		big := strings.Repeat("价格表", 20000)
+		if err := s.Meta().Set(ctx, "big", big); err != nil {
+			t.Fatal(err)
+		}
+		if v, _, err := s.Meta().Get(ctx, "big"); err != nil || v != big {
+			t.Fatalf("大值读回不一致 len=%d err=%v", len(v), err)
 		}
 	})
 }

@@ -327,11 +327,12 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
 .nav-toggle:active { background: var(--color-hover-wash); }
 .side.is-drawer {
   position: fixed; top: 0; bottom: 0; left: 0; z-index: 40; width: min(300px, 84vw); flex: none;
-  border-right: 0; box-shadow: 0 12px 40px rgba(20, 20, 19, .18);
+  border-right: 0; box-shadow: none;
   padding-bottom: env(safe-area-inset-bottom);
-  transform: translateX(-102%); transition: transform .28s var(--ease-editorial);
+  transform: translateX(-102%); transition: transform .28s var(--ease-editorial), box-shadow .28s ease;
 }
-.side.is-drawer.is-open { transform: none; }
+/* 阴影只在打开时有：收起时抽屉只往左移出一点点，阴影会漏在屏幕左边一道灰。 */
+.side.is-drawer.is-open { transform: none; box-shadow: 0 12px 40px rgba(20, 20, 19, .18); }
 .side__close { margin-left: auto; }
 .side.is-drawer .side__item, .side.is-drawer .side__conv { height: 42px; line-height: 42px; font-size: 16px; }
 .side-backdrop { position: fixed; inset: 0; z-index: 39; background: var(--color-backdrop); }

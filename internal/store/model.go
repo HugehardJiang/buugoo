@@ -421,7 +421,7 @@ type JobRun struct {
 // AppMeta 是全局键值对（实例 ID、上次检查更新时间等）。
 type AppMeta struct {
 	Key       string `gorm:"column:meta_key;primaryKey;size:64"`
-	Value     string `gorm:"size:4096;not null"`
+	Value     string `gorm:"type:mediumtext;not null"` // MySQL 上是 MEDIUMTEXT（v20），能存下较大的 JSON
 	UpdatedAt time.Time
 }
 
