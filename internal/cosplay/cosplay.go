@@ -214,11 +214,22 @@ func (s *Service) Update(ctx context.Context, u User, id uint64, in Input) (*Car
 	if in.Public != c.Public && !u.IsAdmin {
 		return nil, &UserError{"只有管理员能发布公共角色卡"}
 	}
+	changed := in.Prompt != c.Prompt
+	old := c.Prompt
 	c.Name, c.Description, c.Prompt, c.Public = in.Name, in.Description, in.Prompt, in.Public
 	if in.Source != "" {
 		c.Source = in.Source
 	}
-	if err := s.db.WithContext(ctx).Model(c).Select("name", "description", "prompt", "public", "source", "updated_at").Updates(c).Error; err != nil {
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 改了提示词：改之前的样子存进修改记录，可以恢复。
+		if changed {
+			if err := s.saveRevision(tx, c.ID, u.ID, old, "手动修改前"); err != nil {
+				return err
+			}
+		}
+		return tx.Model(c).Select("name", "description", "prompt", "public", "source", "updated_at").Updates(c).Error
+	})
+	if err != nil {
 		return nil, err
 	}
 	card := toCard(c, u)

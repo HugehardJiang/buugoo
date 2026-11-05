@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -118,4 +119,52 @@ func (s *server) fetchCharacters(c echo.Context) error {
 		return err
 	}
 	return c.JSON(http.StatusOK, map[string]any{"characters": cards, "max_runes": s.Characters.MaxRunes()})
+}
+
+// characterRevisions 处理 GET /characters/:id/revisions：这张卡的修改记录（自我进化或手动修改前的样子）。
+func (s *server) characterRevisions(c echo.Context) error {
+	id, err := pathID(c)
+	if err != nil {
+		return err
+	}
+	list, err := s.Characters.Revisions(c.Request().Context(), cosplayUser(c), id)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]any{"revisions": list})
+}
+
+// restoreCharacter 处理 POST /characters/:id/revisions/:rid/restore：恢复成某条修改记录里的样子。
+func (s *server) restoreCharacter(c echo.Context) error {
+	id, err := pathID(c)
+	if err != nil {
+		return err
+	}
+	rid, err := strconv.ParseUint(c.Param("rid"), 10, 64)
+	if err != nil {
+		return badRequest("修改记录编号不对")
+	}
+	card, err := s.Characters.Restore(c.Request().Context(), cosplayUser(c), id, rid)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, card)
+}
+
+// forkCharacter 处理 POST /characters/:id/fork：公共卡不能改，按填写的内容另存为自己的副本，
+// 自己用原卡的对话都换成副本。
+func (s *server) forkCharacter(c echo.Context) error {
+	id, err := pathID(c)
+	if err != nil {
+		return err
+	}
+	var in cosplay.Input
+	if err := bind(c, &in); err != nil {
+		return err
+	}
+	card, err := s.Characters.Fork(c.Request().Context(), cosplayUser(c), id, in)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, card)
 }

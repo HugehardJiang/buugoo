@@ -549,6 +549,17 @@ type MemoPage struct {
 	UpdatedAt time.Time
 }
 
+// CharacterRevision 是角色卡改之前的样子（自我进化或手动修改前保存），可以恢复。
+// UserID 是改动的人；每张卡只留最近的若干条。
+type CharacterRevision struct {
+	ID          uint64    `gorm:"primaryKey" json:"id"`
+	CharacterID uint64    `gorm:"index;not null" json:"-"`
+	UserID      uint64    `gorm:"index;not null" json:"-"`
+	Prompt      string    `gorm:"type:mediumtext;not null" json:"-"`
+	Note        string    `gorm:"size:200;not null;default:''" json:"note"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 // Notice 是管理员发布的通知：用户打开网页时强制弹出，至少看 Seconds 秒才能关，关了就不再弹。
 type Notice struct {
 	ID        uint64    `gorm:"primaryKey" json:"id"`

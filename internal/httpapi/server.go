@@ -278,6 +278,9 @@ func New(d Deps) http.Handler {
 		priv.GET("/characters/:id", s.getCharacter)
 		priv.PUT("/characters/:id", s.updateCharacter)
 		priv.DELETE("/characters/:id", s.deleteCharacter)
+		priv.GET("/characters/:id/revisions", s.characterRevisions)
+		priv.POST("/characters/:id/fork", s.forkCharacter)
+		priv.POST("/characters/:id/revisions/:rid/restore", s.restoreCharacter)
 	}
 	if s.Memos != nil {
 		priv.GET("/memos", s.listMemos)

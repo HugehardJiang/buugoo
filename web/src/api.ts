@@ -793,6 +793,12 @@ export const api = {
   createCharacter: (input: CharacterInput) => request<CharacterCard>('POST', '/characters', input),
   updateCharacter: (id: number, input: CharacterInput) => request<CharacterCard>('PUT', `/characters/${id}`, input),
   deleteCharacter: (id: number) => request<void>('DELETE', `/characters/${id}`),
+  /** 角色卡的修改记录（自我进化或手动修改前的样子） */
+  characterRevisions: (id: number) =>
+    request<{ revisions: { id: number; note: string; created_at: string; runes: number }[] }>('GET', `/characters/${id}/revisions`),
+  /** 公共卡不能改：按填写的内容另存为自己的副本，自己用原卡的对话都换成副本 */
+  forkCharacter: (id: number, input: CharacterInput) => request<CharacterCard>('POST', `/characters/${id}/fork`, input),
+  restoreCharacter: (id: number, rid: number) => request<CharacterCard>('POST', `/characters/${id}/revisions/${rid}/restore`),
   /** 解析粘贴或上传的角色卡（不保存） */
   parseCharacter: (text: string, filename = '') =>
     request<{ characters: CharacterCandidate[]; max_runes: number }>('POST', '/characters/parse', { text, filename }),

@@ -135,16 +135,50 @@ const formError = ref('')
 const saving = ref(false)
 const loadingCard = ref(false)
 const canEdit = computed(() => !!editing.value && (editing.value.mine || (isAdmin.value && editing.value.public)))
+// 普通用户打开公共卡：也能改，保存时另存为自己的副本（公共卡本身不变）。
+const forking = computed(() => !!editing.value && !canEdit.value)
 const formRunes = computed(() => [...form.prompt].length)
+
+// 修改记录：自我进化或手动修改前的样子，可以恢复。
+const revisions = ref<{ id: number; note: string; created_at: string; runes: number }[]>([])
+const restoring = ref(0)
+
+async function loadRevisions(id: number) {
+  try {
+    revisions.value = (await api.characterRevisions(id)).revisions
+  } catch {
+    revisions.value = []
+  }
+}
+
+async function restore(rid: number) {
+  const c = editing.value
+  if (!c || restoring.value) return
+  restoring.value = rid
+  try {
+    await api.restoreCharacter(c.id, rid)
+    const d = await api.character(c.id)
+    form.prompt = d.prompt
+    await loadRevisions(c.id)
+    await load()
+    toast('已恢复，用这张卡的对话从下一条消息起按恢复后的内容扮演')
+  } catch (e) {
+    toast(errText(e, '恢复失败'))
+  } finally {
+    restoring.value = 0
+  }
+}
 
 async function openCard(c: CharacterCard) {
   editing.value = c
   formError.value = ''
   loadingCard.value = true
+  revisions.value = []
   Object.assign(form, { name: c.name, description: c.description, prompt: '', public: c.public })
   try {
     const d = await api.character(c.id)
     Object.assign(form, { name: d.name, description: d.description, prompt: d.prompt, public: d.public })
+    if (c.mine || (isAdmin.value && c.public)) await loadRevisions(c.id)
   } catch (e) {
     formError.value = errText(e, '读取失败')
   } finally {
@@ -157,9 +191,15 @@ async function save() {
   saving.value = true
   formError.value = ''
   try {
-    await api.updateCharacter(editing.value.id, { ...form })
-    editing.value = null
-    toast('角色卡已保存，用它的对话从下一条消息起按新内容扮演')
+    if (forking.value) {
+      await api.forkCharacter(editing.value.id, { ...form, public: false })
+      editing.value = null
+      toast('已另存为你自己的角色卡，你用这张公共卡的对话也都换成了这份副本')
+    } else {
+      await api.updateCharacter(editing.value.id, { ...form })
+      editing.value = null
+      toast('角色卡已保存，用它的对话从下一条消息起按新内容扮演')
+    }
     await load()
   } catch (e) {
     formError.value = errText(e, '保存失败')
@@ -190,6 +230,9 @@ async function remove() {
       <h2>角色卡</h2>
       <button type="button" class="btn btn-sm btn-primary" @click="openImport"><Icon name="plus" :size="15" /> 导入</button>
     </div>
+    <p class="muted intro">
+      聊天时直接跟角色说「以后别老用括号」「说话再凶一点」，它会自己改角色卡（自我进化），改之前的样子在卡的修改记录里能恢复。
+    </p>
     <p class="muted intro">
       Cosplay 模式：导入角色提示词（比如大肥鱼人设卡），新建对话时点对话页右上角的<Icon name="mask" :size="14" class="inline-icon" />面具图标选一张，这段对话里{{ name }}就会扮演这个角色。每张卡每轮都会整张发给模型，卡越长越费 token。
     </p>
@@ -271,18 +314,18 @@ async function remove() {
     </Modal>
 
     <!-- 查看 / 编辑 -->
-    <Modal :open="!!editing" :title="canEdit ? '编辑角色卡' : '查看角色卡'" wide @close="editing = null">
+    <Modal :open="!!editing" :title="forking ? '公共角色卡' : '编辑角色卡'" wide @close="editing = null">
       <div class="field">
         <label class="field__label" for="ch-name">角色名</label>
-        <input id="ch-name" v-model="form.name" class="text-input" maxlength="40" :readonly="!canEdit" />
+        <input id="ch-name" v-model="form.name" class="text-input" maxlength="40" />
       </div>
       <div class="field">
         <label class="field__label" for="ch-desc">简介</label>
-        <input id="ch-desc" v-model="form.description" class="text-input" maxlength="200" placeholder="一句话说说这是个什么角色（可以不填）" :readonly="!canEdit" />
+        <input id="ch-desc" v-model="form.description" class="text-input" maxlength="200" placeholder="一句话说说这是个什么角色（可以不填）" />
       </div>
       <div class="field">
         <label class="field__label" for="ch-prompt">角色提示词</label>
-        <textarea id="ch-prompt" v-model="form.prompt" class="textarea mono prompt" spellcheck="false" :readonly="!canEdit" :placeholder="loadingCard ? '正在读取…' : ''" />
+        <textarea id="ch-prompt" v-model="form.prompt" class="textarea mono prompt" spellcheck="false" :placeholder="loadingCard ? '正在读取…' : ''" />
         <p class="field__hint" :class="{ danger: formRunes > maxRunes }">
           {{ formRunes.toLocaleString() }} / {{ maxRunes.toLocaleString() }} 字。聊天时整张卡都会发给模型；已经在用这张卡的对话，从下一条消息起按新内容扮演。
         </p>
@@ -291,12 +334,23 @@ async function remove() {
         <input v-model="form.public" type="checkbox" />
         <span>公共角色卡（所有用户都能选用）</span>
       </label>
+      <div v-if="revisions.length" class="revs">
+        <p class="field__label">修改记录<span class="caption">（聊天时让角色「自我进化」改的，或者手动改的；可以恢复成改之前的样子）</span></p>
+        <ul>
+          <li v-for="r in revisions" :key="r.id" class="rev">
+            <span class="rev__note">{{ r.note }}</span>
+            <span class="caption">{{ new Date(r.created_at).toLocaleString() }} · {{ r.runes.toLocaleString() }} 字</span>
+            <button type="button" class="btn btn-sm btn-ghost" :disabled="!!restoring" @click="restore(r.id)">{{ restoring === r.id ? '正在恢复' : '恢复成这样' }}</button>
+          </li>
+        </ul>
+      </div>
+      <p v-if="forking" class="form-flash">这是管理员发布的公共角色卡，不能直接修改。改完点「另存为我的副本」，会保存成一张只属于你的卡，你正在用这张公共卡的对话也会换成副本。</p>
       <p v-if="editing?.source" class="caption">来源：<a :href="editing.source" target="_blank" rel="noopener noreferrer" class="link">{{ editing.source }}</a></p>
       <p v-if="formError" class="form-flash form-flash--error">{{ formError }}</p>
       <div class="modal-actions">
         <button v-if="canEdit" class="btn btn-ghost danger left" @click="removing = editing"><Icon name="trash" :size="15" /> 删除</button>
-        <button class="btn" @click="editing = null">{{ canEdit ? '取消' : '关闭' }}</button>
-        <button v-if="canEdit" class="btn btn-primary" :disabled="saving || loadingCard" @click="save">{{ saving ? '正在保存' : '保存' }}</button>
+        <button class="btn" @click="editing = null">取消</button>
+        <button class="btn btn-primary" :disabled="saving || loadingCard" @click="save">{{ saving ? '正在保存' : forking ? '另存为我的副本' : '保存' }}</button>
       </div>
     </Modal>
 
@@ -354,6 +408,11 @@ async function remove() {
 .cand__tag { display: inline-block; margin-right: 4px; padding: 0 6px; border-radius: var(--radius-pill); background: var(--color-canvas-soft); font-size: 11px; }
 .danger { color: var(--color-error, #b42318); }
 .left { margin-right: auto; }
+.revs { margin: 4px 0 12px; }
+.revs ul { display: grid; gap: 2px; max-height: 200px; overflow-y: auto; margin: 6px 0 0; padding: 0; list-style: none; }
+.rev { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: var(--radius-md); }
+.rev:hover { background: var(--color-hover-wash); }
+.rev__note { flex: 1; min-width: 0; color: var(--color-ink); font-size: 13px; overflow-wrap: anywhere; }
 @media (max-width: 600px) {
   .row__meta { display: none; }
 }

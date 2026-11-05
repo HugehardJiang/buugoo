@@ -193,6 +193,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	toolsProv.todos = todoSvc
 	toolsProv.limiter = limiter
 	toolsProv.store, toolsProv.loc = db, loc
+	toolsProv.characters = characterSvc
 	if cfg.Proactive.Reminders {
 		toolsProv.reminders = db.Reminders()
 	}

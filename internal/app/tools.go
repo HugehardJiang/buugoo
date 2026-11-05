@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/HugehardJiang/buugoo/internal/config"
+	"github.com/HugehardJiang/buugoo/internal/cosplay"
 	"github.com/HugehardJiang/buugoo/internal/mcp"
 	"github.com/HugehardJiang/buugoo/internal/memo"
 	"github.com/HugehardJiang/buugoo/internal/models"
@@ -50,6 +51,8 @@ type toolProvider struct {
 	limiter *quota.Limiter
 	// store 不为空时提供翻看记忆出处的工具。
 	store store.Store
+	// characters 不为空时，Cosplay 对话里提供自我进化（改自己的角色卡）的工具。
+	characters *cosplay.Service
 }
 
 func newToolProvider(cfg *config.Config, log *slog.Logger) *toolProvider {
@@ -215,6 +218,9 @@ func (p *toolProvider) For(ctx context.Context, u *store.User, conv *store.Conve
 	}
 	if p.todos != nil {
 		opts.Extra = append(opts.Extra, todo.Tools(p.todos, u.ID, turnID(), time.Now)...)
+	}
+	if p.characters != nil && p.store != nil && conv != nil && conv.Cosplay() {
+		opts.Extra = append(opts.Extra, evolveTools(p.store, p.characters, u, conv)...)
 	}
 	if p.plugins != nil {
 		opts.Extra = append(opts.Extra, p.plugins.Tools(ctx, p.plugins.For(ctx, skills.SplitNames(u.DisabledPlugins)))...)
