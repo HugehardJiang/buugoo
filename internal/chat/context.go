@@ -350,13 +350,18 @@ func (s *Service) compact(ctx context.Context, u *store.User, conv *store.Conver
 	}
 	summary := conv.Summary
 	folded := withToolNotes(fold)
+	// 摘要里怎么称呼 AI：Cosplay 对话用角色名。
+	name := s.builder.Persona().Name
+	if conv.Cosplay() && conv.CharacterName != "" {
+		name = conv.CharacterName
+	}
 	for start := 0; start < len(folded); {
 		end, tokens := start, 0
 		for end < len(folded) && (end == start || tokens+prompt.EstimateTokens(folded[end].Content) <= summaryChunkTokens) {
 			tokens += prompt.EstimateTokens(folded[end].Content)
 			end++
 		}
-		next, usage, err := s.summarizer.Summarize(ctx, chatOf(model), s.builder.Persona().Name, summary, folded[start:end])
+		next, usage, err := s.summarizer.Summarize(ctx, chatOf(model), name, summary, folded[start:end])
 		if err != nil || next == "" {
 			if err == nil {
 				err = errors.New("辅助模型返回了空的摘要")

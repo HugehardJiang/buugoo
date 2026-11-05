@@ -161,6 +161,62 @@ export interface Conversation {
   temporary?: boolean
   /** 临时对话里是否参考记忆和心情 */
   use_context?: boolean
+  /** Cosplay 对话：扮演的角色卡和记忆方式 */
+  character?: ConversationCharacter
+}
+
+/** Cosplay 对话的记忆方式：full 和普通对话一样；read 能看不写；off 完全隔离 */
+export type CharacterMemory = 'full' | 'read' | 'off'
+
+export interface ConversationCharacter {
+  id: number
+  name: string
+  memory: CharacterMemory
+}
+
+/** Cosplay 角色卡（列表里不含全文） */
+export interface CharacterCard {
+  id: number
+  name: string
+  description: string
+  public: boolean
+  /** 自己导入的，可以修改、删除 */
+  mine: boolean
+  source?: string
+  runes: number
+  tokens: number
+  updated_at: string
+}
+
+export interface CharacterDetail {
+  id: number
+  name: string
+  description: string
+  prompt: string
+  public: boolean
+  mine: boolean
+  source?: string
+  runes: number
+}
+
+/** 解析出来、还没保存的角色卡 */
+export interface CharacterCandidate {
+  name: string
+  description: string
+  tags?: string[]
+  prompt: string
+  source?: string
+  runes: number
+  tokens: number
+  too_long?: boolean
+}
+
+export interface CharacterInput {
+  name: string
+  description: string
+  prompt: string
+  source?: string
+  public?: boolean
 }
 
 // ContextStatus 是一段对话的上下文用量。
@@ -678,10 +734,28 @@ export const api = {
   me: () => request<{ user: User; quota: Quota; has_model: boolean; embedding_ready: boolean; impersonated?: boolean }>('GET', '/me'),
   conversations: () => request<{ conversations: Conversation[] }>('GET', '/conversations'),
   createConversation: (
-    input: { title?: string; model_id?: number | null; thinking?: Thinking; temporary?: boolean; use_context?: boolean } = {},
+    input: {
+      title?: string
+      model_id?: number | null
+      thinking?: Thinking
+      temporary?: boolean
+      use_context?: boolean
+      character_id?: number
+      character_memory?: CharacterMemory
+    } = {},
   ) => request<Conversation>('POST', '/conversations', input),
   updateConversation: (id: number, patch: { title?: string; model_id?: number | null; thinking?: Thinking; use_context?: boolean }) =>
     request<Conversation>('PATCH', `/conversations/${id}`, patch),
+  characters: () => request<{ characters: CharacterCard[]; max_runes: number }>('GET', '/characters'),
+  character: (id: number) => request<CharacterDetail>('GET', `/characters/${id}`),
+  createCharacter: (input: CharacterInput) => request<CharacterCard>('POST', '/characters', input),
+  updateCharacter: (id: number, input: CharacterInput) => request<CharacterCard>('PUT', `/characters/${id}`, input),
+  deleteCharacter: (id: number) => request<void>('DELETE', `/characters/${id}`),
+  /** 解析粘贴或上传的角色卡（不保存） */
+  parseCharacter: (text: string, filename = '') =>
+    request<{ characters: CharacterCandidate[]; max_runes: number }>('POST', '/characters/parse', { text, filename }),
+  /** 打开网址，解析出里面的角色卡（不保存） */
+  fetchCharacters: (url: string) => request<{ characters: CharacterCandidate[]; max_runes: number }>('POST', '/characters/fetch', { url }),
   deleteConversation: (id: number) => request<void>('DELETE', `/conversations/${id}`),
   /** 停止正在后台生成的回复（已经生成的部分会保存） */
   stopReply: (id: number) => request<void>('POST', `/conversations/${id}/stop`),

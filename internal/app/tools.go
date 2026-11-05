@@ -209,8 +209,8 @@ func (p *toolProvider) For(ctx context.Context, u *store.User, conv *store.Conve
 	if p.memos != nil {
 		opts.Extra = append(opts.Extra, memo.Tools(p.memos, u.ID, turnID())...)
 	}
-	// 翻看记忆出处的工具：临时对话里不参考记忆时不提供。
-	if p.store != nil && (conv == nil || !conv.Temporary || conv.UseContext) {
+	// 翻看记忆出处的工具：不参考记忆的临时对话和 Cosplay 对话里不提供。
+	if p.store != nil && (conv == nil || conv.ReadsContext()) {
 		opts.Extra = append(opts.Extra, recallTools(p.store, u.ID, p.loc)...)
 	}
 	if p.todos != nil {

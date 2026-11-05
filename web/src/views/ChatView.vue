@@ -18,6 +18,8 @@ import {
   type ModelView,
   type Thinking,
   type UsedMemory,
+  type CharacterCard,
+  type CharacterMemory,
 } from '../api'
 import Icon from '../Icon.vue'
 import AttachmentList from '../components/AttachmentList.vue'
@@ -27,6 +29,7 @@ import FatBird from '../components/FatBird.vue'
 import ToolSteps from '../components/ToolSteps.vue'
 import ThinkingSlider from '../components/ThinkingSlider.vue'
 import ModelIcon from '../components/ModelIcon.vue'
+import CosplayPicker from '../components/CosplayPicker.vue'
 import { shortName, sourceOf } from '../vendors'
 import { splitBubbles } from '../bubbles'
 import { dayKey, dayLabel, formatSize, renderMarkdown, shortWhen, timeOf } from '../format'
@@ -131,7 +134,12 @@ const current = computed(
     (currentId.value === DRAFT ? draftConv.value : null),
 )
 const isTemp = computed(() => !!current.value?.temporary)
-const title = computed(() => (isTemp.value ? '临时对话' : current.value?.title || '新对话'))
+// Cosplay 对话：AI 扮演一张角色卡。
+const character = computed(() => current.value?.character ?? null)
+const title = computed(() => (isTemp.value ? '临时对话' : current.value?.title || (character.value ? `和${character.value.name}聊天` : '新对话')))
+// 回复的人叫什么：Cosplay 对话里是角色名。
+const speaker = computed(() => character.value?.name ?? name.value)
+const memoryLabels: Record<CharacterMemory, string> = { read: '能看记忆，不写记忆', off: '完全隔离', full: '和普通对话一样' }
 const defaultModel = computed(() => models.value.find((m) => m.is_default) ?? models.value[0] ?? null)
 // 对话实际使用的模型：未选择或已不可用时使用默认模型。
 const activeModel = computed(() => {
@@ -310,7 +318,7 @@ async function loadMore() {
 
 async function newConversation() {
   // 当前对话还是空的就直接用它，避免堆出一串空对话。
-  if (current.value && !isTemp.value && !items.value.length) {
+  if (current.value && !isTemp.value && !current.value.character && !items.value.length) {
     drawer.value = false
     textarea.value?.focus()
     return
@@ -340,7 +348,11 @@ function openDraft() {
 // saveDraft 发第一条消息前把草稿真正建出来，返回新对话的编号。
 async function saveDraft(): Promise<number> {
   const d = draftConv.value!
-  const c = await api.createConversation({ model_id: d.model_id, thinking: d.thinking })
+  const c = await api.createConversation({
+    model_id: d.model_id,
+    thinking: d.thinking,
+    ...(d.character ? { character_id: d.character.id, character_memory: d.character.memory } : {}),
+  })
   convs.value = [c, ...convs.value]
   draftConv.value = null
   currentId.value = c.id
@@ -352,6 +364,16 @@ function replaceConv(c: Conversation) {
   if (tempConv.value?.id === c.id) tempConv.value = c
   const i = convs.value.findIndex((x) => x.id === c.id)
   if (i >= 0) convs.value[i] = c
+}
+
+// Cosplay：选好角色卡后开一个草稿，发第一条消息时建出 Cosplay 对话。
+const cosplayOpen = ref(false)
+async function startCosplay(card: CharacterCard, memory: CharacterMemory) {
+  cosplayOpen.value = false
+  openDraft()
+  draftConv.value!.character = { id: card.id, name: card.name, memory }
+  await nextTick()
+  textarea.value?.focus()
 }
 
 // startTemporary 开一段临时对话：不保存、不写记忆、不影响心情；默认也不参考记忆和心情。
@@ -1048,7 +1070,7 @@ onBeforeUnmount(() => {
     <main class="main chat" :class="{ 'is-empty': isEmpty }">
       <header class="topbar">
         <div class="topbar__titles">
-          <h1 v-if="!isEmpty || isTemp" class="conv-title">{{ title }}</h1>
+          <h1 v-if="!isEmpty || isTemp || character" class="conv-title">{{ title }}</h1>
         </div>
         <div v-if="current" class="topbar__actions">
            <span v-if="currentId > 0" v-show="!isEmpty" class="meter-wrap"><ContextMeter ref="meter" :conversation-id="currentId" :busy="sending" @status="(s) => (compactPending = !!s?.pending)" /></span>
@@ -1056,6 +1078,15 @@ onBeforeUnmount(() => {
             <button class="btn btn-sm temp-end" :disabled="sending" title="结束并删除这段临时对话" @click="endTemporary">结束<span class="hide-sm">临时对话</span></button>
           </template>
           <template v-else>
+            <button
+              class="icon-btn"
+              aria-label="开 Cosplay 对话"
+              title="Cosplay：选一张角色卡，让 AI 扮演它"
+              :class="{ 'is-on': !!character }"
+              @click="cosplayOpen = true"
+            >
+              <Icon name="mask" :size="18" />
+            </button>
             <button
               class="icon-btn"
               aria-label="开临时对话"
@@ -1106,6 +1137,12 @@ onBeforeUnmount(() => {
               <span class="empty__icon"><Icon name="ghost" :size="26" /></span>
               <h2>临时对话</h2>
               <p class="muted">这里聊的不会保存，不会写进{{ name }}的记忆，也不会影响它的心情。点「结束」或离开这个页面就删掉。</p>
+            </div>
+            <div v-else-if="!items.length && !loadError && character" key="cosplay" class="empty empty--temp empty--cosplay">
+              <span class="empty__icon"><Icon name="mask" :size="26" /></span>
+              <h2>{{ character.name }}</h2>
+              <p class="muted">Cosplay 对话 · {{ memoryLabels[character.memory] }}。这段对话里{{ name }}会扮演这个角色，说第一句话就开始吧。</p>
+              <button v-if="isDraft" type="button" class="btn btn-sm" @click="cosplayOpen = true">换一个角色</button>
             </div>
             <div v-else-if="!items.length && !loadError && current" key="normal" class="empty">
               <h2 class="greet"><img src="/logo.png" alt="" class="greet__logo" />{{ greeting }}</h2>
@@ -1237,13 +1274,19 @@ onBeforeUnmount(() => {
             </label>
           </div>
         </Transition>
+        <Transition name="fade">
+          <div v-if="character && !isEmpty" class="temp-bar cos-bar">
+            <span class="temp-bar__label"><Icon name="mask" :size="15" />Cosplay · {{ character.name }}</span>
+            <span class="caption">{{ memoryLabels[character.memory] }}</span>
+          </div>
+        </Transition>
         <div class="composer__box" :class="{ 'is-temp': isTemp }">
           <textarea
             ref="textarea"
             v-model="input"
             class="composer__input"
             rows="1"
-            :placeholder="isTemp ? '临时对话，聊完就删' : `和${name}说点什么`"
+            :placeholder="isTemp ? '临时对话，聊完就删' : `和${speaker}说点什么`"
             aria-label="消息"
             maxlength="4000"
             @input="autoGrow"
@@ -1344,6 +1387,7 @@ onBeforeUnmount(() => {
       </form>
     </main>
 
+    <CosplayPicker :open="cosplayOpen" @close="cosplayOpen = false" @start="startCosplay" />
     <Modal :open="renaming" title="重命名对话" @close="renaming = false">
       <form @submit.prevent="saveRename">
         <div class="field">
@@ -1583,6 +1627,9 @@ onBeforeUnmount(() => {
   max-width: 760px; margin: 0 auto 8px; padding: 0 6px; color: var(--color-muted); font-size: 12.5px;
 }
 .temp-bar__label { display: inline-flex; align-items: center; gap: 6px; }
+.cos-bar .temp-bar__label { color: var(--color-accent-active); font-weight: 500; }
+.empty--cosplay .btn { margin-top: 16px; }
+.icon-btn.is-on { color: var(--color-accent-active); background: var(--color-accent-tint); }
 .temp-switch { display: inline-flex; align-items: center; gap: 8px; color: var(--color-text-secondary); cursor: pointer; user-select: none; }
 .temp-switch input { position: absolute; opacity: 0; pointer-events: none; }
 .temp-switch__track {

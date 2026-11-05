@@ -42,6 +42,7 @@ var layout = []section{
 		"~llm.embedding.provider", "~llm.embedding.dim", "~llm.embedding.batch_size", "~llm.embedding.timeout"}},
 
 	{"chat", "上下文", []string{"chat.summarize", "chat.compact_at", "chat.keep_recent"}},
+	{"chat", "Cosplay", []string{"chat.character_max_runes"}},
 	{"chat", "每日限额", []string{"quota.daily_messages", "quota.daily_tokens", "quota.daily_searches", "quota.exempt_admins"}},
 	{"chat", "性格", []string{"persona.disabled_presets", "~persona.file"}},
 
@@ -86,7 +87,8 @@ var units = map[string]string{
 	"llm.chat.max_tokens": "token", "llm.utility.max_tokens": "token",
 	"memory.retrieval.top_k": "条", "memory.compact.max_memories": "条", "memory.retrieval.candidate_k": "条", "memory.cache.max_bytes": "字节",
 	"tools.python.memory_mb": "MB", "tools.python.lib_max_mb": "MB", "tools.python.workspace_mb": "MB",
-	"uploads.max_file_mb": "MB", "uploads.user_quota_mb": "MB", "uploads.max_files": "个", "uploads.doc_chars": "字",
+	"chat.character_max_runes": "字",
+	"uploads.max_file_mb":      "MB", "uploads.user_quota_mb": "MB", "uploads.max_files": "个", "uploads.doc_chars": "字",
 	"proactive.idle_hours": "小时", "proactive.min_gap_hours": "小时",
 }
 

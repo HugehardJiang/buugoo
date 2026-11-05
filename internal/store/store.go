@@ -162,7 +162,7 @@ type InviteRepo interface {
 
 // ConversationRepo 是对话数据访问接口。
 type ConversationRepo interface {
-	// Primary 返回用户最近使用的对话（不含临时对话），不存在时创建（终端聊天等未指定对话的客户端使用）。
+	// Primary 返回用户最近使用的对话（不含临时对话和 Cosplay 对话），不存在时创建（终端聊天等未指定对话的客户端使用）。
 	Primary(ctx context.Context, userID uint64) (*Conversation, error)
 	Create(ctx context.Context, c *Conversation) error
 	Get(ctx context.Context, userID, id uint64) (*Conversation, error)

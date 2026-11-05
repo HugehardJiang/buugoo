@@ -21,6 +21,9 @@ type ConversationPatch struct {
 	// Temporary 新建临时对话（只在创建时使用）；UseContext 是临时对话里是否参考记忆和心情。
 	Temporary  bool
 	UseContext *bool
+	// CharacterID 新建 Cosplay 对话（只在创建时使用）；CharacterMemory 是记忆方式，为空时是 read。
+	CharacterID     *uint64
+	CharacterMemory string
 }
 
 func (s *Service) patchFields(ctx context.Context, u *store.User, p ConversationPatch) (map[string]any, error) {
@@ -73,6 +76,11 @@ func (s *Service) CreateConversation(ctx context.Context, u *store.User, p Conve
 	if p.Temporary && p.UseContext != nil {
 		c.UseContext = *p.UseContext
 	}
+	if p.CharacterID != nil {
+		if err := s.setCharacter(ctx, u, c, *p.CharacterID, p.CharacterMemory); err != nil {
+			return nil, err
+		}
+	}
 	if recent, err := s.store.Conversations().List(ctx, u.ID); err == nil && len(recent) > 0 {
 		c.ModelID, c.Thinking = recent[0].ModelID, recent[0].Thinking
 	}
@@ -92,6 +100,29 @@ func (s *Service) CreateConversation(ctx context.Context, u *store.User, p Conve
 		return nil, err
 	}
 	return c, nil
+}
+
+// setCharacter 把新对话设为 Cosplay 对话：扮演这张卡，按 memory 和记忆相处。
+func (s *Service) setCharacter(ctx context.Context, u *store.User, c *store.Conversation, id uint64, memory string) error {
+	if c.Temporary || c.Channel != "" {
+		return ErrCharacterCombo
+	}
+	switch memory {
+	case "":
+		memory = store.CharacterMemoryRead
+	case store.CharacterMemoryFull, store.CharacterMemoryRead, store.CharacterMemoryOff:
+	default:
+		return ErrCharacterMemory
+	}
+	if s.characters == nil {
+		return ErrCharacterNotFound
+	}
+	card, err := s.characters.Usable(ctx, u.ID, id)
+	if err != nil {
+		return ErrCharacterNotFound
+	}
+	c.CharacterID, c.CharacterName, c.CharacterMemory = &card.ID, card.Name, memory
+	return nil
 }
 
 // UpdateConversation 修改对话的标题、模型或思考等级。

@@ -44,6 +44,9 @@ var (
 	ErrInvalidThinking    = errors.New("思考等级无效（可选 off、low、medium、high）")
 	ErrModelNotFound      = errors.New("模型不存在或无权使用")
 	ErrTitleTooLong       = errors.New("对话标题最多 60 个字")
+	ErrCharacterNotFound  = errors.New("没有这张角色卡，可能已经被删掉了")
+	ErrCharacterMemory    = errors.New("记忆方式无效（可选 full、read、off）")
+	ErrCharacterCombo     = errors.New("Cosplay 对话不能同时是临时对话或聊天软件的对话")
 	ErrAttachmentNotFound = errors.New("附件不存在或已经发送过，请重新上传")
 	ErrTooManyFiles       = errors.New("附带的文件太多")
 	ErrUploadsDisabled    = errors.New("当前不支持上传文件")
@@ -149,6 +152,7 @@ type Service struct {
 	disabled  []string
 
 	summarizer  Summarizer
+	characters  CharacterSource
 	sumMu       sync.Mutex
 	summarizing map[uint64]bool
 	bg          sync.WaitGroup
@@ -175,6 +179,16 @@ type Deps struct {
 	DisabledPresets []string
 	// Summarizer 整理长对话的摘要，为空时不整理（只保留最近的消息）。
 	Summarizer Summarizer
+	// Characters 提供 Cosplay 角色卡，为空时不能建 Cosplay 对话。
+	Characters CharacterSource
+}
+
+// CharacterSource 提供 Cosplay 角色卡。
+type CharacterSource interface {
+	// Usable 返回这个用户能用的卡（自己导入的或公共的）；建对话时用。
+	Usable(ctx context.Context, userID, id uint64) (*store.Character, error)
+	// Load 返回一张卡，包括已经删掉的；聊天时用（卡删了，用它建的对话照样能聊）。
+	Load(ctx context.Context, id uint64) (*store.Character, error)
 }
 
 // New 创建对话服务。
@@ -184,7 +198,8 @@ func New(d Deps) *Service {
 		log = slog.Default()
 	}
 	return &Service{
-		store: d.Store, disabled: d.DisabledPresets, summarizer: d.Summarizer, summarizing: map[uint64]bool{}, models: d.Models, tools: d.Tools, emotion: d.Emotion, uploads: d.Uploads, retriever: d.Retriever, writer: d.Writer,
+		characters: d.Characters,
+		store:      d.Store, disabled: d.DisabledPresets, summarizer: d.Summarizer, summarizing: map[uint64]bool{}, models: d.Models, tools: d.Tools, emotion: d.Emotion, uploads: d.Uploads, retriever: d.Retriever, writer: d.Writer,
 		builder: d.Builder, quota: d.Quota, cfg: d.Config, loc: d.Location, log: log.With("component", "chat"), now: time.Now,
 	}
 }
@@ -260,6 +275,18 @@ func (s *Service) prepare(ctx context.Context, u *store.User, conv *store.Conver
 	if preset != nil {
 		extra = preset.MemoryExtra
 	}
+	var character *prompt.Character
+	if conv.Cosplay() {
+		if s.characters == nil {
+			return nil, ErrCharacterNotFound
+		}
+		card, err := s.characters.Load(ctx, *conv.CharacterID)
+		if err != nil {
+			return nil, ErrCharacterNotFound
+		}
+		character = &prompt.Character{Name: card.Name, Prompt: card.Prompt, Memory: conv.CharacterMemory}
+		preset, extra = nil, 0
+	}
 	var mems []memory.Scored
 	if !isolated(conv) {
 		mems = s.retrieve(ctx, u.ID, userText, history, extra)
@@ -283,6 +310,7 @@ func (s *Service) prepare(ctx context.Context, u *store.User, conv *store.Conver
 		Channel:       conv.Channel,
 		Temporary:     conv.Temporary,
 		Isolated:      isolated(conv),
+		Character:     character,
 	})
 	return &prepared{conv: conv, history: history, prompt: p, userText: userText, images: images}, nil
 }
@@ -296,8 +324,8 @@ func (s *Service) trimStep() int {
 	return 16
 }
 
-// isolated 报告这段对话是不是不参考记忆和心情的临时对话。
-func isolated(conv *store.Conversation) bool { return conv.Temporary && !conv.UseContext }
+// isolated 报告这段对话是不是不参考记忆和心情（临时对话或 Cosplay 对话里选了不参考）。
+func isolated(conv *store.Conversation) bool { return !conv.ReadsContext() }
 
 // retrieve 检索相关记忆。检索失败（例如向量服务不可用）不影响聊天，只记录告警。
 func (s *Service) retrieve(ctx context.Context, userID uint64, content string, history []store.Message, extra int) []memory.Scored {
@@ -449,10 +477,10 @@ func (s *Service) respond(ctx context.Context, u *store.User, conv *store.Conver
 	}
 	toolset := s.toolSet(ctx, u, conv, model, atts)
 	var mood string
-	if s.emotion != nil && !isolated(conv) {
+	if s.emotion != nil && !isolated(conv) && (conv.Remembers() || !conv.Cosplay()) {
 		// 情绪更新失败不影响聊天。重新生成时这条消息已经影响过情绪，只读取现在的；
-		// 临时对话只参考现在的心情，不改变它。
-		if again != nil || conv.Temporary {
+		// 临时对话只参考现在的心情，不改变它。Cosplay 对话不用布谷的心情，选了「全部互通」时照样影响心情。
+		if again != nil || !conv.Remembers() {
 			mood, err = s.emotion.Peek(ctx, u.ID)
 		} else {
 			mood, err = s.emotion.Before(ctx, u.ID, titleSource(content, atts))
@@ -542,7 +570,7 @@ func (s *Service) respond(ctx context.Context, u *store.User, conv *store.Conver
 		// 这一轮大约用了多少上下文：提示词 + 工具结果 + 回复。超过阈值时下一条消息前先压缩。
 		s.recordContext(bg, u, conv, model, p.prompt.EstimatedTokens+t.toolTokens+prompt.EstimateTokens(reply.Content), p.prompt.DroppedHistory > 0)
 	}
-	s.afterReply(bg, u, p, model, userMsg, reply, atts, res.Usage, again == nil && !conv.Temporary)
+	s.afterReply(bg, u, p, model, userMsg, reply, atts, res.Usage, again == nil && conv.Remembers())
 	if genErr != nil {
 		return res, genErr
 	}
@@ -938,8 +966,8 @@ func (s *Service) afterReply(ctx context.Context, u *store.User, p *prepared, mo
 	if err := s.store.Conversations().Touch(ctx, u.ID, p.conv.ID, reply.CreatedAt); err != nil {
 		s.log.Error("更新对话时间失败", "user_id", u.ID, "err", err)
 	}
-	// 临时对话不留下任何记忆痕迹（包括「想起过哪些记忆」）。
-	if reply.Content == "" || p.conv.Temporary {
+	// 临时对话和不写记忆的 Cosplay 对话不留下任何记忆痕迹（包括「想起过哪些记忆」）。
+	if reply.Content == "" || !p.conv.Remembers() {
 		return
 	}
 	if err := s.retriever.MarkUsed(ctx, u.ID, reply.ID, p.prompt.UsedMemories); err != nil {

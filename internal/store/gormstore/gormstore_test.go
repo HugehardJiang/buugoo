@@ -368,3 +368,50 @@ func TestStaleEmptyConversations(t *testing.T) {
 		}
 	})
 }
+
+func TestCharactersAndCosplayConversations(t *testing.T) {
+	forEachDriver(t, func(t *testing.T, s *DB) {
+		ctx := context.Background()
+		u, err := s.Users().EnsureOwner(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// 长卡（几万字）要存得下。
+		long := strings.Repeat("你是一条爱吃白饭的小鲸鱼。", 3000)
+		ch := &store.Character{UserID: u.ID, Name: "小鲸鱼", Prompt: long}
+		if err := s.Gorm().Create(ch).Error; err != nil {
+			t.Fatal(err)
+		}
+		var got store.Character
+		if err := s.Gorm().First(&got, ch.ID).Error; err != nil || got.Prompt != long {
+			t.Fatalf("长卡读回不一致 len=%d err=%v", len(got.Prompt), err)
+		}
+		// 软删除后普通查询看不到，Unscoped 还能读到。
+		if err := s.Gorm().Delete(&got).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Gorm().First(&store.Character{}, ch.ID).Error; err == nil {
+			t.Fatal("软删除后不应查到")
+		}
+		if err := s.Gorm().Unscoped().First(&store.Character{}, ch.ID).Error; err != nil {
+			t.Fatal("Unscoped 应能查到", err)
+		}
+
+		normal := &store.Conversation{UserID: u.ID}
+		if err := s.Conversations().Create(ctx, normal); err != nil {
+			t.Fatal(err)
+		}
+		cos := &store.Conversation{UserID: u.ID, CharacterID: &ch.ID, CharacterName: "小鲸鱼", CharacterMemory: store.CharacterMemoryRead}
+		if err := s.Conversations().Create(ctx, cos); err != nil {
+			t.Fatal(err)
+		}
+		c, err := s.Conversations().Get(ctx, u.ID, cos.ID)
+		if err != nil || !c.Cosplay() || *c.CharacterID != ch.ID || c.CharacterName != "小鲸鱼" || c.ReadsContext() != true || c.Remembers() {
+			t.Fatalf("%+v %v", c, err)
+		}
+		// 终端聊天等用的「最近的对话」不落到 Cosplay 对话里。
+		if p, err := s.Conversations().Primary(ctx, u.ID); err != nil || p.ID != normal.ID {
+			t.Fatalf("Primary=%+v err=%v", p, err)
+		}
+	})
+}

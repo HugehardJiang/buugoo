@@ -230,6 +230,7 @@ chat:
   summarize: true
   compact_at: 80   # 一轮用掉的上下文超过这个百分比时，下一条消息处理前先压缩
   keep_recent: 20  # 压缩后最近约这个百分比的消息保留原文
+  character_max_runes: 30000  # Cosplay 角色卡最多多少字（每轮都会整张发给模型）
 
 persona:
   # 人格档案文件，留空使用内置的"布谷"

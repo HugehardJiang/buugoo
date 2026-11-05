@@ -115,11 +115,23 @@ type conversationDTO struct {
 	// Temporary 表示临时对话；UseContext 是临时对话里是否参考记忆和心情。
 	Temporary  bool `json:"temporary,omitempty"`
 	UseContext bool `json:"use_context,omitempty"`
+	// Character 不为空表示 Cosplay 对话。
+	Character *conversationCharacter `json:"character,omitempty"`
+}
+
+type conversationCharacter struct {
+	ID     uint64 `json:"id"`
+	Name   string `json:"name"`
+	Memory string `json:"memory"`
 }
 
 func toConversation(c *store.Conversation) conversationDTO {
-	return conversationDTO{ID: c.ID, Title: c.Title, ModelID: c.ModelID, Thinking: c.Thinking,
+	d := conversationDTO{ID: c.ID, Title: c.Title, ModelID: c.ModelID, Thinking: c.Thinking,
 		CreatedAt: c.CreatedAt, LastMessageAt: c.LastMessageAt, Channel: c.Channel, Temporary: c.Temporary, UseContext: c.UseContext}
+	if c.Cosplay() {
+		d.Character = &conversationCharacter{ID: *c.CharacterID, Name: c.CharacterName, Memory: c.CharacterMemory}
+	}
+	return d
 }
 
 type memoryDTO struct {
@@ -316,6 +328,18 @@ func conversationPatch(c echo.Context) (chat.ConversationPatch, error) {
 			return p, badRequest("use_context 无效")
 		}
 		p.UseContext = &b
+	}
+	if v, ok := raw["character_id"]; ok && string(v) != "null" {
+		var id uint64
+		if err := json.Unmarshal(v, &id); err != nil {
+			return p, badRequest("character_id 无效")
+		}
+		p.CharacterID = &id
+	}
+	if v, ok := raw["character_memory"]; ok {
+		if err := json.Unmarshal(v, &p.CharacterMemory); err != nil {
+			return p, badRequest("character_memory 无效")
+		}
 	}
 	if v, ok := raw["model_id"]; ok {
 		p.SetModel = true

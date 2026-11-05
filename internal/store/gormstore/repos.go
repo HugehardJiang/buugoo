@@ -188,7 +188,7 @@ type conversationRepo struct{ db *gorm.DB }
 
 func (r conversationRepo) Primary(ctx context.Context, userID uint64) (*store.Conversation, error) {
 	var c store.Conversation
-	err := r.db.WithContext(ctx).Where("user_id = ? AND temporary = ?", userID, false).Order("updated_at DESC, id DESC").First(&c).Error
+	err := r.db.WithContext(ctx).Where("user_id = ? AND temporary = ? AND character_id IS NULL", userID, false).Order("updated_at DESC, id DESC").First(&c).Error
 	if err == nil {
 		return &c, nil
 	}

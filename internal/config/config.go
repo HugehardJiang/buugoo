@@ -231,6 +231,8 @@ type ChatConfig struct {
 	CompactAt int `koanf:"compact_at"`
 	// KeepRecent：压缩后最近的消息保留原文，大约占上下文长度的这个百分比，更早的整理进摘要。
 	KeepRecent int `koanf:"keep_recent"`
+	// CharacterMaxRunes 是一张 Cosplay 角色卡最多多少字（每轮都会整张发给模型，越长越费钱）。
+	CharacterMaxRunes int `koanf:"character_max_runes"`
 }
 
 // UploadsConfig 是文件上传配置。
@@ -522,6 +524,8 @@ func Default() *Config {
 			Summarize:        true,
 			CompactAt:        80,
 			KeepRecent:       20,
+			// 社区里最长的大肥鱼人设卡约 2 万字。
+			CharacterMaxRunes: 30000,
 		},
 		Uploads:  UploadsConfig{MaxFileMB: 20, MaxFiles: 8, UserQuotaMB: 500, DocChars: 20000},
 		Admin:    AdminConfig{Password: DefaultAdminPassword},
@@ -754,6 +758,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Memory.Compact.Similarity <= 0 || c.Memory.Compact.Similarity >= 1 {
 		errs = append(errs, errors.New("memory.compact.similarity 必须在 0-1 之间"))
+	}
+	if c.Chat.CharacterMaxRunes < 1000 || c.Chat.CharacterMaxRunes > 200000 {
+		errs = append(errs, errors.New("chat.character_max_runes 必须在 1000-200000 之间"))
 	}
 	if c.Chat.KeepRecent < 5 || c.Chat.KeepRecent >= c.Chat.CompactAt {
 		errs = append(errs, errors.New("chat.keep_recent 必须不小于 5，并且小于 chat.compact_at"))

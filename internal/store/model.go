@@ -109,6 +109,43 @@ type Conversation struct {
 	// UseContext 表示临时对话里是否参考已有的记忆和现在的心情（只读，不会改变它们）。
 	Temporary  bool `gorm:"not null;default:false"`
 	UseContext bool `gorm:"not null;default:false"`
+	// CharacterID 不为空表示 Cosplay 对话：AI 扮演这张角色卡（CharacterName 是建对话时的卡名）。
+	// CharacterMemory 是这段对话和布谷的记忆怎么相处，见 CharacterMemory* 常量。
+	CharacterID     *uint64 `gorm:"index"`
+	CharacterName   string  `gorm:"size:64;not null;default:''"`
+	CharacterMemory string  `gorm:"size:8;not null;default:''"`
+}
+
+// Cosplay 对话的记忆方式。
+const (
+	// CharacterMemoryFull：和普通对话一样，参考记忆，也写记忆、影响布谷的心情。
+	CharacterMemoryFull = "full"
+	// CharacterMemoryRead：参考布谷记住的关于对方的事，但不写记忆、不影响心情。
+	CharacterMemoryRead = "read"
+	// CharacterMemoryOff：完全隔离，不参考也不写。
+	CharacterMemoryOff = "off"
+)
+
+// Cosplay 报告这是不是扮演角色卡的对话。
+func (c *Conversation) Cosplay() bool { return c.CharacterID != nil }
+
+// ReadsContext 报告这段对话是否参考已有的记忆（临时对话看 UseContext，Cosplay 对话看记忆方式）。
+func (c *Conversation) ReadsContext() bool {
+	switch {
+	case c.Temporary:
+		return c.UseContext
+	case c.Cosplay():
+		return c.CharacterMemory != CharacterMemoryOff
+	}
+	return true
+}
+
+// Remembers 报告这段对话的内容是否写进记忆、影响心情（临时对话和非「全部互通」的 Cosplay 对话不会）。
+func (c *Conversation) Remembers() bool {
+	if c.Temporary {
+		return false
+	}
+	return !c.Cosplay() || c.CharacterMemory == CharacterMemoryFull
 }
 
 // 消息角色。
@@ -510,6 +547,22 @@ type MemoPage struct {
 	Content   string `gorm:"type:text"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// Character 是 Cosplay 用的角色卡：一段完整的角色提示词。UserID 是导入的人；
+// Public 为 true 的是管理员发布的公共卡，所有人都能用。删除是软删除，用过它的对话照样能继续聊。
+type Character struct {
+	ID          uint64 `gorm:"primaryKey"`
+	UserID      uint64 `gorm:"index;not null"`
+	Public      bool   `gorm:"index;not null;default:false"`
+	Name        string `gorm:"size:64;not null"`
+	Description string `gorm:"size:600;not null;default:''"`
+	Prompt      string `gorm:"type:mediumtext;not null"`
+	// Source 是从哪个网址导入的（手动粘贴的为空）。
+	Source    string `gorm:"size:512;not null;default:''"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt gorm.DeletedAt `gorm:"index"`
 }
 
 // Todo 是用户待办清单里的一项：一件要持续去做、做完打勾的事，可以有截止时间和备注。

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 设计系统 Icons 组的线性图标：24px 网格、1.8 描边、圆角端点、无填充，颜色继承 currentColor。
-defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' | 'trash' | 'chevron' | 'clip' | 'file' | 'search' | 'code' | 'globe' | 'x' | 'brain' | 'folder' | 'image' | 'check' | 'sparkle' | 'download' | 'clock' | 'link' | 'note' | 'refresh' | 'grid' | 'ghost' | 'sidebar' | 'more'; size?: number }>()
+defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' | 'trash' | 'chevron' | 'clip' | 'file' | 'search' | 'code' | 'globe' | 'x' | 'brain' | 'folder' | 'image' | 'check' | 'sparkle' | 'download' | 'clock' | 'link' | 'note' | 'refresh' | 'grid' | 'ghost' | 'sidebar' | 'more' | 'mask'; size?: number }>()
 </script>
 
 <template>
@@ -31,6 +31,12 @@ defineProps<{ name: 'message' | 'book' | 'settings' | 'plus' | 'menu' | 'edit' |
     <template v-else-if="name === 'sidebar'">
       <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
       <path d="M9.5 4.5v15" />
+    </template>
+    <template v-else-if="name === 'mask'">
+      <!-- 面具：Cosplay 角色卡 -->
+      <path d="M3 6.5c3-1.3 6-1.6 9-1.6s6 .3 9 1.6v4.2c0 5-4 8.8-9 8.8s-9-3.8-9-8.8z" />
+      <path d="M7 10.5c.8-.7 2.2-.7 3 0M14 10.5c.8-.7 2.2-.7 3 0" />
+      <path d="M9.5 15c1.5 1 3.5 1 5 0" />
     </template>
     <template v-else-if="name === 'ghost'">
       <path d="M5 20V10a7 7 0 0 1 14 0v10l-2.33-1.5L14.33 20 12 18.5 9.67 20l-2.34-1.5z" />

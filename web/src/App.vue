@@ -63,8 +63,8 @@ const filteredConvs = computed(() => {
 const extConvs = computed(() => filteredConvs.value.filter((c) => !!c.channel))
 const webConvs = computed(() => filteredConvs.value.filter((c) => !c.channel))
 const extOpen = ref(true)
-function convTitle(c: { title: string; channel?: string }) {
-  return c.title || (c.channel ? `${channelLabels[c.channel]}里的聊天` : '新对话')
+function convTitle(c: { title: string; channel?: string; character?: { name: string } }) {
+  return c.title || (c.channel ? `${channelLabels[c.channel]}里的聊天` : c.character ? `和${c.character.name}聊天` : '新对话')
 }
 function openConv(id: number) {
   navOpen.value = false
@@ -218,10 +218,10 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
               type="button"
               class="side__conv"
               :class="{ 'is-active': onChat && c.id === activeConvId }"
-              :title="convTitle(c)"
+              :title="c.character ? `Cosplay · ${c.character.name}：${convTitle(c)}` : convTitle(c)"
               @click="openConv(c.id)"
             >
-              {{ convTitle(c) }}
+              <Icon v-if="c.character" name="mask" :size="13" class="side__mask" />{{ convTitle(c) }}
             </button>
             <p v-if="!webConvs.length" class="side__empty">{{ recentQuery ? '没有找到' : '还没有对话' }}</p>
           </div>
@@ -308,6 +308,7 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
 .side__conv:hover { background: var(--color-hover-wash); }
 .side__conv.is-active { background: rgba(20, 20, 19, .075); }
 .side__tag { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px; background: var(--color-accent-tint); color: var(--color-accent-active); font-size: 11px; font-style: normal; line-height: 17px; vertical-align: 1px; }
+.side__mask { margin-right: 5px; vertical-align: -2px; color: var(--color-accent-active); }
 .side__tag--qq { background: #dbeafe; color: #1d4ed8; }
 .side__tag--telegram { background: #e0f2fe; color: #0369a1; }
 .side__empty { margin: 4px 10px; color: var(--color-muted); font-size: 13px; }

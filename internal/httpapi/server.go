@@ -8,6 +8,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/accounts"
 	"github.com/HugehardJiang/buugoo/internal/agent"
 	"github.com/HugehardJiang/buugoo/internal/billing"
+	"github.com/HugehardJiang/buugoo/internal/cosplay"
 	"github.com/HugehardJiang/buugoo/internal/dbmove"
 	"github.com/HugehardJiang/buugoo/internal/mcp"
 	"github.com/HugehardJiang/buugoo/internal/memo"
@@ -63,6 +64,8 @@ type Deps struct {
 	Plugins *mcp.Manager
 	Agent   *agent.Service
 	Memos   *memo.Service
+	// Characters 为空时不提供 Cosplay 角色卡接口。
+	Characters *cosplay.Service
 	// DBMove 不为空时管理后台可以把 SQLite 一键迁移到 MySQL；Restart 让服务重启，Supervised 表示重启后会被自动拉起。
 	DBMove     *dbmove.Mover
 	Restart    func()
@@ -257,6 +260,15 @@ func New(d Deps) http.Handler {
 
 	s.routeExtensions(e, api, priv, console)
 	s.routeBilling(api, priv, console)
+	if s.Characters != nil {
+		priv.GET("/characters", s.listCharacters)
+		priv.POST("/characters", s.createCharacter)
+		priv.POST("/characters/parse", s.parseCharacter)
+		priv.POST("/characters/fetch", s.fetchCharacters)
+		priv.GET("/characters/:id", s.getCharacter)
+		priv.PUT("/characters/:id", s.updateCharacter)
+		priv.DELETE("/characters/:id", s.deleteCharacter)
+	}
 	if s.Memos != nil {
 		priv.GET("/memos", s.listMemos)
 		priv.POST("/memos", s.createMemo)
@@ -435,7 +447,14 @@ func toAPIError(err error) *apiError {
 		return &apiError{Status: http.StatusBadRequest, Code: "invalid_input", Message: billErr.Msg}
 	}
 	var memoErr *memo.UserError
+	var cosErr *cosplay.UserError
 	switch {
+	case errors.As(err, &cosErr):
+		return &apiError{Status: http.StatusBadRequest, Code: "invalid_input", Message: cosErr.Msg}
+	case errors.Is(err, cosplay.ErrNotFound):
+		return &apiError{Status: http.StatusNotFound, Code: "not_found", Message: err.Error()}
+	case errors.Is(err, cosplay.ErrForbidden):
+		return &apiError{Status: http.StatusForbidden, Code: "forbidden", Message: err.Error()}
 	case errors.As(err, &memoErr):
 		return &apiError{Status: http.StatusBadRequest, Code: "invalid_memo", Message: memoErr.Msg}
 	case errors.Is(err, memo.ErrNotFound):
@@ -516,7 +535,8 @@ func toAPIError(err error) *apiError {
 		return &apiError{Status: http.StatusConflict, Code: "busy", Message: err.Error()}
 	case errors.Is(err, memory.ErrReembedRunning):
 		return &apiError{Status: http.StatusConflict, Code: "busy", Message: err.Error()}
-	case errors.Is(err, chat.ErrInvalidThinking), errors.Is(err, chat.ErrModelNotFound), errors.Is(err, chat.ErrTitleTooLong):
+	case errors.Is(err, chat.ErrInvalidThinking), errors.Is(err, chat.ErrModelNotFound), errors.Is(err, chat.ErrTitleTooLong),
+		errors.Is(err, chat.ErrCharacterNotFound), errors.Is(err, chat.ErrCharacterMemory), errors.Is(err, chat.ErrCharacterCombo):
 		return &apiError{Status: http.StatusBadRequest, Code: "invalid_input", Message: err.Error()}
 	case errors.Is(err, chat.ErrEmptyMessage), errors.Is(err, chat.ErrMessageTooLong):
 		return &apiError{Status: http.StatusBadRequest, Code: "invalid_message", Message: err.Error()}
