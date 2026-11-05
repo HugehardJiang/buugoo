@@ -549,6 +549,35 @@ type MemoPage struct {
 	UpdatedAt time.Time
 }
 
+// Notice 是管理员发布的通知：用户打开网页时强制弹出，至少看 Seconds 秒才能关，关了就不再弹。
+type Notice struct {
+	ID        uint64    `gorm:"primaryKey" json:"id"`
+	Title     string    `gorm:"size:120;not null" json:"title"`
+	Content   string    `gorm:"type:text" json:"content"`
+	Seconds   int       `gorm:"not null;default:10" json:"seconds"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// NoticeRead 记录用户看过的通知：ShownAt 是第一次弹出的时间（服务器据此检查看够了没有），ReadAt 是关掉的时间。
+type NoticeRead struct {
+	UserID   uint64 `gorm:"primaryKey;autoIncrement:false"`
+	NoticeID uint64 `gorm:"primaryKey;autoIncrement:false;index"`
+	ShownAt  time.Time
+	ReadAt   *time.Time
+}
+
+// APIKey 是用户的 API 接入密钥。只存 SHA-256（Hash），原文只在生成时给用户看一次；Hint 是打码后的样子。
+type APIKey struct {
+	ID         uint64 `gorm:"primaryKey"`
+	UserID     uint64 `gorm:"index;not null"`
+	Name       string `gorm:"size:64;not null;default:''"`
+	Hash       string `gorm:"size:64;uniqueIndex;not null"`
+	Hint       string `gorm:"size:32;not null;default:''"`
+	LastUsedAt *time.Time
+	CreatedAt  time.Time
+}
+
 // Character 是 Cosplay 用的角色卡：一段完整的角色提示词。UserID 是导入的人；
 // Public 为 true 的是管理员发布的公共卡，所有人都能用。删除是软删除，用过它的对话照样能继续聊。
 type Character struct {
@@ -618,8 +647,10 @@ type Plan struct {
 	// ValidDays 是余额包的有效天数，0 表示永久。
 	ValidDays int    `gorm:"not null;default:0"`
 	BuyURL    string `gorm:"size:512;not null;default:''"`
-	Visible   bool   `gorm:"not null;default:true"`
-	Sort      int    `gorm:"not null;default:0"`
+	// APIAccess 表示开通这个套餐后可以用 API 接入（OpenAI / Anthropic 格式的接口）。
+	APIAccess bool `gorm:"not null;default:false"`
+	Visible   bool `gorm:"not null;default:true"`
+	Sort      int  `gorm:"not null;default:0"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -634,12 +665,14 @@ type Subscription struct {
 	Cycle    string `gorm:"size:16;not null" json:"cycle"`
 	Quota    int64  `gorm:"not null" json:"-"`
 	// 每周期的额度（开通时从套餐复制），0 表示不限。
-	QuotaMessages int64     `gorm:"not null;default:0" json:"quota_messages"`
-	QuotaTokens   int64     `gorm:"not null;default:0" json:"quota_tokens"`
-	QuotaSearches int64     `gorm:"not null;default:0" json:"quota_searches"`
-	ExpiresAt     time.Time `json:"expires_at"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"-"`
+	QuotaMessages int64 `gorm:"not null;default:0" json:"quota_messages"`
+	QuotaTokens   int64 `gorm:"not null;default:0" json:"quota_tokens"`
+	QuotaSearches int64 `gorm:"not null;default:0" json:"quota_searches"`
+	// APIAccess 是开通时套餐是否包含 API 接入。
+	APIAccess bool      `gorm:"not null;default:false" json:"api_access"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"-"`
 }
 
 // CreditPack 是用户的一笔余额（余额包），用完或过期为止。

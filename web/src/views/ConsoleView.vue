@@ -11,6 +11,8 @@ import ConsoleCards from '../components/ConsoleCards.vue'
 import ConsoleDiagnostics from '../components/ConsoleDiagnostics.vue'
 import ConsoleExtensions from '../components/ConsoleExtensions.vue'
 import ConsolePlans from '../components/ConsolePlans.vue'
+import ConsoleNotices from '../components/ConsoleNotices.vue'
+import ConsoleApi from '../components/ConsoleApi.vue'
 import ConsolePricing from '../components/ConsolePricing.vue'
 import ConsoleUsers from '../components/ConsoleUsers.vue'
 import Modal from '../components/Modal.vue'
@@ -119,7 +121,7 @@ watch(
   (d) => {
     if (!d) return
     if (tab.value === 'persona' && !persona.value) loadPersona()
-    if (!['persona', 'channels', 'extensions', 'users', 'plans', 'pricing', 'cards', 'diagnostics', 'database', 'opencode'].includes(tab.value) && !d.groups.some((g) => g.key === tab.value)) tab.value = 'models'
+    if (!['persona', 'channels', 'extensions', 'users', 'plans', 'pricing', 'cards', 'notices', 'api', 'diagnostics', 'database', 'opencode'].includes(tab.value) && !d.groups.some((g) => g.key === tab.value)) tab.value = 'models'
   },
 )
 
@@ -354,7 +356,9 @@ onMounted(() => {
                 <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'plans' }" @click="openTab('plans')">会员套餐</button>
                 <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'pricing' }" @click="openTab('pricing')">计费</button>
                 <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'cards' }" @click="openTab('cards')">卡密</button>
+                <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'api' }" @click="openTab('api')">API 接入</button>
               </template>
+              <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'notices' }" @click="openTab('notices')">通知</button>
               <p class="toc__title">其他</p>
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'persona' }" @click="openTab('persona')">人格档案</button>
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'extensions' }" @click="openTab('extensions')">技能与插件</button>
@@ -391,13 +395,15 @@ onMounted(() => {
 
           <ConsoleExtensions v-else-if="!searching && tab === 'extensions'" :call="call" :token="token" />
 
-          <template v-else-if="!searching && ['users', 'plans', 'pricing', 'cards'].includes(tab)">
+          <template v-else-if="!searching && ['users', 'plans', 'pricing', 'cards', 'notices', 'api'].includes(tab)">
             <p v-if="data.default_password" class="form-flash form-flash--error">
-              管理员密码还是默认的 1228，为了安全，用户管理、会员和卡密暂时不能用。请先在服务器上改掉配置文件里的 <code>admin.password</code> 并重启服务。
+              管理员密码还是默认的 1228，为了安全，用户管理、会员、卡密、通知和 API 接入暂时不能用。请先在服务器上改掉配置文件里的 <code>admin.password</code> 并重启服务。
             </p>
             <ConsoleUsers v-else-if="tab === 'users'" :call="call" />
             <ConsolePlans v-else-if="tab === 'plans'" :call="call" />
             <ConsolePricing v-else-if="tab === 'pricing'" :call="call" />
+            <ConsoleNotices v-else-if="tab === 'notices'" :call="call" />
+            <ConsoleApi v-else-if="tab === 'api'" :call="call" />
             <ConsoleCards v-else :call="call" :token="token" />
           </template>
 

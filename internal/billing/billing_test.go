@@ -326,6 +326,17 @@ func TestCostCacheAndPeak(t *testing.T) {
 	if got := s.Cost(quota.Use{Key: "model:2", PromptTokens: 1000, CachedTokens: 500, CompletionTokens: 100}); got != 1000*3+100*6 {
 		t.Errorf("model:2 = %d", got)
 	}
+	// API 接入按倍率加价，消费记录单独列为 api:model:2。
+	api := quota.Use{Key: "model:2", PromptTokens: 1000, CompletionTokens: 100, Scale: 1.5, Via: quota.ViaAPI}
+	if got := s.Cost(api); got != (1000*3+100*6)*3/2 {
+		t.Errorf("API 1.5 倍 = %d", got)
+	}
+	if err := s.Charge(ctx, 77, api, s.Cost(api)); err != nil {
+		t.Fatal(err)
+	}
+	if items, err := s.Costs(ctx, 77, "2000-01-01", "2100-01-01"); err != nil || len(items) != 1 || items[0].Key != "api:model:2" {
+		t.Errorf("消费记录：%+v %v", items, err)
+	}
 	for _, bad := range []*PeakRule{
 		{Days: []int{1}, Ranges: []string{"9点到12点"}},
 		{Days: []int{1}, Ranges: []string{"12:00-09:00"}},

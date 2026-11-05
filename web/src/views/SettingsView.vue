@@ -7,6 +7,8 @@ import EmbeddingPanel from '../components/EmbeddingPanel.vue'
 import UtilityPanel from '../components/UtilityPanel.vue'
 import ExtensionsPanel from '../components/ExtensionsPanel.vue'
 import CharactersPanel from '../components/CharactersPanel.vue'
+import NoticesPanel from '../components/NoticesPanel.vue'
+import ApiPanel from '../components/ApiPanel.vue'
 import Modal from '../components/Modal.vue'
 import ModelsPanel from '../components/ModelsPanel.vue'
 import PersonaPanel from '../components/PersonaPanel.vue'
@@ -105,7 +107,7 @@ async function copy(text: string) {
 onMounted(load)
 
 // 左边分类、右边内容（参考 claude.ai 的设置）。分类记在地址的 #hash 里，旧链接（#models 等）照样能打开。
-type IconName = 'message' | 'mask' | 'sparkle' | 'code' | 'grid' | 'brain' | 'refresh' | 'globe' | 'link' | 'settings'
+type IconName = 'message' | 'mask' | 'note' | 'sparkle' | 'code' | 'grid' | 'brain' | 'refresh' | 'globe' | 'link' | 'settings'
 interface Tab { id: string; label: string; icon: IconName; group: string; keys: string }
 const tabs = computed<Tab[]>(() => [
   { id: 'agent', label: '牛马', icon: 'message', group: '偏好', keys: '设置助手 agent' },
@@ -113,6 +115,8 @@ const tabs = computed<Tab[]>(() => [
   { id: 'models', label: '模型', icon: 'code', group: '偏好', keys: 'api key opencode 思考' },
   { id: 'characters', label: '角色卡', icon: 'mask', group: '偏好', keys: 'cosplay 角色扮演 人设 大肥鱼 提示词' },
   { id: 'extensions', label: '技能与插件', icon: 'grid', group: '偏好', keys: 'skill mcp 插件' },
+  { id: 'api', label: 'API', icon: 'code' as const, group: '偏好', keys: 'api key openai anthropic 接口 接入' },
+  { id: 'notices', label: '通知', icon: 'note' as const, group: '偏好', keys: '公告 通知 消息' },
   { id: 'memory', label: '大脑皮层', icon: 'brain', group: '偏好', keys: '记忆 心情 情绪 整理' },
   ...(isAdmin.value
     ? [
@@ -187,6 +191,8 @@ function pick(id: string) {
 
         <CharactersPanel v-if="tab === 'characters'" />
         <ExtensionsPanel v-if="tab === 'extensions'" />
+        <ApiPanel v-if="tab === 'api'" />
+        <NoticesPanel v-if="tab === 'notices'" />
 
         <UtilityPanel v-if="isAdmin && tab === 'utility'" />
 

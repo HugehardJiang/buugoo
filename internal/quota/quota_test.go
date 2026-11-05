@@ -187,3 +187,15 @@ func TestBilling(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestScaledRecord(t *testing.T) {
+	usage := memUsage{}
+	l := New(config.QuotaConfig{DailyTokens: 1000}, usage, time.UTC)
+	if err := l.Record(context.Background(), 1, Use{Messages: 1, PromptTokens: 100, CompletionTokens: 11, Scale: 1.5, Via: ViaAPI}); err != nil {
+		t.Fatal(err)
+	}
+	day := time.Now().UTC().Format("2006-01-02")
+	if got := usage[day]; got.PromptTokens != 150 || got.CompletionTokens != 17 || got.Messages != 1 {
+		t.Fatalf("按 1.5 倍计入额度：%+v", got)
+	}
+}

@@ -7,6 +7,7 @@ import { connectedCount, refreshChannels } from './channelState'
 import { activeConvId, navOpen, openConvHandler, recentConvs, recentQuery, searching, sidebarCollapsed, wideScreen } from './sidebarState'
 import Avatar from './components/Avatar.vue'
 import Lightbox from './components/Lightbox.vue'
+import NoticeGate from './components/NoticeGate.vue'
 import { memoriesUnlocked } from './memoryLock'
 import { logout, needsLogin, session } from './session'
 import { toasts } from './toast'
@@ -246,6 +247,8 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
   </div>
   <RouterView v-else />
 
+  <!-- 强制弹窗通知（管理员临时登录排查问题时不弹） -->
+  <NoticeGate v-if="inWorkspace && session.user && !session.impersonated && !needsLogin()" :key="session.user.id" />
   <Lightbox />
   <TransitionGroup tag="div" name="toast" class="toast-stack" aria-live="polite">
     <div v-for="t in toasts" :key="t.id" class="toast">{{ t.text }}</div>

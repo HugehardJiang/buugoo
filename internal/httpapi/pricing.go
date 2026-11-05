@@ -72,6 +72,8 @@ func (s *server) costLabels(c echo.Context) map[string]string {
 	}
 	for _, it := range items {
 		out[it.Key] = it.Label
+		// API 接入的调用单独记账（api:model:3），显示为「API · 模型名」。
+		out["api:"+it.Key] = "API · " + it.Label
 	}
 	return out
 }

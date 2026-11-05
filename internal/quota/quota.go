@@ -60,6 +60,37 @@ type Use struct {
 	Calls  int
 	// Uncounted 为 true 时不计入消息和 token 用量（例如向量模型），只在超出额度后按价格扣钱。
 	Uncounted bool
+	// Scale 是价格倍率（API 接入用）：计入额度的 token 数和扣的钱都乘以它；0 表示 1 倍。
+	Scale float64
+	// Via 是调用来源，"api" 表示 API 接入（消费记录里单独列出）。
+	Via string
+}
+
+// ViaAPI 是 API 接入的调用来源。
+const ViaAPI = "api"
+
+// scale 返回倍率（0 和负数按 1 倍）。
+func (u Use) scale() float64 {
+	if u.Scale <= 0 {
+		return 1
+	}
+	return u.Scale
+}
+
+// ScaleTokens 返回乘以倍率后计入额度的 token 数（向上取整）。
+func (u Use) ScaleTokens(n int) int {
+	if s := u.scale(); s != 1 && n > 0 {
+		return int(math.Ceil(float64(n) * s))
+	}
+	return n
+}
+
+// ScaleCost 返回乘以倍率后的金额（微元，向上取整）。
+func (u Use) ScaleCost(micro int64) int64 {
+	if s := u.scale(); s != 1 && micro > 0 {
+		return int64(math.Ceil(float64(micro) * s))
+	}
+	return micro
 }
 
 // ExceededError 表示超出了限额（并且没有余额可以扣）。
@@ -119,13 +150,15 @@ func (e *ExceededError) Error() string {
 
 // Entitlement 是用户现在的会员权益：时长套餐（Active 为 true 时）和余额。
 type Entitlement struct {
-	Active        bool      `json:"active"`
-	PlanName      string    `json:"plan_name,omitempty"`
-	Cycle         string    `json:"cycle,omitempty"`
-	QuotaMessages int64     `json:"quota_messages,omitempty"`
-	QuotaTokens   int64     `json:"quota_tokens,omitempty"`
-	QuotaSearches int64     `json:"quota_searches,omitempty"`
-	ExpiresAt     time.Time `json:"expires_at,omitzero"`
+	Active        bool   `json:"active"`
+	PlanName      string `json:"plan_name,omitempty"`
+	Cycle         string `json:"cycle,omitempty"`
+	QuotaMessages int64  `json:"quota_messages,omitempty"`
+	QuotaTokens   int64  `json:"quota_tokens,omitempty"`
+	QuotaSearches int64  `json:"quota_searches,omitempty"`
+	// APIAccess 表示套餐包含 API 接入。
+	APIAccess bool      `json:"api_access,omitempty"`
+	ExpiresAt time.Time `json:"expires_at,omitzero"`
 	// Balance 是余额（微元）。
 	Balance int64 `json:"balance"`
 }
@@ -334,7 +367,7 @@ func (l *Limiter) Record(ctx context.Context, userID uint64, u Use) error {
 	}
 	day := l.now().In(l.loc).Format("2006-01-02")
 	if !u.Uncounted && (u.Messages > 0 || u.PromptTokens > 0 || u.CompletionTokens > 0) {
-		if err := l.usage.Add(ctx, userID, day, u.Messages, u.PromptTokens, u.CompletionTokens); err != nil {
+		if err := l.usage.Add(ctx, userID, day, u.Messages, u.ScaleTokens(u.PromptTokens), u.ScaleTokens(u.CompletionTokens)); err != nil {
 			return fmt.Errorf("记录用量: %w", err)
 		}
 	}

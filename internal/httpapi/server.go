@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"github.com/HugehardJiang/buugoo/internal/accounts"
 	"github.com/HugehardJiang/buugoo/internal/agent"
+	"github.com/HugehardJiang/buugoo/internal/apiserve"
 	"github.com/HugehardJiang/buugoo/internal/billing"
 	"github.com/HugehardJiang/buugoo/internal/cosplay"
 	"github.com/HugehardJiang/buugoo/internal/dbmove"
 	"github.com/HugehardJiang/buugoo/internal/mcp"
 	"github.com/HugehardJiang/buugoo/internal/memo"
+	"github.com/HugehardJiang/buugoo/internal/notice"
 	"github.com/HugehardJiang/buugoo/internal/opencode"
 	"github.com/HugehardJiang/buugoo/internal/skills"
 	"github.com/HugehardJiang/buugoo/internal/todo"
@@ -66,6 +68,11 @@ type Deps struct {
 	Memos   *memo.Service
 	// Characters 为空时不提供 Cosplay 角色卡接口。
 	Characters *cosplay.Service
+	// Notices 为空时不提供强制弹窗通知。
+	Notices *notice.Service
+	// APIKeys、APISettings 为空时不提供 API 接入（/v1/...）。
+	APIKeys     *apiserve.Keys
+	APISettings *apiserve.SettingsStore
 	// DBMove 不为空时管理后台可以把 SQLite 一键迁移到 MySQL；Restart 让服务重启，Supervised 表示重启后会被自动拉起。
 	DBMove     *dbmove.Mover
 	Restart    func()
@@ -85,6 +92,7 @@ type server struct {
 	console     *consoleSessions
 	redeemGuard redeemGuard
 	live        *liveHub
+	apiLimit    apiLimits
 }
 
 const ctxUserKey = "buugoo.user"
@@ -260,6 +268,8 @@ func New(d Deps) http.Handler {
 
 	s.routeExtensions(e, api, priv, console)
 	s.routeBilling(api, priv, console)
+	s.routeNotices(priv, console)
+	s.routeAPI(e, priv, console)
 	if s.Characters != nil {
 		priv.GET("/characters", s.listCharacters)
 		priv.POST("/characters", s.createCharacter)
@@ -448,7 +458,17 @@ func toAPIError(err error) *apiError {
 	}
 	var memoErr *memo.UserError
 	var cosErr *cosplay.UserError
+	var noticeErr *notice.UserError
+	var apiErr *apiserve.UserError
 	switch {
+	case errors.As(err, &apiErr):
+		return &apiError{Status: http.StatusBadRequest, Code: "invalid_input", Message: apiErr.Msg}
+	case errors.Is(err, apiserve.ErrNotFound):
+		return &apiError{Status: http.StatusNotFound, Code: "not_found", Message: err.Error()}
+	case errors.As(err, &noticeErr):
+		return &apiError{Status: http.StatusBadRequest, Code: "invalid_input", Message: noticeErr.Msg}
+	case errors.Is(err, notice.ErrNotFound):
+		return &apiError{Status: http.StatusNotFound, Code: "not_found", Message: err.Error()}
 	case errors.As(err, &cosErr):
 		return &apiError{Status: http.StatusBadRequest, Code: "invalid_input", Message: cosErr.Msg}
 	case errors.Is(err, cosplay.ErrNotFound):

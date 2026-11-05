@@ -294,7 +294,16 @@ func (s *Service) Cost(u quota.Use) int64 {
 	}
 	cached := min(max(u.CachedTokens, 0), u.PromptTokens)
 	v := float64(u.PromptTokens-cached)*p.Input + float64(cached)*cacheRate + float64(u.CompletionTokens)*p.Output + float64(u.Calls)*p.PerK*1000
-	return int64(math.Ceil(v - 1e-9))
+	// API 接入按倍率加价。
+	return u.ScaleCost(int64(math.Ceil(v - 1e-9)))
+}
+
+// costKey 是消费记录里的项目：API 接入的调用加上「api:」前缀，和网页上的分开列。
+func costKey(u quota.Use) string {
+	if u.Via == quota.ViaAPI {
+		return "api:" + u.Key
+	}
+	return u.Key
 }
 
 // Charge 实现 quota.Billing：从余额里扣钱，记进当天的消费。
@@ -304,7 +313,7 @@ func (s *Service) Charge(ctx context.Context, userID uint64, u quota.Use, amount
 		if err := addBalance(tx, userID, -amount); err != nil {
 			return err
 		}
-		row := store.CostDaily{UserID: userID, Day: day, Key: u.Key, Amount: amount, Calls: max(u.Calls, 1),
+		row := store.CostDaily{UserID: userID, Day: day, Key: costKey(u), Amount: amount, Calls: max(u.Calls, 1),
 			Tokens: int64(u.PromptTokens + u.CompletionTokens), UpdatedAt: s.now()}
 		return tx.Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "user_id"}, {Name: "day"}, {Name: "key"}},
@@ -354,6 +363,8 @@ type PlanInput struct {
 	BuyURL  string `json:"buy_url"`
 	Visible bool   `json:"visible"`
 	Sort    int    `json:"sort"`
+	// APIAccess 表示时长套餐包含 API 接入。
+	APIAccess bool `json:"api_access"`
 }
 
 func (in *PlanInput) validate() error {
@@ -386,6 +397,7 @@ func (in *PlanInput) validate() error {
 			return userErr("充值金额要大于 0，最多 100 万元")
 		}
 		in.Days, in.Cycle, in.QuotaMessages, in.QuotaTokens, in.QuotaSearches = 0, "", 0, 0, 0
+		in.APIAccess = false
 	case store.PlanPack:
 		return userErr("余额包已经停用，请改用「充值」套餐")
 	default:
@@ -403,7 +415,7 @@ func (in *PlanInput) validate() error {
 func (in *PlanInput) apply(p *store.Plan) {
 	p.Name, p.Description, p.Price, p.Kind = in.Name, in.Description, in.Price, in.Kind
 	p.Days, p.Cycle, p.QuotaMessages, p.QuotaTokens, p.QuotaSearches = in.Days, in.Cycle, in.QuotaMessages, in.QuotaTokens, in.QuotaSearches
-	p.Amount, p.BuyURL, p.Visible, p.Sort = in.Amount, in.BuyURL, in.Visible, in.Sort
+	p.Amount, p.BuyURL, p.Visible, p.Sort, p.APIAccess = in.Amount, in.BuyURL, in.Visible, in.Sort, in.APIAccess
 	p.Unit, p.Quota, p.ValidDays = "", 0, 0
 }
 
@@ -503,6 +515,7 @@ func (s *Service) Entitlement(ctx context.Context, userID uint64) (quota.Entitle
 	case err == nil:
 		ent.Active, ent.PlanName, ent.Cycle, ent.ExpiresAt = true, sub.PlanName, sub.Cycle, sub.ExpiresAt
 		ent.QuotaMessages, ent.QuotaTokens, ent.QuotaSearches = sub.QuotaMessages, sub.QuotaTokens, sub.QuotaSearches
+		ent.APIAccess = sub.APIAccess
 	case !errors.Is(err, gorm.ErrRecordNotFound):
 		return ent, err
 	}
@@ -533,6 +546,7 @@ func (s *Service) grant(tx *gorm.DB, userID uint64, p *store.Plan) (string, erro
 	}
 	sub.PlanID, sub.PlanName, sub.Cycle = p.ID, p.Name, p.Cycle
 	sub.QuotaMessages, sub.QuotaTokens, sub.QuotaSearches = p.QuotaMessages, p.QuotaTokens, p.QuotaSearches
+	sub.APIAccess = p.APIAccess
 	sub.Unit, sub.Quota = "", 0
 	sub.ExpiresAt = sub.ExpiresAt.AddDate(0, 0, p.Days)
 	if err := tx.Save(&sub).Error; err != nil {

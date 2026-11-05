@@ -14,6 +14,7 @@ import (
 
 	"github.com/HugehardJiang/buugoo/internal/accounts"
 	"github.com/HugehardJiang/buugoo/internal/agent"
+	"github.com/HugehardJiang/buugoo/internal/apiserve"
 	"github.com/HugehardJiang/buugoo/internal/auth"
 	"github.com/HugehardJiang/buugoo/internal/billing"
 	"github.com/HugehardJiang/buugoo/internal/buildinfo"
@@ -30,6 +31,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/memo"
 	"github.com/HugehardJiang/buugoo/internal/memory"
 	"github.com/HugehardJiang/buugoo/internal/models"
+	"github.com/HugehardJiang/buugoo/internal/notice"
 	"github.com/HugehardJiang/buugoo/internal/opencode"
 	"github.com/HugehardJiang/buugoo/internal/persona"
 	"github.com/HugehardJiang/buugoo/internal/proactive"
@@ -184,6 +186,8 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	toolsProv.plugins = pluginSvc
 	memoSvc := memo.New(db.Gorm())
 	characterSvc := cosplay.New(db.Gorm(), cfg.Chat.CharacterMaxRunes)
+	noticeSvc := notice.New(db.Gorm())
+	apiKeys, apiSettings := apiserve.NewKeys(db.Gorm()), apiserve.NewSettingsStore(db.Meta())
 	toolsProv.memos = memoSvc
 	todoSvc := todo.New(db.Gorm(), loc)
 	toolsProv.todos = todoSvc
@@ -266,7 +270,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 		Config: cfg, Store: db, Auth: authSvc, Chat: chatSvc, Memories: memory.NewManager(db.Memories(), vs), Compactor: compactor,
 		Quota: limiter, Models: modelSvc, Reembed: memory.NewReembedder(db.Memories(), emb, vs, log),
 		Uploads: uploadSvc, Emotion: emo, Persona: personas, Channels: hub, Logger: log,
-		Skills: skillSvc, Plugins: pluginSvc, Memos: memoSvc, Characters: characterSvc, Todos: todoSvc, Billing: billingSvc, Accounts: accountSvc,
+		Skills: skillSvc, Plugins: pluginSvc, Memos: memoSvc, Characters: characterSvc, Notices: noticeSvc, APIKeys: apiKeys, APISettings: apiSettings, Todos: todoSvc, Billing: billingSvc, Accounts: accountSvc,
 		Agent: agent.New(agent.Deps{DB: db.Gorm(), Users: db.Users(), Reminders: toolsProv.reminders, Models: modelSvc,
 			Quota: limiter, Skills: skillSvc, Plugins: pluginSvc, Config: cfg, Box: box, Logger: log,
 			Runner: func(ctx context.Context, u *store.User) tools.Runner { return toolsProv.python(ctx, u) }}),

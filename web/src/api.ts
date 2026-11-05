@@ -435,6 +435,48 @@ export interface Plan {
   buy_url: string
   visible?: boolean
   sort?: number
+  /** 时长套餐包含 API 接入 */
+  api_access?: boolean
+}
+
+/** 管理员发布的强制弹窗通知 */
+export interface Notice {
+  id: number
+  title: string
+  content: string
+  seconds: number
+  created_at: string
+  read_at?: string
+  /** 管理后台：已经看过的人数 */
+  reads?: number
+}
+
+/** API 接入里能用的一个模型 */
+export interface APIModel {
+  /** 请求里填的 model */
+  name: string
+  id: number
+  display_name: string
+  scope: string
+  vision: boolean
+  tools: boolean
+  is_default: boolean
+  /** 价格倍率（自己添加的模型为 0：不计费） */
+  scale: number
+  personal: boolean
+}
+
+export interface APIKeyInfo {
+  id: number
+  name: string
+  hint: string
+  last_used_at?: string
+  created_at: string
+}
+
+export interface APISettings {
+  default: number
+  models: Record<string, number>
 }
 
 export interface Member {
@@ -756,6 +798,12 @@ export const api = {
     request<{ characters: CharacterCandidate[]; max_runes: number }>('POST', '/characters/parse', { text, filename }),
   /** 打开网址，解析出里面的角色卡（不保存） */
   fetchCharacters: (url: string) => request<{ characters: CharacterCandidate[]; max_runes: number }>('POST', '/characters/fetch', { url }),
+  pendingNotices: () => request<{ notices: Notice[] }>('GET', '/notices/pending'),
+  readNotice: (id: number) => request<void>('POST', `/notices/${id}/read`),
+  notices: () => request<{ notices: Notice[] }>('GET', '/notices'),
+  apiAccess: () => request<{ allowed: boolean; keys?: APIKeyInfo[]; models?: APIModel[] }>('GET', '/api-access'),
+  createAPIKey: (name: string) => request<{ key: string; info: APIKeyInfo }>('POST', '/api-keys', { name }),
+  deleteAPIKey: (id: number) => request<void>('DELETE', `/api-keys/${id}`),
   deleteConversation: (id: number) => request<void>('DELETE', `/conversations/${id}`),
   /** 停止正在后台生成的回复（已经生成的部分会保存） */
   stopReply: (id: number) => request<void>('POST', `/conversations/${id}/stop`),

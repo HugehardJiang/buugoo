@@ -122,5 +122,5 @@ export function planSummary(p: Pick<Plan, 'kind' | 'days' | 'cycle' | 'quota_mes
   if (p.kind === 'recharge') return `充值 ${yuan(p.amount)} 到余额`
   if (p.kind === 'pack') return '旧余额包（已停用）'
   const q = planQuotas(p)
-  return `${p.days} 天 · 每${p.cycle === 'month' ? '月' : '天'} ${q.length ? q.join('、') : '不限量'}`
+  return `${p.days} 天 · 每${p.cycle === 'month' ? '月' : '天'} ${q.length ? q.join('、') : '不限量'}${(p as { api_access?: boolean }).api_access ? ' · 含 API 接入' : ''}`
 }
