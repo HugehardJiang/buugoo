@@ -14,15 +14,27 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/store/gormstore"
 )
 
+// newService 默认用 SQLite；设置了 BUUGOO_TEST_MYSQL_DSN 时用 MySQL（会清空角色卡相关的表，请用专门的测试库）。
 func newService(t *testing.T, maxRunes int) *Service {
 	t.Helper()
-	db, err := gormstore.Open(config.DatabaseConfig{Driver: config.DriverSQLite, DSN: filepath.Join(t.TempDir(), "t.db")}, nil)
+	cfg := config.DatabaseConfig{Driver: config.DriverSQLite, DSN: filepath.Join(t.TempDir(), "t.db")}
+	if dsn := os.Getenv("BUUGOO_TEST_MYSQL_DSN"); dsn != "" {
+		cfg = config.DatabaseConfig{Driver: config.DriverMySQL, DSN: dsn, MaxOpenConns: 5, MaxIdleConns: 2}
+	}
+	db, err := gormstore.Open(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
 	if err := db.Migrate(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+	if cfg.Driver == config.DriverMySQL {
+		for _, table := range []string{"character_revisions", "characters", "conversations"} {
+			if err := db.Gorm().Exec("DELETE FROM " + table).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	return New(db.Gorm(), maxRunes)
 }

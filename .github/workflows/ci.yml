@@ -44,7 +44,7 @@ jobs:
       - name: go test（store / app）
         env:
           BUUGOO_TEST_MYSQL_DSN: root:buugoo-test@tcp(127.0.0.1:3306)/buugoo_test
-        run: go test -p 1 -count=1 ./internal/store/... ./internal/app/...
+        run: go test -p 1 -count=1 ./internal/store/... ./internal/app/... ./internal/cosplay/... ./internal/notice/...
 
   web:
     name: 前端类型检查与构建

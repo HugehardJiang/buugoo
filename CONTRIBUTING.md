@@ -156,7 +156,7 @@ cd web && npm run build && cd ..   # 前端类型检查 + 构建
 ### 4.2 改了数据库相关代码时
 
 ```bash
-make test-mysql                # 自动启动临时 MySQL 容器，跑 store / app 的测试，跑完删掉容器
+make test-mysql                # 自动启动临时 MySQL 容器，跑数据库相关的测试（store、app、cosplay、notice），跑完删掉容器
 ```
 
 ### 4.3 写单元测试

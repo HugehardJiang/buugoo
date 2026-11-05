@@ -173,12 +173,14 @@ func (s *Service) saveRevision(tx *gorm.DB, cardID, userID uint64, prompt, note 
 	if err := tx.Create(&store.CharacterRevision{CharacterID: cardID, UserID: userID, Prompt: prompt, Note: note}).Error; err != nil {
 		return err
 	}
+	// 取出这张卡所有记录的编号（最多二十来条），在程序里挑出多余的删掉。
+	// 不用 OFFSET：MySQL 不支持没有 LIMIT 的 OFFSET。
 	var ids []uint64
-	if err := tx.Model(&store.CharacterRevision{}).Where("character_id = ?", cardID).Order("id DESC").Offset(MaxRevisions).Pluck("id", &ids).Error; err != nil {
+	if err := tx.Model(&store.CharacterRevision{}).Where("character_id = ?", cardID).Order("id DESC").Pluck("id", &ids).Error; err != nil {
 		return err
 	}
-	if len(ids) > 0 {
-		return tx.Where("id IN ?", ids).Delete(&store.CharacterRevision{}).Error
+	if len(ids) > MaxRevisions {
+		return tx.Where("id IN ?", ids[MaxRevisions:]).Delete(&store.CharacterRevision{}).Error
 	}
 	return nil
 }
