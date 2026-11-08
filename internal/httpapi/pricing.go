@@ -43,7 +43,12 @@ func (s *server) pricingItems(c echo.Context) ([]pricingItem, error) {
 		if m.Scope == models.ScopeBuiltin {
 			hint = "配置文件里的默认模型"
 		}
-		out = append(out, pricingItem{Key: quota.ModelKey(m.ID), Label: label, Kind: "tokens", Group: "聊天模型", Hint: hint, Model: m.Model})
+		// 按供应商分组，方便对着供应商的价格表填（也能按供应商导入价格）。
+		group := "聊天模型"
+		if m.Provider != "" {
+			group += " · " + m.Provider
+		}
+		out = append(out, pricingItem{Key: quota.ModelKey(m.ID), Label: label, Kind: "tokens", Group: group, Hint: hint, Model: m.Model})
 	}
 	cfg := s.Config.LLM
 	utilHint := "记忆太多时合并整理；对话里的记忆提取和长对话摘要用的是这段对话的模型，按那个模型的价格计"

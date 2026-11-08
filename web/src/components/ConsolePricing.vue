@@ -3,6 +3,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ApiError, type Price, type Pricing, type PricingItem } from '../api'
 import { toast } from '../toast'
+import PriceImport from './PriceImport.vue'
 
 const props = defineProps<{ call: <T>(method: string, path: string, body?: unknown) => Promise<T> }>()
 
@@ -121,6 +122,19 @@ async function save() {
   }
 }
 
+// 按价格表导入：把换算好的价格填进表单（只改高峰价，也就是不分时段时的价格），检查后再点保存。
+const importing = ref(false)
+function applyImport(prices: Record<string, { input: number; cache_input: number; output: number }>) {
+  let n = 0
+  for (const [key, p] of Object.entries(prices)) {
+    if (!peakPrices.value[key]) continue
+    peakPrices.value[key] = { ...peakPrices.value[key], input: p.input || '', cache_input: p.cache_input || '', output: p.output || '' }
+    n++
+  }
+  importing.value = false
+  toast(`填好了 ${n} 个模型，检查一下再点「保存」`)
+}
+
 function toggleDay(d: number) {
   peak.days = peak.days.includes(d) ? peak.days.filter((x) => x !== d) : [...peak.days, d]
 }
@@ -169,6 +183,7 @@ function fillDeepSeek() {
     <div class="head">
       <h2>计费</h2>
       <div class="head__btns">
+        <button v-if="items?.length" type="button" class="btn btn-sm" @click="importing = true">按价格表导入</button>
         <button v-if="deepseekRows.length" type="button" class="btn btn-sm" @click="fillDeepSeek">填入 DeepSeek 官方价格</button>
         <button type="button" class="btn btn-sm btn-primary" :disabled="!dirty || saving" @click="save">{{ saving ? '正在保存' : '保存' }}</button>
       </div>
@@ -256,6 +271,7 @@ function fillDeepSeek() {
         服务商不返回时全部按未命中算。联网搜索的次数单独算：时长套餐里的搜索次数（或每日免费次数）用完后才按这里的价格扣，搜不了也不影响聊天。
       </p>
     </template>
+    <PriceImport :open="importing" :items="items ?? []" @close="importing = false" @apply="applyImport" />
   </section>
 </template>
 
