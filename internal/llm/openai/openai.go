@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/HugehardJiang/buugoo/internal/buildinfo"
@@ -91,7 +92,8 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// do 发送 POST 请求。retry 为 true 时对限流与 5xx 错误做指数退避重试。
+// do 发送 POST 请求。服务返回 429、5xx 时总会重试几次（这时还没收到任何内容，流式请求重试也安全）；
+// retry 为 true 时网络错误也重试（流式请求不重试网络错误，免得等好几个超时）。
 func (c client) do(ctx context.Context, path string, body any, retry bool) (*http.Response, error) {
 	if c.apiKey == "" {
 		return nil, fmt.Errorf("%w：缺少 API Key", llm.ErrNotConfigured)
@@ -100,12 +102,16 @@ func (c client) do(ctx context.Context, path string, body any, retry bool) (*htt
 	if err != nil {
 		return nil, fmt.Errorf("编码请求: %w", err)
 	}
-	attempts := 1
-	if retry {
-		attempts += maxRetries
+	opencode := isOpenCode(c.baseURL)
+	// OpenCode Go 要求每个请求都带会话编号：聊天时用对话的编号；测试连接、起标题、提取记忆这类
+	// 不属于某段对话的请求，用这个客户端固定的一个编号。
+	session := llm.SessionFrom(ctx)
+	if session == "" {
+		session = c.session
 	}
+	sid := reroutes.get(session)
 	var lastErr error
-	for i := 0; i < attempts; i++ {
+	for i := 0; i <= maxRetries; i++ {
 		if i > 0 {
 			if err := c.sleep(ctx, time.Duration(1<<(i-1))*time.Second); err != nil {
 				return nil, err
@@ -118,13 +124,7 @@ func (c client) do(ctx context.Context, path string, body any, retry bool) (*htt
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 		req.Header.Set("User-Agent", userAgent)
-		if isOpenCode(c.baseURL) {
-			// OpenCode Go 要求每个请求都带会话编号：聊天时用对话的编号；测试连接、起标题、提取记忆这类
-			// 不属于某段对话的请求，用这个客户端固定的一个编号。
-			sid := llm.SessionFrom(ctx)
-			if sid == "" {
-				sid = c.session
-			}
+		if opencode {
 			req.Header.Set("x-opencode-session", sid)
 		}
 		resp, err := c.http.Do(req)
@@ -136,9 +136,15 @@ func (c client) do(ctx context.Context, path string, body any, retry bool) (*htt
 			if errors.Is(err, netguard.ErrPrivateAddress) {
 				return nil, fmt.Errorf("请求模型服务: %w", ErrPrivateAddress)
 			}
+			if !retry {
+				return nil, lastErr
+			}
 			continue
 		}
 		if resp.StatusCode/100 == 2 {
+			if sid != session {
+				reroutes.set(session, sid)
+			}
 			return resp, nil
 		}
 		apiErr := readAPIError(resp)
@@ -146,8 +152,48 @@ func (c client) do(ctx context.Context, path string, body any, retry bool) (*htt
 		if !apiErr.Retryable() {
 			return nil, apiErr
 		}
+		// OpenCode 按会话编号把同一段对话固定发到同一组服务器（为了提示词缓存）；那组服务器满载时
+		// 这段对话会一直失败，换一个会话编号就会分到别的服务器（这一次用不上缓存）。
+		if opencode {
+			sid = session + "-r" + randomID()[:6]
+		}
 	}
 	return nil, lastErr
+}
+
+// reroutes 记下换过会话编号的对话：换到的服务器能用，接下来一段时间都用新编号，免得又撞回满载的那组。
+var reroutes = &rerouteMap{m: map[string]reroute{}}
+
+type reroute struct {
+	sid string
+	at  time.Time
+}
+
+type rerouteMap struct {
+	mu sync.Mutex
+	m  map[string]reroute
+}
+
+const rerouteTTL = 30 * time.Minute
+
+func (r *rerouteMap) get(session string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if x, ok := r.m[session]; ok && time.Since(x.at) < rerouteTTL {
+		return x.sid
+	}
+	return session
+}
+
+func (r *rerouteMap) set(session, sid string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for k, x := range r.m {
+		if time.Since(x.at) >= rerouteTTL {
+			delete(r.m, k)
+		}
+	}
+	r.m[session] = reroute{sid: sid, at: time.Now()}
 }
 
 func readAPIError(resp *http.Response) *llm.APIError {

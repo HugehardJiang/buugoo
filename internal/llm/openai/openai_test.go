@@ -367,3 +367,58 @@ func (r rewrite) RoundTrip(req *http.Request) (*http.Response, error) {
 	req.URL.Scheme, req.URL.Host = u.Scheme, u.Host
 	return http.DefaultTransport.RoundTrip(req)
 }
+
+// OpenCode 某组服务器满载（429 prefill_cap_refused）时：换会话编号重试，成功后这段对话接着用新编号；
+// 流式请求也会重试（还没收到内容）；400 这种不重试。
+func TestOpenCodeReroute(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sid := r.Header.Get("x-opencode-session")
+		got = append(got, sid)
+		switch {
+		case strings.Contains(sid, "bad"):
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":{"message":"bad"}}`)
+		case sid == "buugoo-9-9" || sid == "buugoo-9-8":
+			w.WriteHeader(http.StatusTooManyRequests)
+			fmt.Fprint(w, `{"error":{"message":"Upstream request failed: [prefill_cap_refused] the cell is at capacity","type":"server_error"}}`)
+		default:
+			fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"hi"}}]}`)
+		}
+	}))
+	defer srv.Close()
+	oc := newClient("https://opencode.ai/inference/go/openai/v1", "k", false)
+	oc.http = &http.Client{Transport: rewrite{srv.URL}}
+	oc.sleep = func(context.Context, time.Duration) error { return nil }
+	ctx := llm.WithSession(context.Background(), "buugoo-9-9")
+	resp, err := oc.do(ctx, "/chat/completions", map[string]any{"model": "m"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if len(got) != 2 || got[0] != "buugoo-9-9" || !strings.HasPrefix(got[1], "buugoo-9-9-r") {
+		t.Fatalf("应换编号重试：%q", got)
+	}
+	// 同一段对话的下一个请求直接用换过的编号。
+	resp, err = oc.do(ctx, "/chat/completions", map[string]any{"model": "m"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if len(got) != 3 || got[2] != got[1] {
+		t.Fatalf("应记住新编号：%q", got)
+	}
+	// 流式请求遇到 429 也会重试。
+	got = nil
+	c := NewChat(chatCfg("https://opencode.ai/inference/go/openai/v1"))
+	c.http = &http.Client{Transport: rewrite{srv.URL}}
+	c.sleep = func(context.Context, time.Duration) error { return nil }
+	if _, err := c.ChatStream(llm.WithSession(context.Background(), "buugoo-9-8"), llm.ChatRequest{}); err != nil || len(got) != 2 {
+		t.Fatalf("流式请求应重试：%v %q", err, got)
+	}
+	// 400 不重试。
+	got = nil
+	if _, err := oc.do(llm.WithSession(context.Background(), "bad"), "/chat/completions", map[string]any{}, false); err == nil || len(got) != 1 {
+		t.Fatalf("400 不应重试：%v %q", err, got)
+	}
+}
