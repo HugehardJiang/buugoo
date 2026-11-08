@@ -6,6 +6,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/HugehardJiang/buugoo/internal/notice"
+	"github.com/HugehardJiang/buugoo/internal/proactive"
 )
 
 // 强制弹窗通知：管理员在后台发布，用户打开网页时弹出，看够秒数才能关。
@@ -22,6 +23,7 @@ func (s *server) routeNotices(priv, console *echo.Group) {
 	m.POST("/notices", s.consoleCreateNotice)
 	m.PUT("/notices/:id", s.consoleUpdateNotice)
 	m.DELETE("/notices/:id", s.consoleDeleteNotice)
+	m.GET("/proactive/observed", s.consoleObserved)
 }
 
 func (s *server) pendingNotices(c echo.Context) error {
@@ -110,4 +112,10 @@ func (s *server) consoleDeleteNotice(c echo.Context) error {
 	}
 	s.audit(c, "管理后台撤回了通知", "notice", id)
 	return c.NoContent(http.StatusNoContent)
+}
+
+// consoleObserved 处理 GET /console/proactive/observed：主动关心「只观察」模式下本来会发的消息。
+func (s *server) consoleObserved(c echo.Context) error {
+	return c.JSON(http.StatusOK, map[string]any{"mode": s.Config.Proactive.CareMode, "care": s.Config.Proactive.Care,
+		"observations": proactive.Observed(c.Request().Context(), s.Store.Meta())})
 }

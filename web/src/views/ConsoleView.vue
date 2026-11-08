@@ -12,6 +12,7 @@ import ConsoleDiagnostics from '../components/ConsoleDiagnostics.vue'
 import ConsoleExtensions from '../components/ConsoleExtensions.vue'
 import ConsolePlans from '../components/ConsolePlans.vue'
 import ConsoleNotices from '../components/ConsoleNotices.vue'
+import ConsoleObserved from '../components/ConsoleObserved.vue'
 import ConsoleApi from '../components/ConsoleApi.vue'
 import ConsolePricing from '../components/ConsolePricing.vue'
 import ConsoleUsers from '../components/ConsoleUsers.vue'
@@ -121,7 +122,7 @@ watch(
   (d) => {
     if (!d) return
     if (tab.value === 'persona' && !persona.value) loadPersona()
-    if (!['persona', 'channels', 'extensions', 'users', 'plans', 'pricing', 'cards', 'notices', 'api', 'diagnostics', 'database', 'opencode'].includes(tab.value) && !d.groups.some((g) => g.key === tab.value)) tab.value = 'models'
+    if (!['persona', 'channels', 'extensions', 'users', 'plans', 'pricing', 'cards', 'notices', 'api', 'observed', 'diagnostics', 'database', 'opencode'].includes(tab.value) && !d.groups.some((g) => g.key === tab.value)) tab.value = 'models'
   },
 )
 
@@ -366,6 +367,7 @@ onMounted(() => {
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'opencode' }" @click="openTab('opencode')">OpenCode Go</button>
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'database' }" @click="openTab('database')">数据库迁移</button>
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'diagnostics' }" @click="openTab('diagnostics')">诊断</button>
+              <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'observed' }" @click="openTab('observed')">主动关心记录</button>
             </nav>
 
             <div class="console__body">
@@ -408,6 +410,8 @@ onMounted(() => {
           </template>
 
           <ConsoleDiagnostics v-else-if="!searching && tab === 'diagnostics'" :call="call" />
+
+          <ConsoleObserved v-else-if="!searching && tab === 'observed'" :call="call" />
 
           <ConsoleDatabase v-else-if="!searching && tab === 'database'" :call="call" />
 

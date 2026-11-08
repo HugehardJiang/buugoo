@@ -110,3 +110,62 @@ jobs:
           build-args: |
             VERSION=${{ env.TAG }}
             COMMIT=${{ github.sha }}
+
+  sandbox:
+    name: 构建并推送沙箱镜像（buugoo-sandbox）
+    needs: goreleaser
+    runs-on: ubuntu-latest
+    env:
+      ALIYUN_REGISTRY: ${{ secrets.ALIYUN_REGISTRY }}
+      ALIYUN_NAMESPACE: ${{ secrets.ALIYUN_NAMESPACE }}
+      ALIYUN_USERNAME: ${{ secrets.ALIYUN_USERNAME }}
+      ALIYUN_PASSWORD: ${{ secrets.ALIYUN_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: 登录阿里云 ACR（可选）
+        if: env.ALIYUN_REGISTRY != '' && env.ALIYUN_USERNAME != ''
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ALIYUN_REGISTRY }}
+          username: ${{ env.ALIYUN_USERNAME }}
+          password: ${{ env.ALIYUN_PASSWORD }}
+      - name: 生成镜像名
+        id: images
+        run: |
+          images="ghcr.io/hugehardjiang/buugoo-sandbox"
+          if [ -n "$ALIYUN_REGISTRY" ] && [ -n "$ALIYUN_USERNAME" ]; then
+            images="$images
+          ${ALIYUN_REGISTRY}/${ALIYUN_NAMESPACE}/buugoo-sandbox"
+          fi
+          {
+            echo "list<<EOF"
+            echo "$images"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ steps.images.outputs.list }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ env.TAG }}
+            type=raw,value=latest,enable=${{ !contains(env.TAG, '-') }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: deploy/sandbox
+          file: deploy/sandbox/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=sandbox
+          cache-to: type=gha,mode=max,scope=sandbox

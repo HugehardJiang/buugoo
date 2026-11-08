@@ -28,6 +28,7 @@ export interface Meta {
   // any_file：能运行代码时，表格、压缩包等读不出文字的文件也可以上传
   uploads: { max_file_bytes: number; max_files: number; any_file?: boolean } | null
   reminders?: boolean
+  bg_tasks?: boolean
   channels?: boolean
   // billing 为 true 时有会员系统（多用户版）。
   billing?: boolean
@@ -437,6 +438,34 @@ export interface Plan {
   sort?: number
   /** 时长套餐包含 API 接入 */
   api_access?: boolean
+  /** 包含后台任务；后台任务的沙箱可以联网 */
+  task_access?: boolean
+  sandbox_network?: boolean
+}
+
+export type BgTaskStatus = 'pending' | 'queued' | 'running' | 'done' | 'failed' | 'canceled' | 'interrupted'
+
+/** 后台长任务 */
+export interface BgTask {
+  id: number
+  conversation_id: number
+  title: string
+  goal: string
+  status: BgTaskStatus
+  budget_tokens: number
+  used_tokens: number
+  rounds: number
+  network: boolean
+  result: string
+  message_id: number | null
+  error?: string
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+  /** 详情里才有 */
+  steps?: ToolEvent[]
+  /** 排队时前面还有几个 */
+  position?: number
 }
 
 /** 管理员发布的强制弹窗通知 */
@@ -804,6 +833,11 @@ export const api = {
     request<{ characters: CharacterCandidate[]; max_runes: number }>('POST', '/characters/parse', { text, filename }),
   /** 打开网址，解析出里面的角色卡（不保存） */
   fetchCharacters: (url: string) => request<{ characters: CharacterCandidate[]; max_runes: number }>('POST', '/characters/fetch', { url }),
+  bgTasks: () => request<{ allowed: boolean; tasks: BgTask[]; default_budget: number; max_budget: number }>('GET', '/bg-tasks'),
+  bgTask: (id: number) => request<BgTask>('GET', `/bg-tasks/${id}`),
+  confirmBgTask: (id: number, budget = 0) => request<BgTask>('POST', `/bg-tasks/${id}/confirm`, { budget }),
+  cancelBgTask: (id: number) => request<BgTask>('POST', `/bg-tasks/${id}/cancel`),
+  resumeBgTask: (id: number) => request<BgTask>('POST', `/bg-tasks/${id}/resume`),
   pendingNotices: () => request<{ notices: Notice[] }>('GET', '/notices/pending'),
   readNotice: (id: number) => request<void>('POST', `/notices/${id}/read`),
   notices: () => request<{ notices: Notice[] }>('GET', '/notices'),

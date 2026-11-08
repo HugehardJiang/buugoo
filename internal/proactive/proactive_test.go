@@ -373,3 +373,30 @@ func TestNudgeTodos(t *testing.T) {
 		t.Fatal("不问的也要记下，免得每轮都查")
 	}
 }
+
+func TestCareObserve(t *testing.T) {
+	ctx := context.Background()
+	db := newDB(t)
+	u, _ := db.Users().EnsureOwner(ctx)
+	conv, _ := db.Conversations().Primary(ctx, u.ID)
+	talked := time.Date(2026, 10, 23, 18, 0, 0, 0, shanghai)
+	_ = db.Messages().Create(ctx, &store.Message{ConversationID: conv.ID, UserID: u.ID, Role: store.RoleUser, Content: "周三面试", Status: store.MessageComplete, CreatedAt: talked})
+	util := &fakeUtil{reply: `{"reach_out": true, "reason": "想问问面试结果"}`}
+	sp := &fakeSpeaker{}
+	cfg := config.Default().Proactive
+	cfg.CareMode = config.CareObserve
+	e := New(Deps{Store: db, Speaker: sp, Utility: util, Config: cfg, Location: shanghai})
+	e.now = func() time.Time { return time.Date(2026, 10, 25, 10, 0, 0, 0, shanghai) }
+	e.Care(ctx)
+	// 只观察：照常判断，但不发出去，记下本来会发什么。
+	if util.reqs != 1 || len(sp.reasons) != 0 {
+		t.Fatalf("reqs=%d 发了=%v", util.reqs, sp.reasons)
+	}
+	obs := Observed(ctx, db.Meta())
+	if len(obs) != 1 || obs[0].UserID != u.ID || obs[0].Reason != "想问问面试结果" {
+		t.Fatalf("%+v", obs)
+	}
+	if got, _ := db.Users().GetByID(ctx, u.ID); got.LastProactiveAt != nil {
+		t.Fatal("只观察不算主动发过")
+	}
+}

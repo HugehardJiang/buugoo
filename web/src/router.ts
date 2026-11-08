@@ -10,6 +10,7 @@ export const router = createRouter({
     { path: '/memos', name: 'memos', component: () => import('./views/MemosView.vue') },
     { path: '/files', name: 'files', component: () => import('./views/FilesView.vue') },
     { path: '/tasks', name: 'tasks', component: () => import('./views/TasksView.vue') },
+    { path: '/bgtasks', name: 'bgtasks', component: () => import('./views/BgTasksView.vue') },
     { path: '/channels', name: 'channels', component: () => import('./views/ChannelsView.vue') },
     { path: '/profile', name: 'profile', component: () => import('./views/ProfileView.vue') },
     { path: '/settings', name: 'settings', component: () => import('./views/SettingsView.vue') },

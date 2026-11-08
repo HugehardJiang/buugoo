@@ -365,6 +365,9 @@ type PlanInput struct {
 	Sort    int    `json:"sort"`
 	// APIAccess 表示时长套餐包含 API 接入。
 	APIAccess bool `json:"api_access"`
+	// TaskAccess 表示包含后台任务；SandboxNetwork 表示后台任务的沙箱可以联网。
+	TaskAccess     bool `json:"task_access"`
+	SandboxNetwork bool `json:"sandbox_network"`
 }
 
 func (in *PlanInput) validate() error {
@@ -397,7 +400,7 @@ func (in *PlanInput) validate() error {
 			return userErr("充值金额要大于 0，最多 100 万元")
 		}
 		in.Days, in.Cycle, in.QuotaMessages, in.QuotaTokens, in.QuotaSearches = 0, "", 0, 0, 0
-		in.APIAccess = false
+		in.APIAccess, in.TaskAccess, in.SandboxNetwork = false, false, false
 	case store.PlanPack:
 		return userErr("余额包已经停用，请改用「充值」套餐")
 	default:
@@ -416,6 +419,7 @@ func (in *PlanInput) apply(p *store.Plan) {
 	p.Name, p.Description, p.Price, p.Kind = in.Name, in.Description, in.Price, in.Kind
 	p.Days, p.Cycle, p.QuotaMessages, p.QuotaTokens, p.QuotaSearches = in.Days, in.Cycle, in.QuotaMessages, in.QuotaTokens, in.QuotaSearches
 	p.Amount, p.BuyURL, p.Visible, p.Sort, p.APIAccess = in.Amount, in.BuyURL, in.Visible, in.Sort, in.APIAccess
+	p.TaskAccess, p.SandboxNetwork = in.TaskAccess, in.SandboxNetwork
 	p.Unit, p.Quota, p.ValidDays = "", 0, 0
 }
 
@@ -515,7 +519,7 @@ func (s *Service) Entitlement(ctx context.Context, userID uint64) (quota.Entitle
 	case err == nil:
 		ent.Active, ent.PlanName, ent.Cycle, ent.ExpiresAt = true, sub.PlanName, sub.Cycle, sub.ExpiresAt
 		ent.QuotaMessages, ent.QuotaTokens, ent.QuotaSearches = sub.QuotaMessages, sub.QuotaTokens, sub.QuotaSearches
-		ent.APIAccess = sub.APIAccess
+		ent.APIAccess, ent.TaskAccess, ent.SandboxNetwork = sub.APIAccess, sub.TaskAccess, sub.SandboxNetwork
 	case !errors.Is(err, gorm.ErrRecordNotFound):
 		return ent, err
 	}
@@ -546,7 +550,7 @@ func (s *Service) grant(tx *gorm.DB, userID uint64, p *store.Plan) (string, erro
 	}
 	sub.PlanID, sub.PlanName, sub.Cycle = p.ID, p.Name, p.Cycle
 	sub.QuotaMessages, sub.QuotaTokens, sub.QuotaSearches = p.QuotaMessages, p.QuotaTokens, p.QuotaSearches
-	sub.APIAccess = p.APIAccess
+	sub.APIAccess, sub.TaskAccess, sub.SandboxNetwork = p.APIAccess, p.TaskAccess, p.SandboxNetwork
 	sub.Unit, sub.Quota = "", 0
 	sub.ExpiresAt = sub.ExpiresAt.AddDate(0, 0, p.Days)
 	if err := tx.Save(&sub).Error; err != nil {

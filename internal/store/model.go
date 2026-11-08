@@ -560,6 +560,43 @@ type CharacterRevision struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+// 后台任务的状态。
+const (
+	TaskPending     = "pending"     // 等对方确认
+	TaskQueued      = "queued"      // 排队等着跑
+	TaskRunning     = "running"     // 正在跑
+	TaskDone        = "done"        // 做完了
+	TaskFailed      = "failed"      // 出错了
+	TaskCanceled    = "canceled"    // 取消了（确认前放弃也算）
+	TaskInterrupted = "interrupted" // 服务器重启打断了，可以接着做
+)
+
+// BgTask 是一个后台长任务：聊天里的模型判断要做的事比较大时提出，对方确认后在后台用更多轮工具慢慢做，
+// 做完把结果发回原来的对话。Steps 是工具步骤（JSON），Transcript 是工作过程（JSON，中断后接着做用），Result 是最后的报告。
+type BgTask struct {
+	ID             uint64  `gorm:"primaryKey" json:"id"`
+	UserID         uint64  `gorm:"index:idx_bgtask_user,priority:1;not null" json:"-"`
+	ConversationID uint64  `gorm:"not null;default:0" json:"conversation_id"`
+	Title          string  `gorm:"size:120;not null;default:''" json:"title"`
+	Goal           string  `gorm:"type:text" json:"goal"`
+	Status         string  `gorm:"size:16;index;not null" json:"status"`
+	BudgetTokens   int64   `gorm:"not null;default:0" json:"budget_tokens"`
+	UsedTokens     int64   `gorm:"not null;default:0" json:"used_tokens"`
+	Rounds         int     `gorm:"not null;default:0" json:"rounds"`
+	ModelID        *uint64 `json:"model_id"`
+	// Network 是这个任务的沙箱能不能联网（确认时按套餐定）。
+	Network    bool       `gorm:"not null;default:false" json:"network"`
+	Steps      string     `gorm:"type:mediumtext" json:"-"`
+	Transcript string     `gorm:"type:mediumtext" json:"-"`
+	Result     string     `gorm:"type:mediumtext" json:"result"`
+	MessageID  *uint64    `json:"message_id"`
+	Error      string     `gorm:"size:500;not null;default:''" json:"error,omitempty"`
+	CreatedAt  time.Time  `gorm:"index:idx_bgtask_user,priority:2" json:"created_at"`
+	StartedAt  *time.Time `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+}
+
 // Notice 是管理员发布的通知：用户打开网页时强制弹出，至少看 Seconds 秒才能关，关了就不再弹。
 type Notice struct {
 	ID        uint64    `gorm:"primaryKey" json:"id"`
@@ -660,10 +697,13 @@ type Plan struct {
 	BuyURL    string `gorm:"size:512;not null;default:''"`
 	// APIAccess 表示开通这个套餐后可以用 API 接入（OpenAI / Anthropic 格式的接口）。
 	APIAccess bool `gorm:"not null;default:false"`
-	Visible   bool `gorm:"not null;default:true"`
-	Sort      int  `gorm:"not null;default:0"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	// TaskAccess 表示包含后台长任务；SandboxNetwork 表示后台任务里运行代码的沙箱可以联网。
+	TaskAccess     bool `gorm:"not null;default:false"`
+	SandboxNetwork bool `gorm:"not null;default:false"`
+	Visible        bool `gorm:"not null;default:true"`
+	Sort           int  `gorm:"not null;default:0"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // Subscription 是用户开通的时长套餐（记下开通时的额度，之后改套餐不影响已开通的）。
@@ -680,10 +720,13 @@ type Subscription struct {
 	QuotaTokens   int64 `gorm:"not null;default:0" json:"quota_tokens"`
 	QuotaSearches int64 `gorm:"not null;default:0" json:"quota_searches"`
 	// APIAccess 是开通时套餐是否包含 API 接入。
-	APIAccess bool      `gorm:"not null;default:false" json:"api_access"`
-	ExpiresAt time.Time `json:"expires_at"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"-"`
+	APIAccess bool `gorm:"not null;default:false" json:"api_access"`
+	// TaskAccess、SandboxNetwork 是开通时套餐是否包含后台任务、后台任务的沙箱能否联网。
+	TaskAccess     bool      `gorm:"not null;default:false" json:"task_access"`
+	SandboxNetwork bool      `gorm:"not null;default:false" json:"sandbox_network"`
+	ExpiresAt      time.Time `json:"expires_at"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"-"`
 }
 
 // CreditPack 是用户的一笔余额（余额包），用完或过期为止。

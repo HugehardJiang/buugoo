@@ -186,14 +186,15 @@ func TestLibraryInstallValidation(t *testing.T) {
 func TestInstallTool(t *testing.T) {
 	set := New(Options{Python: fakeRunner{}, Packages: []string{"numpy"}, Installer: fakeInstaller{}})
 	defs := set.Defs()
-	if len(defs) != 2 || !strings.Contains(defs[0].Description, "numpy") || !strings.Contains(defs[0].Description, "install_package") {
+	// run_python、run_shell（沙箱里才有）、install_package。
+	if len(defs) != 3 || defs[1].Name != NameShell || !strings.Contains(defs[0].Description, "numpy") || !strings.Contains(defs[0].Description, "install_package") {
 		t.Fatalf("defs=%+v", defs)
 	}
 	r := set.Run(context.Background(), llm.ToolCall{Name: NameInstall, Arguments: `{"packages":["networkx"]}`})
 	if !r.OK || r.Input != "networkx" || !strings.Contains(r.Output, "安装完成") {
 		t.Fatalf("%+v", r)
 	}
-	if len(New(Options{Python: fakeRunner{}}).Defs()) != 1 {
+	if len(New(Options{Python: fakeRunner{}}).Defs()) != 2 { // run_python、run_shell
 		t.Fatal("没有 Installer 时不应提供安装工具")
 	}
 }

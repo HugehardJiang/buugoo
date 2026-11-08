@@ -53,8 +53,10 @@ type RunEnv struct {
 	WorkspaceMax int
 	// Skills 是已安装的 skill 所在目录，只读挂载（沙箱中在 /skills，路径写在环境变量 BUUGOO_SKILLS）。
 	Skills string
-	// Network 为 true 时沙箱可以联网（只给允许联网的 skill 脚本用）。
+	// Network 为 true 时沙箱可以联网（允许联网的 skill 脚本，或者套餐允许联网的后台任务）。
 	Network bool
+	// Heavy 为 true 时用后台任务的资源档（时间更长、内存和 CPU 更多）。
+	Heavy bool
 }
 
 // Runner 运行 Python 代码。
@@ -64,7 +66,34 @@ type Runner interface {
 	Sandboxed() bool
 }
 
-func pythonHandler(r Runner, ws Workspace) handler {
+// shellHandler 在沙箱里执行一条 bash 命令：包成一段调用 subprocess 的 Python 代码，
+// 这样和 run_python 共用同一套运行环境（工作目录、input/、资源限制、断网）。
+func shellHandler(r Runner, ws Workspace, setup func(*RunEnv)) handler {
+	return func(ctx context.Context, args json.RawMessage) Result {
+		var in struct {
+			Command string `json:"command"`
+		}
+		_ = json.Unmarshal(args, &in)
+		cmd := strings.TrimSpace(in.Command)
+		if cmd == "" {
+			return Result{Output: "命令为空", Summary: "命令为空"}
+		}
+		if len(cmd) > maxCodeBytes {
+			return Result{Output: "命令太长", Summary: "命令太长"}
+		}
+		quoted, _ := json.Marshal(cmd)
+		code := "import subprocess, sys\n" +
+			"r = subprocess.run(['bash', '-c', " + string(quoted) + "], stdout=subprocess.PIPE, stderr=subprocess.PIPE)\n" +
+			"sys.stdout.write(r.stdout.decode('utf-8', 'replace'))\n" +
+			"sys.stderr.write(r.stderr.decode('utf-8', 'replace'))\n" +
+			"sys.exit(r.returncode)\n"
+		res := RunCode(ctx, r, ws, code, setup)
+		res.Input = cmd
+		return res
+	}
+}
+
+func pythonHandler(r Runner, ws Workspace, setup func(*RunEnv)) handler {
 	return func(ctx context.Context, args json.RawMessage) Result {
 		var in struct {
 			Code string `json:"code"`
@@ -79,7 +108,7 @@ func pythonHandler(r Runner, ws Workspace) handler {
 			res.Output, res.Summary = "代码太长", "代码太长"
 			return res
 		}
-		return RunCode(ctx, r, ws, in.Code, nil)
+		return RunCode(ctx, r, ws, in.Code, setup)
 	}
 }
 
@@ -197,8 +226,16 @@ type Docker struct {
 	bin, image string
 	timeout    time.Duration
 	memoryMB   int
-	lib        *Library
-	log        *slog.Logger
+	// 后台任务的资源档。
+	taskTimeout  time.Duration
+	taskMemoryMB int
+	taskCPUs     float64
+	// runtime 是容器运行时（例如 gVisor 的 runsc），为空用默认的。
+	runtime string
+	// slots 限制同时运行的容器数（所有用户一起算），为空表示不限。
+	slots chan struct{}
+	lib   *Library
+	log   *slog.Logger
 
 	mu        sync.Mutex
 	checkedAt time.Time
@@ -211,7 +248,22 @@ func NewDocker(c config.PythonConfig, log *slog.Logger) *Docker {
 		log = slog.Default()
 	}
 	log = log.With("component", "python")
-	return &Docker{bin: c.Docker, image: c.Image, timeout: c.Timeout, memoryMB: c.MemoryMB, lib: newLibrary(c, log), log: log}
+	d := &Docker{bin: c.Docker, image: c.Image, timeout: c.Timeout, memoryMB: c.MemoryMB,
+		taskTimeout: c.TaskTimeout, taskMemoryMB: c.TaskMemoryMB, taskCPUs: c.TaskCPUs, runtime: strings.TrimSpace(c.Runtime),
+		lib: newLibrary(c, log), log: log}
+	if c.MaxConcurrent > 0 {
+		d.slots = make(chan struct{}, c.MaxConcurrent)
+	}
+	if d.taskTimeout <= 0 {
+		d.taskTimeout = d.timeout
+	}
+	if d.taskMemoryMB <= 0 {
+		d.taskMemoryMB = d.memoryMB
+	}
+	if d.taskCPUs <= 0 {
+		d.taskCPUs = 1
+	}
+	return d
 }
 
 // Library 返回第三方库目录。
@@ -321,12 +373,30 @@ func (d *Docker) Run(ctx context.Context, code string, env RunEnv) (ExecResult, 
 	var rnd [6]byte
 	_, _ = rand.Read(rnd[:])
 	name := "buugoo-py-" + hex.EncodeToString(rnd[:])
-	mem := strconv.Itoa(d.memoryMB) + "m"
-	args := []string{"run", "--rm", "-i", "--name", name,
-		"--network", network(env), "--read-only", "--tmpfs", "/tmp:rw,size=64m,mode=1777",
-		"--memory", mem, "--memory-swap", mem, "--cpus", "1", "--pids-limit", "64",
+	// 同时运行的容器太多时排队（等待的时间不算在运行时间里）。
+	if d.slots != nil {
+		select {
+		case d.slots <- struct{}{}:
+			defer func() { <-d.slots }()
+		case <-ctx.Done():
+			return ExecResult{}, ctx.Err()
+		}
+	}
+	// 聊天里的资源小一些、快一些；后台任务的宽松一些（LibreOffice 这类程序要开很多进程、用很多内存）。
+	timeout, memMB, cpus, pids, tmp := d.timeout, d.memoryMB, 1.0, 64, 64
+	if env.Heavy {
+		timeout, memMB, cpus, pids, tmp = d.taskTimeout, d.taskMemoryMB, d.taskCPUs, 256, 512
+	}
+	mem := strconv.Itoa(memMB) + "m"
+	args := []string{"run", "--rm", "-i", "--name", name}
+	if d.runtime != "" {
+		args = append(args, "--runtime", d.runtime)
+	}
+	args = append(args,
+		"--network", network(env), "--read-only", "--tmpfs", fmt.Sprintf("/tmp:rw,size=%dm,mode=1777", tmp),
+		"--memory", mem, "--memory-swap", mem, "--cpus", strconv.FormatFloat(cpus, 'f', -1, 64), "--pids-limit", strconv.Itoa(pids),
 		"--user", "65534:65534", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-		"-e", "HOME=/tmp", "-e", "PYTHONIOENCODING=utf-8"}
+		"-e", "HOME=/tmp", "-e", "PYTHONIOENCODING=utf-8")
 	args = append(args, threadEnv("-e")...)
 	// 工作目录是有大小上限的内存盘：上次保存的文件只读挂载进来复制一份，结束后有变化再打包交回，
 	// 代码无法直接写服务器的磁盘。
@@ -354,7 +424,7 @@ func (d *Docker) Run(ctx context.Context, code string, env RunEnv) (ExecResult, 
 			"-e", "BUUGOO_MPL_CACHE="+containerLib+"/"+mplCacheDir)
 	}
 	args = append(args, d.image, "python3", "-u", "-")
-	runCtx, cancel := context.WithTimeout(ctx, d.timeout)
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, d.bin, args...)
 	script, boundary := wrapCode(code)
@@ -399,7 +469,10 @@ type Local struct {
 	python   string
 	timeout  time.Duration
 	memoryMB int
-	lib      *Library
+	// 后台任务的时间和内存。
+	taskTimeout  time.Duration
+	taskMemoryMB int
+	lib          *Library
 }
 
 // NewLocal 创建本机运行器。
@@ -407,7 +480,15 @@ func NewLocal(c config.PythonConfig, log *slog.Logger) *Local {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Local{python: c.Python, timeout: c.Timeout, memoryMB: c.MemoryMB, lib: newLibrary(c, log.With("component", "python"))}
+	l := &Local{python: c.Python, timeout: c.Timeout, memoryMB: c.MemoryMB, taskTimeout: c.TaskTimeout, taskMemoryMB: c.TaskMemoryMB,
+		lib: newLibrary(c, log.With("component", "python"))}
+	if l.taskTimeout <= 0 {
+		l.taskTimeout = l.timeout
+	}
+	if l.taskMemoryMB <= 0 {
+		l.taskMemoryMB = l.memoryMB
+	}
+	return l
 }
 
 // Library 返回第三方库目录。
@@ -468,7 +549,11 @@ func (l *Local) Run(ctx context.Context, code string, env RunEnv) (ExecResult, e
 			defer os.Remove(link)
 		}
 	}
-	runCtx, cancel := context.WithTimeout(ctx, l.timeout)
+	timeout, memMB := l.timeout, l.memoryMB
+	if env.Heavy {
+		timeout, memMB = l.taskTimeout, l.taskMemoryMB
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var cmd *exec.Cmd
 	// 不用 -I：需要通过 PYTHONUSERBASE 找到库目录；环境变量已经清空，只保留必要的几项。
@@ -477,7 +562,7 @@ func (l *Local) Run(ctx context.Context, code string, env RunEnv) (ExecResult, e
 	} else {
 		// 用 shell 的 ulimit 限制虚拟内存与 CPU 时间，再 exec 解释器。
 		limits := fmt.Sprintf("ulimit -v %d 2>/dev/null; ulimit -t %d 2>/dev/null; exec \"$0\" -u -",
-			l.memoryMB*1024, int(l.timeout.Seconds())+1)
+			memMB*1024, int(timeout.Seconds())+1)
 		cmd = exec.CommandContext(runCtx, "/bin/sh", "-c", limits, l.python)
 	}
 	cmd.Dir = wd

@@ -83,6 +83,13 @@ var meta = map[string]struct {
 
 	"chat.summarize":           {"长对话压缩", "上下文快用满时，较早的消息由辅助模型整理成摘要，聊久了也记得前面说过什么；关掉后放不下的旧消息直接丢掉", nil},
 	"chat.compact_at":          {"自动压缩阈值", "一轮用掉的上下文超过模型上下文长度的这个比例时，这条回复照常发出，下一条消息处理前先压缩（30-95）", nil},
+	"tasks.enabled":            {"后台任务", "聊天里遇到比较大的事（调研、批量处理文件、写报告），布谷会问对方要不要放到后台慢慢做；套餐里勾了「包含后台任务」的用户和管理员能用", nil},
+	"tasks.default_budget":     {"默认预算", "每个任务默认最多用多少 token（对方确认时可以调低），用完就停下交出已经做完的部分", nil},
+	"tasks.max_budget":         {"预算上限", "对方确认时最多能设多少 token", nil},
+	"tasks.max_rounds":         {"最多调用几轮工具", "一个任务最多调用几轮工具（1-500）", nil},
+	"tasks.max_duration":       {"最长运行时间", "一个任务最多跑多久，例如 30m、1h", nil},
+	"tasks.max_running":        {"同时运行的任务数", "所有用户一起算，多的排队", nil},
+	"tasks.per_user":           {"每人同时运行的任务数", "多的排队", nil},
 	"chat.character_max_runes": {"角色卡长度上限", "Cosplay 角色卡最多多少字。每轮聊天都会把整张卡发给模型（有缓存命中价），卡越长越费钱（1000-200000）", nil},
 	"chat.keep_recent":         {"压缩后保留原文", "压缩时最近的消息原样保留，大约占上下文长度的这个比例，更早的整理进摘要（5 到自动压缩阈值之间）", nil},
 
@@ -127,6 +134,7 @@ var meta = map[string]struct {
 
 	"proactive.reminders":      {"提醒与定时任务", "布谷可以帮用户设提醒和定时任务，到时间主动发消息、或者去做一件事再把结果发过来", nil},
 	"proactive.care":           {"主动关心", "很久没聊、之前提到的事可能有结果时，布谷会主动找用户聊（每个用户可以在设置里关掉）", nil},
+	"proactive.care_mode":      {"主动关心的方式", "auto：真的发；observe：只观察，照常判断但不发出去，把「本来会发什么」记在「管理后台 → 主动关心记录」里，看着合适再改成 auto", []string{"auto", "observe"}},
 	"proactive.quiet_start":    {"免打扰开始", "本地时间 HH:MM，这段时间不主动关心；提醒照常", nil},
 	"proactive.quiet_end":      {"免打扰结束", "本地时间 HH:MM", nil},
 	"proactive.idle_hours":     {"多久没聊后才主动（小时）", "", nil},
@@ -140,7 +148,12 @@ var meta = map[string]struct {
 	"tools.search.direct_fetch":     {"直接读取网页", "搜索服务不能读网页时（如博查），由服务器直接下载网页正文（只能访问公网地址）", nil},
 
 	"tools.python.runner":          {"运行方式", "docker：一次性沙箱容器（所有用户可用）；local：本机 Python（multi 模式仅管理员）；off：关闭", []string{"docker", "local", "off"}},
-	"tools.python.image":           {"Docker 镜像", "", nil},
+	"tools.python.image":           {"Docker 镜像", "默认 python:3.12-slim（小，只有 Python）；填 ghcr.io/hugehardjiang/buugoo-sandbox:latest 用布谷的完整沙箱（约 1.5GB，带 LibreOffice、pandoc、ffmpeg、ImageMagick、Node.js、中文字体和常用 Office / PDF 库）", nil},
+	"tools.python.task_timeout":    {"后台任务单次运行时间上限", "后台任务里运行代码、执行命令每次最多多久（聊天里用上面的「单次运行时间上限」）", nil},
+	"tools.python.task_memory_mb":  {"后台任务单次运行内存上限（MB）", "", nil},
+	"tools.python.task_cpus":       {"后台任务单次运行 CPU 核数", "可以是小数，例如 1.5", nil},
+	"tools.python.max_concurrent":  {"同时运行的沙箱数上限", "所有用户一起算，超过的排队等；0 表示不限。服务器内存小时调低", nil},
+	"tools.python.runtime":         {"容器运行时", "留空用 Docker 默认的；服务器装了 gVisor 时填 runsc，沙箱和服务器隔离得更彻底（适合对外开放的站点）", nil},
 	"tools.python.docker":          {"docker 命令", "", nil},
 	"tools.python.python":          {"Python 解释器", "local 方式使用", nil},
 	"tools.python.timeout":         {"单次运行时间上限", "", nil},

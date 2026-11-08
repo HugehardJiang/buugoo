@@ -20,6 +20,7 @@ import {
   type UsedMemory,
   type CharacterCard,
   type CharacterMemory,
+  type ToolEvent,
 } from '../api'
 import Icon from '../Icon.vue'
 import AttachmentList from '../components/AttachmentList.vue'
@@ -27,6 +28,7 @@ import Modal from '../components/Modal.vue'
 import ContextMeter from '../components/ContextMeter.vue'
 import FatBird from '../components/FatBird.vue'
 import ToolSteps from '../components/ToolSteps.vue'
+import TaskCard from '../components/TaskCard.vue'
 import ThinkingSlider from '../components/ThinkingSlider.vue'
 import ModelIcon from '../components/ModelIcon.vue'
 import CosplayPicker from '../components/CosplayPicker.vue'
@@ -218,6 +220,21 @@ function onScroll() {
   showJump.value = !nearBottom()
 }
 
+// taskIds 从工具记录里找出布谷提出的后台任务（start_task 的 detail 里带着任务编号），显示确认卡片。
+function taskIds(tools?: ToolEvent[]): number[] {
+  const out: number[] = []
+  for (const t of tools ?? []) {
+    if (t.name !== 'start_task' || t.status !== 'done' || !t.detail) continue
+    try {
+      const id = Number(JSON.parse(t.detail).task_id)
+      if (id > 0 && !out.includes(id)) out.push(id)
+    } catch {
+      /* 不是任务 */
+    }
+  }
+  return out
+}
+
 function uid(it: Item) {
   return it.key ?? it.id
 }
@@ -270,6 +287,21 @@ async function openConversation(id: number) {
     await scrollToBottom(true)
   } catch (e) {
     loadError.value = errText(e, '加载失败')
+  }
+}
+
+// 后台任务做完时结果消息是服务器直接写进对话的：没在生成回复时重新读一下最近的消息。
+async function refreshMessages() {
+  const id = currentId.value
+  if (!id || id === DRAFT || items.value.some((it) => it.streaming)) return
+  try {
+    const r = await api.messages(id, 0, 50)
+    if (currentId.value !== id || items.value.some((it) => it.streaming)) return
+    items.value = r.messages
+    hasMore.value = r.has_more
+    await scrollToBottom(true)
+  } catch {
+    /* 下次打开再看 */
   }
 }
 
@@ -1171,6 +1203,7 @@ onBeforeUnmount(() => {
                 </Collapse>
               </div>
               <ToolSteps v-if="row.item.tools?.length" :steps="row.item.tools" />
+              <TaskCard v-for="tid in taskIds(row.item.tools)" :key="tid" :task-id="tid" @finished="refreshMessages" />
               <AttachmentList v-if="row.item.attachments?.length" :items="row.item.attachments" align="end" />
               <div v-if="row.item.role === 'assistant'" class="bubbles">
                 <div

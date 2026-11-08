@@ -606,6 +606,29 @@ type turn struct {
 	silent bool
 	// userText 是对方这一条消息的原文（不含附上的〔此刻〕信息）。
 	userText string
+
+	// 以下给后台任务用：maxRounds 是最多调用几轮工具（0 用 maxToolRounds）；budget 是 token 预算（0 表示不限），
+	// 用完或轮数到了时追加 wrapUp 这句话，让模型不再调用工具、直接交出结果；onRound 在每轮工具结果交回后调用。
+	maxRounds int
+	budget    int
+	wrapUp    string
+	wrapped   bool
+	onRound   func(t *turn)
+	// replyFor 返回保存工具生成的图片和文件要挂到哪条消息（后台任务在需要时才建这条消息）。
+	replyFor func() (uint64, error)
+	// deadline 不为零时，过了这个时间就不再调用工具（后台任务留时间收尾）。
+	deadline time.Time
+	// final 是最后一轮（没有再调用工具的那一轮）的正文：后台任务的结果。
+	final string
+}
+
+// limitReached 报告是不是该停止调用工具了（轮数到了，或者预算用完了）。
+func (t *turn) limitReached() bool {
+	limit := t.maxRounds
+	if limit <= 0 {
+		limit = maxToolRounds
+	}
+	return t.rounds >= limit || (t.budget > 0 && t.usage.Total() >= t.budget) || (!t.deadline.IsZero() && time.Now().After(t.deadline))
 }
 
 // reminderNudge 是模型答应了提醒却没调用工具时补发给它的话。
@@ -643,8 +666,12 @@ func (t *turn) forgotReminder() bool {
 func (t *turn) run(start func() error) error {
 	for {
 		defs := t.tools.Defs()
-		if t.rounds >= maxToolRounds {
-			defs = nil // 工具调用轮数已到上限，要求模型直接回答
+		if t.limitReached() {
+			defs = nil // 工具调用轮数已到上限（或预算用完），要求模型直接回答
+			if t.wrapUp != "" && !t.wrapped {
+				t.wrapped = true
+				t.msgs = append(t.msgs, llm.Message{Role: llm.RoleUser, Content: t.wrapUp})
+			}
 		}
 		// 先打开模型的流式连接再开始推送：模型不可用时，调用方仍可返回普通错误响应。
 		stream, err := t.model.Chat.ChatStream(t.ctx, llm.ChatRequest{Messages: t.msgs, Thinking: t.thinking, Tools: defs})
@@ -664,6 +691,10 @@ func (t *turn) run(start func() error) error {
 		if err != nil {
 			return err
 		}
+		// 没给工具（轮数或预算到了）模型还是要调用：不执行，免得超出上限。
+		if defs == nil {
+			calls = nil
+		}
 		// DeepSeek 偶尔把工具调用写成 DSML 标记混在正文里（没有推送给用户）：去掉，并当成真正的工具调用来执行。
 		if clean, dsml, found := llm.ExtractDSML(roundText); found {
 			roundText = clean
@@ -671,7 +702,7 @@ func (t *turn) run(start func() error) error {
 			kept := strings.TrimRight(t.text.String(), " \t\n")
 			t.text.Reset()
 			t.text.WriteString(kept)
-			if len(calls) == 0 && t.rounds < maxToolRounds {
+			if len(calls) == 0 && !t.limitReached() {
 				for i := range dsml {
 					dsml[i].ID = fmt.Sprintf("dsml_%d_%d", t.rounds, i)
 				}
@@ -689,6 +720,7 @@ func (t *turn) run(start func() error) error {
 					llm.Message{Role: llm.RoleUser, Content: reminderNudge})
 				continue
 			}
+			t.final = roundText
 			return nil
 		}
 		t.msgs = append(t.msgs, llm.Message{Role: llm.RoleAssistant, Content: roundText, Reasoning: roundReasoning, ToolCalls: calls})
@@ -698,6 +730,9 @@ func (t *turn) run(start func() error) error {
 				return err
 			}
 			t.msgs = append(t.msgs, llm.Message{Role: llm.RoleTool, ToolCallID: call.ID, Content: out})
+		}
+		if t.onRound != nil {
+			t.onRound(t)
 		}
 	}
 }
@@ -757,12 +792,28 @@ func (t *turn) runTool(call llm.ToolCall) (string, error) {
 	return res.Output, nil
 }
 
+// ensureReply 确保有一条消息可以挂工具生成的图片和文件（后台任务在第一次需要时才建）。
+func (t *turn) ensureReply() error {
+	if t.replyID != 0 || t.replyFor == nil {
+		return nil
+	}
+	id, err := t.replyFor()
+	if err != nil {
+		return err
+	}
+	t.replyID = id
+	return nil
+}
+
 // saveImages 把工具生成的图片保存为回复的附件。保存失败的图片不显示，并返回告诉模型的说明。
 func (t *turn) saveImages(images []tools.Image) ([]ToolImage, string) {
 	if t.s.uploads == nil {
 		return nil, "（当前不支持保存图片，图片没有显示给用户）"
 	}
 	bg := context.WithoutCancel(t.ctx)
+	if err := t.ensureReply(); err != nil {
+		return nil, "（保存图片失败：" + err.Error() + "）"
+	}
 	var out []ToolImage
 	var failed []string
 	for _, img := range images {
@@ -791,6 +842,9 @@ func (t *turn) saveFiles(files []tools.Image) ([]ToolImage, string) {
 		return nil, "（当前不支持发送文件，文件没有发给用户）"
 	}
 	bg := context.WithoutCancel(t.ctx)
+	if err := t.ensureReply(); err != nil {
+		return nil, "（保存文件失败：" + err.Error() + "）"
+	}
 	var out []ToolImage
 	var failed []string
 	for _, f := range files {
@@ -818,7 +872,7 @@ func toolInput(call llm.ToolCall) string {
 	if json.Unmarshal([]byte(call.Arguments), &m) != nil {
 		return ""
 	}
-	for _, k := range []string{"query", "url", "code"} {
+	for _, k := range []string{"query", "url", "code", "command"} {
 		if v, ok := m[k].(string); ok {
 			return v
 		}

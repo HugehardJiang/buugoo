@@ -492,7 +492,7 @@ func TestToolLoop(t *testing.T) {
 		tool.Role != llm.RoleTool || tool.ToolCallID != "c1" || !strings.Contains(tool.Content, "1234567") {
 		t.Fatalf("messages=%+v", req.Messages[n-2:])
 	}
-	if len(req.Tools) != 1 || req.Tools[0].Name != "run_python" || !strings.Contains(req.Messages[0].Content, "run_python") {
+	if len(req.Tools) != 2 || req.Tools[0].Name != "run_python" || req.Tools[1].Name != "run_shell" || !strings.Contains(req.Messages[0].Content, "run_python") {
 		t.Fatal("应提供工具并在系统提示词中说明")
 	}
 	// 工具记录随回复保存。

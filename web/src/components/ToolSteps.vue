@@ -20,6 +20,7 @@ function icon(name: string) {
   if (name === 'web_fetch') return 'globe' as const
   if (name === 'install_package') return 'download' as const
   if (name === 'send_file') return 'file' as const
+  if (name === 'start_task') return 'grid' as const
   if (['set_reminder', 'schedule_task', 'list_reminders', 'cancel_reminder'].includes(name)) return 'clock' as const
   if (name === 'use_skill' || name === 'read_skill_file') return 'book' as const
   if (name.startsWith('mcp_')) return 'link' as const
@@ -29,7 +30,7 @@ function icon(name: string) {
 
 // 搜索词与网址直接显示在标题里；代码太长，放进详情。
 function inlineInput(ev: ToolEvent) {
-  if (!ev.input || ev.name === 'run_python') return ''
+  if (!ev.input || ev.name === 'run_python' || ev.name === 'run_shell') return ''
   return ev.input
 }
 </script>
@@ -49,9 +50,9 @@ function inlineInput(ev: ToolEvent) {
       </button>
       <Collapse :open="open.has(ev.id)">
         <div class="step__body">
-          <pre v-if="ev.name === 'run_python' && ev.input" class="step__code">{{ ev.input }}</pre>
+          <pre v-if="(ev.name === 'run_python' || ev.name === 'run_shell') && ev.input" class="step__code">{{ ev.input }}</pre>
           <pre v-if="ev.detail" class="step__detail">{{ ev.detail }}</pre>
-          <p v-if="!ev.detail && ev.name !== 'run_python'" class="caption">{{ ev.input }}</p>
+          <p v-if="!ev.detail && ev.name !== 'run_python' && ev.name !== 'run_shell'" class="caption">{{ ev.input }}</p>
         </div>
       </Collapse>
     </li>

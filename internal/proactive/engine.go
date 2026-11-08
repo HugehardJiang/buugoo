@@ -388,6 +388,11 @@ func (e *Engine) careFor(ctx context.Context, u *store.User, now time.Time) {
 	if !ok {
 		return
 	}
+	if e.cfg.CareMode == config.CareObserve {
+		// 只观察：不发出去，只记下来给管理员看。
+		e.observe(ctx, u, reason, now)
+		return
+	}
 	res, err := e.speaker.Proactive(ctx, u, "你想主动找对方聊聊："+reason, true)
 	if errors.Is(err, chat.ErrNothingToSay) {
 		return

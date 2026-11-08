@@ -8,6 +8,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/accounts"
 	"github.com/HugehardJiang/buugoo/internal/agent"
 	"github.com/HugehardJiang/buugoo/internal/apiserve"
+	"github.com/HugehardJiang/buugoo/internal/bgtask"
 	"github.com/HugehardJiang/buugoo/internal/billing"
 	"github.com/HugehardJiang/buugoo/internal/cosplay"
 	"github.com/HugehardJiang/buugoo/internal/dbmove"
@@ -70,6 +71,8 @@ type Deps struct {
 	Characters *cosplay.Service
 	// Notices 为空时不提供强制弹窗通知。
 	Notices *notice.Service
+	// Tasks 为空时不提供后台长任务。
+	Tasks *bgtask.Service
 	// APIKeys、APISettings 为空时不提供 API 接入（/v1/...）。
 	APIKeys     *apiserve.Keys
 	APISettings *apiserve.SettingsStore
@@ -269,6 +272,7 @@ func New(d Deps) http.Handler {
 	s.routeExtensions(e, api, priv, console)
 	s.routeBilling(api, priv, console)
 	s.routeNotices(priv, console)
+	s.routeTasks(priv)
 	s.routeAPI(e, priv, console)
 	if s.Characters != nil {
 		priv.GET("/characters", s.listCharacters)
@@ -363,6 +367,8 @@ func (s *server) meta(c echo.Context) error {
 		"uploads":           s.uploadLimits(),
 		// reminders 为 true 时显示「定时任务」入口（提醒或主动关心至少开了一个）。
 		"reminders": s.Config.Proactive.Reminders || s.Config.Proactive.Care,
+		// bg_tasks 为 true 时显示「后台任务」入口（能不能用还看套餐）。
+		"bg_tasks": s.Config.Tasks.Enabled && s.Tasks != nil,
 		// channels 为 true 时显示「聊天软件」入口。
 		"channels": s.Channels != nil && len(s.Channels.Enabled()) > 0,
 		// home 是多用户版未登录时介绍主页的标题和标语，空字符串表示用内置的。
@@ -463,7 +469,12 @@ func toAPIError(err error) *apiError {
 	var cosErr *cosplay.UserError
 	var noticeErr *notice.UserError
 	var apiErr *apiserve.UserError
+	var taskErr *bgtask.UserError
 	switch {
+	case errors.As(err, &taskErr):
+		return &apiError{Status: http.StatusBadRequest, Code: "invalid_input", Message: taskErr.Msg}
+	case errors.Is(err, bgtask.ErrNotFound):
+		return &apiError{Status: http.StatusNotFound, Code: "not_found", Message: err.Error()}
 	case errors.As(err, &apiErr):
 		return &apiError{Status: http.StatusBadRequest, Code: "invalid_input", Message: apiErr.Msg}
 	case errors.Is(err, apiserve.ErrNotFound):

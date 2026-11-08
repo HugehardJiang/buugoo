@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/HugehardJiang/buugoo/internal/bgtask"
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/cosplay"
 	"github.com/HugehardJiang/buugoo/internal/mcp"
@@ -53,6 +54,8 @@ type toolProvider struct {
 	store store.Store
 	// characters 不为空时，Cosplay 对话里提供自我进化（改自己的角色卡）的工具。
 	characters *cosplay.Service
+	// tasks 不为空时，普通对话里可以提出后台长任务。
+	tasks *bgtask.Service
 }
 
 func newToolProvider(cfg *config.Config, log *slog.Logger) *toolProvider {
@@ -179,7 +182,16 @@ func (p *toolProvider) workspace(ctx context.Context, u *store.User, conv *store
 
 // For 实现 chat.ToolProvider。
 func (p *toolProvider) For(ctx context.Context, u *store.User, conv *store.Conversation, model *models.Resolved, pending []store.Attachment) *tools.Set {
-	opts := tools.Options{}
+	return p.build(ctx, u, conv, model, pending, false, false)
+}
+
+// ForTask 实现 chat.TaskToolProvider：后台任务用宽松的资源档运行代码，按套餐决定沙箱能不能联网；不能再提新的后台任务。
+func (p *toolProvider) ForTask(ctx context.Context, u *store.User, conv *store.Conversation, model *models.Resolved, network bool) *tools.Set {
+	return p.build(ctx, u, conv, model, nil, true, network)
+}
+
+func (p *toolProvider) build(ctx context.Context, u *store.User, conv *store.Conversation, model *models.Resolved, pending []store.Attachment, task, network bool) *tools.Set {
+	opts := tools.Options{Heavy: task, Network: task && network}
 	opts.Search, opts.Fetch = p.search(model)
 	// 用户自己的 DeepSeek 模型用它自己的 Key 搜索，不花站长的钱，不计量。
 	if !(model != nil && model.Personal && p.cfg.Tools.Search.DeepSeekAPIKey == "" && providerName(opts.Search) == "deepseek") {
@@ -219,8 +231,12 @@ func (p *toolProvider) For(ctx context.Context, u *store.User, conv *store.Conve
 	if p.todos != nil {
 		opts.Extra = append(opts.Extra, todo.Tools(p.todos, u.ID, turnID(), time.Now)...)
 	}
-	if p.characters != nil && p.store != nil && conv != nil && conv.Cosplay() {
+	if p.characters != nil && p.store != nil && conv != nil && conv.Cosplay() && !task {
 		opts.Extra = append(opts.Extra, evolveTools(p.store, p.characters, u, conv)...)
+	}
+	// 提出后台任务：普通对话里、套餐包含后台任务时才有（后台任务里不能再提新的）。
+	if p.tasks != nil && !task && conv != nil && conv.ID != 0 && !conv.Temporary && !conv.Cosplay() && p.tasks.Allowed(ctx, u) {
+		opts.Extra = append(opts.Extra, taskTools(p.tasks, u, conv)...)
 	}
 	if p.plugins != nil {
 		opts.Extra = append(opts.Extra, p.plugins.Tools(ctx, p.plugins.For(ctx, skills.SplitNames(u.DisabledPlugins)))...)

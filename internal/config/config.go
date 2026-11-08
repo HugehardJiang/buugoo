@@ -69,6 +69,7 @@ type Config struct {
 	Admin     AdminConfig     `koanf:"admin"`
 	Home      HomeConfig      `koanf:"home"`
 	Proactive ProactiveConfig `koanf:"proactive"`
+	Tasks     TasksConfig     `koanf:"tasks"`
 	Channels  ChannelsConfig  `koanf:"channels"`
 
 	// path 记录实际加载的配置文件路径（未加载文件时为空），不参与反序列化。
@@ -235,6 +236,21 @@ type ChatConfig struct {
 	CharacterMaxRunes int `koanf:"character_max_runes"`
 }
 
+// TasksConfig 是后台长任务的配置：聊天里遇到比较大的事（调研、批量处理文件、写报告），
+// 对方确认后在后台用更多轮工具慢慢做，做完把结果发回对话。哪些用户能用由套餐决定（管理员总能用）。
+type TasksConfig struct {
+	Enabled bool `koanf:"enabled"`
+	// DefaultBudget 是每个任务默认的 token 预算（对方确认时可以调低）；MaxBudget 是最多能设多少。
+	DefaultBudget int64 `koanf:"default_budget"`
+	MaxBudget     int64 `koanf:"max_budget"`
+	// MaxRounds 是一个任务最多调用几轮工具；MaxDuration 是最多跑多久。
+	MaxRounds   int           `koanf:"max_rounds"`
+	MaxDuration time.Duration `koanf:"max_duration"`
+	// MaxRunning 是同时跑的任务数（所有用户一起算）；PerUser 是每人同时跑几个，多的排队。
+	MaxRunning int `koanf:"max_running"`
+	PerUser    int `koanf:"per_user"`
+}
+
 // UploadsConfig 是文件上传配置。
 type UploadsConfig struct {
 	// Dir 是上传文件的存放目录，留空为 <data_dir>/uploads。
@@ -303,6 +319,9 @@ type ProactiveConfig struct {
 	Reminders bool `koanf:"reminders"`
 	// Care 为 true 时布谷会在合适的时候主动关心用户（每个用户可以在设置里关掉）。
 	Care bool `koanf:"care"`
+	// CareMode 是主动关心的方式：auto 真的发；observe 只观察：照常判断，但不发出去，
+	// 只把「本来会发什么」记下来给管理员在后台看，觉得合适了再改成 auto。
+	CareMode string `koanf:"care_mode"`
 	// QuietStart、QuietEnd 是免打扰时段（本地时间 HH:MM），这段时间不主动关心；提醒不受影响。
 	QuietStart string `koanf:"quiet_start"`
 	QuietEnd   string `koanf:"quiet_end"`
@@ -313,6 +332,12 @@ type ProactiveConfig struct {
 	// CheckInterval 是检查一次要不要主动关心的间隔。
 	CheckInterval time.Duration `koanf:"check_interval"`
 }
+
+// 主动关心的方式。
+const (
+	CareAuto    = "auto"
+	CareObserve = "observe"
+)
 
 // ToolsConfig 是模型可以调用的工具配置。
 type ToolsConfig struct {
@@ -371,6 +396,14 @@ type PythonConfig struct {
 	WorkspaceMB int `koanf:"workspace_mb"`
 	// InstallTimeout 是一次安装的时间上限。
 	InstallTimeout time.Duration `koanf:"install_timeout"`
+	// 后台任务里运行代码的资源（比聊天里宽松）：每次运行的时间、内存、CPU 核数。
+	TaskTimeout  time.Duration `koanf:"task_timeout"`
+	TaskMemoryMB int           `koanf:"task_memory_mb"`
+	TaskCPUs     float64       `koanf:"task_cpus"`
+	// MaxConcurrent 是同时运行的容器数上限（所有用户一起算），超过的排队。0 表示不限。
+	MaxConcurrent int `koanf:"max_concurrent"`
+	// Runtime 是 docker 的容器运行时，留空用默认的；装了 gVisor 时可以填 runsc，隔离更强。
+	Runtime string `koanf:"runtime"`
 }
 
 // packageSpec 只允许「包名[extras][版本约束]」，不允许以 - 开头的 pip 参数、网址或路径。
@@ -527,15 +560,18 @@ func Default() *Config {
 			// 社区里最长的大肥鱼人设卡约 2 万字。
 			CharacterMaxRunes: 30000,
 		},
-		Uploads:  UploadsConfig{MaxFileMB: 20, MaxFiles: 8, UserQuotaMB: 500, DocChars: 20000},
+		Uploads: UploadsConfig{MaxFileMB: 20, MaxFiles: 8, UserQuotaMB: 500, DocChars: 20000},
+		Tasks: TasksConfig{Enabled: true, DefaultBudget: 1_000_000, MaxBudget: 5_000_000, MaxRounds: 40,
+			MaxDuration: 30 * time.Minute, MaxRunning: 2, PerUser: 1},
 		Admin:    AdminConfig{Password: DefaultAdminPassword},
 		Channels: ChannelsConfig{QQ: QQChannelConfig{AutoAcceptFriend: true}},
-		Proactive: ProactiveConfig{Reminders: true, Care: true, QuietStart: "23:00", QuietEnd: "08:00",
+		Proactive: ProactiveConfig{Reminders: true, Care: true, CareMode: CareAuto, QuietStart: "23:00", QuietEnd: "08:00",
 			IdleHours: 20, MinGapHours: 20, CheckInterval: 30 * time.Minute},
 		Emotion: EmotionConfig{Enabled: true, Expressiveness: 1, Temper: 1, Patience: 1, Forgiveness: 1, Empathy: 1},
 		Tools: ToolsConfig{Python: PythonConfig{
 			Runner: PythonDocker, Image: "python:3.12-slim", Docker: "docker", Python: "python3",
 			Timeout: 30 * time.Second, MemoryMB: 256,
+			TaskTimeout: 5 * time.Minute, TaskMemoryMB: 1024, TaskCPUs: 2, MaxConcurrent: 4,
 			Packages:     []string{"numpy", "scipy", "sympy", "pandas", "mpmath", "matplotlib"},
 			AllowInstall: true, LibMaxMB: 2048, InstallTimeout: 5 * time.Minute, WorkspaceMB: 50,
 		}, Search: SearchConfig{Provider: SearchAuto, DirectFetch: true}},
@@ -758,6 +794,15 @@ func (c *Config) Validate() error {
 	}
 	if c.Memory.Compact.Similarity <= 0 || c.Memory.Compact.Similarity >= 1 {
 		errs = append(errs, errors.New("memory.compact.similarity 必须在 0-1 之间"))
+	}
+	if c.Proactive.CareMode != CareAuto && c.Proactive.CareMode != CareObserve {
+		errs = append(errs, errors.New("proactive.care_mode 只能是 auto 或 observe"))
+	}
+	if c.Tasks.DefaultBudget < 10_000 || c.Tasks.MaxBudget < c.Tasks.DefaultBudget {
+		errs = append(errs, errors.New("tasks.default_budget 不能小于 1 万，tasks.max_budget 不能小于 default_budget"))
+	}
+	if c.Tasks.MaxRounds < 1 || c.Tasks.MaxRounds > 500 || c.Tasks.MaxRunning < 1 || c.Tasks.PerUser < 1 || c.Tasks.MaxDuration < time.Minute {
+		errs = append(errs, errors.New("tasks 的 max_rounds（1-500）、max_running、per_user 至少为 1，max_duration 至少 1 分钟"))
 	}
 	if c.Chat.CharacterMaxRunes < 1000 || c.Chat.CharacterMaxRunes > 200000 {
 		errs = append(errs, errors.New("chat.character_max_runes 必须在 1000-200000 之间"))

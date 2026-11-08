@@ -16,6 +16,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/agent"
 	"github.com/HugehardJiang/buugoo/internal/apiserve"
 	"github.com/HugehardJiang/buugoo/internal/auth"
+	"github.com/HugehardJiang/buugoo/internal/bgtask"
 	"github.com/HugehardJiang/buugoo/internal/billing"
 	"github.com/HugehardJiang/buugoo/internal/buildinfo"
 	"github.com/HugehardJiang/buugoo/internal/channels"
@@ -70,6 +71,8 @@ type App struct {
 	restart chan struct{}
 	// opencode 定时从官网同步 OpenCode Go 的模型和价格。
 	opencode *opencode.Importer
+	// tasks 调度后台长任务。
+	tasks *bgtask.Service
 
 	// UpdateCheck 在服务启动后于后台执行（检查新版本），可为空。
 	UpdateCheck func(ctx context.Context)
@@ -236,15 +239,34 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	if cfg.Chat.Summarize {
 		summarizer = chat.LLMSummarizer{LLM: utilLLM}
 	}
+	// 后台长任务：管理员总能用；其他人要有包含后台任务的套餐，沙箱能不能联网也按套餐。
+	taskSvc := bgtask.New(db.Gorm(), cfg.Tasks, db.Users(), func(ctx context.Context, u *store.User) (bool, bool) {
+		if u.IsAdmin {
+			return true, true
+		}
+		if billingSvc == nil {
+			return false, false
+		}
+		ent, err := billingSvc.Entitlement(ctx, u.ID)
+		if err != nil || !ent.Active || !ent.TaskAccess {
+			return false, false
+		}
+		return true, ent.SandboxNetwork
+	}, log)
+	toolsProv.tasks = taskSvc
 	chatSvc := chat.New(chat.Deps{
 		Store: db, Models: modelSvc, Tools: toolsProv, Emotion: emo, Uploads: uploadSvc, Retriever: retriever, Writer: writer,
 		Builder: builder, Quota: limiter,
 		Config: cfg.Chat, Location: loc, Logger: log, DisabledPresets: cfg.Persona.DisabledPresets,
 		Summarizer: summarizer, Characters: characterSvc,
 	})
+	taskSvc.SetExecutor(chatSvc)
 	hub, err := newChannelHub(cfg, db, chatSvc, uploadSvc, func() string { return personas.Current().Name }, log)
 	if err != nil {
 		return nil, err
+	}
+	if hub != nil {
+		taskSvc.SetDeliver(func(ctx context.Context, u *store.User, res *chat.ProactiveResult) { hub.Deliver(ctx, u, res, true) })
 	}
 	if accountSvc != nil {
 		accountSvc.OnDelete = func(userID uint64) {
@@ -271,13 +293,13 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 		Config: cfg, Store: db, Auth: authSvc, Chat: chatSvc, Memories: memory.NewManager(db.Memories(), vs), Compactor: compactor,
 		Quota: limiter, Models: modelSvc, Reembed: memory.NewReembedder(db.Memories(), emb, vs, log),
 		Uploads: uploadSvc, Emotion: emo, Persona: personas, Channels: hub, Logger: log,
-		Skills: skillSvc, Plugins: pluginSvc, Memos: memoSvc, Characters: characterSvc, Notices: noticeSvc, APIKeys: apiKeys, APISettings: apiSettings, Todos: todoSvc, Billing: billingSvc, Accounts: accountSvc,
+		Skills: skillSvc, Plugins: pluginSvc, Memos: memoSvc, Characters: characterSvc, Notices: noticeSvc, Tasks: taskSvc, APIKeys: apiKeys, APISettings: apiSettings, Todos: todoSvc, Billing: billingSvc, Accounts: accountSvc,
 		Agent: agent.New(agent.Deps{DB: db.Gorm(), Users: db.Users(), Reminders: toolsProv.reminders, Models: modelSvc,
 			Quota: limiter, Skills: skillSvc, Plugins: pluginSvc, Config: cfg, Box: box, Logger: log,
 			Runner: func(ctx context.Context, u *store.User) tools.Runner { return toolsProv.python(ctx, u) }}),
 	})
 	a := &App{Config: cfg, Log: log, DB: db, Auth: authSvc, Chat: chatSvc, Models: modelSvc, Writer: writer, Handler: handler,
-		uploads: uploadSvc, tools: toolsProv, channels: hub, plugins: pluginSvc, restart: restart, opencode: ocImporter}
+		uploads: uploadSvc, tools: toolsProv, channels: hub, plugins: pluginSvc, restart: restart, opencode: ocImporter, tasks: taskSvc}
 	if cfg.Proactive.Reminders || cfg.Proactive.Care {
 		deps := proactive.Deps{Store: db, Speaker: chatSvc, Utility: utilLLM, Mood: emo, Config: cfg.Proactive,
 			Name: func() string { return personas.Current().Name }, Location: loc, Logger: log, Todos: todoSvc}
@@ -309,6 +331,7 @@ func (a *App) Run(ctx context.Context) error {
 	go a.tools.prepare(bgCtx)
 	a.plugins.Start(bgCtx)
 	go a.opencode.Run(bgCtx)
+	go a.tasks.Start(bgCtx)
 	if a.proactive != nil {
 		go a.proactive.Run(bgCtx)
 	}

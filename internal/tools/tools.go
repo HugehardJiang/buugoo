@@ -17,6 +17,7 @@ const (
 	NameSearch  = "web_search"
 	NameFetch   = "web_fetch"
 	NamePython  = "run_python"
+	NameShell   = "run_shell"
 	NameInstall = "install_package"
 	NameSend    = "send_file"
 )
@@ -84,6 +85,16 @@ type Options struct {
 	Inputs, Saved []string
 	// Extra 是其他模块提供的工具。
 	Extra []Extra
+	// Heavy 为 true 时运行代码用后台任务的资源档（时间更长、内存更多）。
+	Heavy bool
+	// Network 为 true 时运行代码的沙箱可以联网（后台任务、套餐允许时）。
+	Network bool
+}
+
+// setup 按选项调整运行环境。
+func (o Options) setup(env *RunEnv) {
+	env.Heavy = env.Heavy || o.Heavy
+	env.Network = env.Network || o.Network
 }
 
 // New 按选项组装工具集。
@@ -145,14 +156,30 @@ func New(o Options) *Set {
 		} else {
 			plot += "；图中的标题、坐标轴和图例请用英文（没有中文字体，中文会显示成方框）"
 		}
+		net := "运行时没有网络；"
+		if o.Network {
+			net = "运行时可以联网；"
+		}
 		s.add(llm.Tool{
 			Name: NamePython,
 			Description: "运行一段 Python 3 代码并返回标准输出与错误输出。用于需要准确结果的计算、换算、日期推算、统计与数据处理；" +
-				"不要心算。用 print 输出结果。运行时没有网络；" + libs + files + "。" + plot + "。单次运行有时间与内存限制。",
+				"不要心算。用 print 输出结果。" + net + libs + files + "。" + plot + "。单次运行有时间与内存限制。",
 			Parameters: object(map[string]any{
 				"code": map[string]any{"type": "string", "description": "完整的 Python 代码"},
 			}, "code"),
-		}, pythonHandler(o.Python, o.Workspace))
+		}, pythonHandler(o.Python, o.Workspace, o.setup))
+		// 命令行：只在沙箱里提供（本机运行时就是直接在服务器上执行命令，太危险）。
+		if o.Python.Sandboxed() {
+			s.add(llm.Tool{
+				Name: NameShell,
+				Description: "在运行代码的同一个沙箱里执行 bash 命令（和 run_python 共用当前目录和 input/），返回输出。" +
+					"适合用现成的命令行程序处理文件，例如 libreoffice --headless --convert-to pdf、pandoc、ffmpeg、magick（ImageMagick）、pdftotext、node（沙箱里装了才有，没有就改用 run_python）。" +
+					net + "单次执行有时间与内存限制。",
+				Parameters: object(map[string]any{
+					"command": map[string]any{"type": "string", "description": "要执行的 bash 命令"},
+				}, "command"),
+			}, shellHandler(o.Python, o.Workspace, o.setup))
+		}
 		if fs, ok := o.Workspace.(FileSource); ok && o.Workspace != nil {
 			s.add(llm.Tool{
 				Name: NameSend,
@@ -285,6 +312,8 @@ func Label(name string) string {
 		return "读取网页"
 	case NamePython:
 		return "运行代码"
+	case NameShell:
+		return "执行命令"
 	case NameInstall:
 		return "安装 Python 库"
 	case NameSend:

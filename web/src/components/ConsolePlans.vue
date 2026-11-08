@@ -18,7 +18,7 @@ const removing = ref<Plan | null>(null)
 
 const blank = (): Plan => ({
   id: 0, name: '', description: '', price: '', kind: 'period', days: 30, cycle: 'day',
-  quota_messages: 200, quota_tokens: 0, quota_searches: 0, amount: 10 * YUAN, buy_url: '', visible: true, sort: 0, api_access: false,
+  quota_messages: 200, quota_tokens: 0, quota_searches: 0, amount: 10 * YUAN, buy_url: '', visible: true, sort: 0, api_access: false, task_access: false, sandbox_network: false,
 })
 
 // 表单里按好填的单位：token 以百万计，金额以元计；空着表示不限。
@@ -197,6 +197,14 @@ async function confirmRemove() {
             <input v-model="editing.api_access" type="checkbox" />
             <span>包含 API 接入（开通后可以用 OpenAI / Anthropic 格式的接口调用模型，按「API 接入」里的倍率计费）</span>
           </label>
+          <label class="check-row">
+            <input v-model="editing.task_access" type="checkbox" />
+            <span>包含后台任务（比较大的事可以放到后台，用更多轮搜索、运行代码慢慢做，按用量计费）</span>
+          </label>
+          <label v-if="editing.task_access" class="check-row sub">
+            <input v-model="editing.sandbox_network" type="checkbox" />
+            <span>后台任务里运行代码的沙箱可以联网（能直接下载数据、调接口；不勾时只能用布谷的搜索和读网页工具）</span>
+          </label>
         </template>
         <div v-else class="field">
           <label class="field__label" for="pl-a">到账金额</label>
@@ -263,4 +271,5 @@ async function confirmRemove() {
 @media (max-width: 560px) { .quota-grid { grid-template-columns: minmax(0, 1fr); } }
 .textarea.small { min-height: 70px; }
 @media (max-width: 640px) { .plan { flex-direction: column; } .plan__ctl { justify-content: flex-start; } }
+.check-row.sub { margin-left: 24px; }
 </style>

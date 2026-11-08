@@ -159,6 +159,25 @@ tools:
     # 计入用户的文件空间，删除对话时一起删除；0 表示不保留文件。
     workspace_dir: ""      # 留空为 <data_dir>/workspaces
     workspace_mb: 50       # 每段对话工作目录（压缩后）的上限
+    # 后台任务里运行代码、执行命令的资源（比聊天里宽松）
+    task_timeout: 5m
+    task_memory_mb: 1024
+    task_cpus: 2
+    max_concurrent: 4      # 同时运行的沙箱数上限（所有用户一起算），超过的排队；0 表示不限
+    runtime: ""            # 容器运行时，装了 gVisor 时可以填 runsc，隔离更强
+    # 完整沙箱镜像（带 LibreOffice、pandoc、ffmpeg、ImageMagick、Node.js、中文字体）：
+    #   image: ghcr.io/hugehardjiang/buugoo-sandbox:latest
+
+# 后台长任务：聊天里遇到比较大的事（调研、批量处理文件、写报告），布谷会问要不要放到后台慢慢做，
+# 对方确认后用更多轮工具去做，做完把结果发回对话。套餐里勾了「包含后台任务」的用户和管理员能用。
+tasks:
+  enabled: true
+  default_budget: 1000000   # 每个任务默认最多用多少 token（确认时可以调低）
+  max_budget: 5000000
+  max_rounds: 40            # 最多调用几轮工具
+  max_duration: 30m         # 最多跑多久
+  max_running: 2            # 同时跑的任务数（所有用户一起算）
+  per_user: 1               # 每人同时跑几个
 
 proactive:
   # 提醒与定时任务：「半小时后叫我」是提醒，到时间主动发消息；「每天早上 8 点搜一下新闻发我」是定时任务，
@@ -166,6 +185,7 @@ proactive:
   reminders: true
   # 主动关心：很久没聊、或用户之前提到的事可能有结果时，布谷会主动问候（每个用户可以在设置里关掉）
   care: true
+  care_mode: auto      # auto：真的发；observe：只观察，照常判断但不发，记在「管理后台 → 主动关心记录」里
   quiet_start: "23:00"     # 免打扰时段（本地时间），这段时间不主动关心；提醒照常
   quiet_end: "08:00"
   idle_hours: 20           # 用户多久没说话后才考虑主动关心

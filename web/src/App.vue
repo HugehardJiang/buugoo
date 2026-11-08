@@ -21,11 +21,12 @@ const name = computed(() => session.meta?.name ?? '布谷')
 
 // 「大脑皮层」（记忆与情绪）默认藏起来，用户在设置里确认翻开后才出现在导航中。设置固定在最下面。
 // 手机底栏只放常用的几个（聊天、待办、备忘录、我的），其余收进「更多」。short 是手机底栏上的短名字。
-type NavItem = { to: string; route: string; label: string; short?: string; icon: 'message' | 'clock' | 'note' | 'brain' | 'folder' | 'link'; more?: boolean }
+type NavItem = { to: string; route: string; label: string; short?: string; icon: 'message' | 'clock' | 'note' | 'brain' | 'folder' | 'link' | 'grid'; more?: boolean }
 const items = computed<NavItem[]>(() => [
   { to: '/', route: 'chat', label: '聊天', icon: 'message' },
   { to: '/tasks', route: 'tasks', label: session.meta?.reminders ? '提醒与待办' : '待办', short: '待办', icon: 'clock' },
   { to: '/memos', route: 'memos', label: '备忘录', icon: 'note' },
+  ...(session.meta?.bg_tasks ? [{ to: '/bgtasks', route: 'bgtasks', label: '后台任务', short: '任务', icon: 'grid' as const, more: true }] : []),
   ...(memoriesUnlocked.value ? [{ to: '/memories', route: 'memories', label: '大脑皮层', icon: 'brain' as const, more: true }] : []),
   ...(session.meta?.uploads ? [{ to: '/files', route: 'files', label: '文件', icon: 'folder' as const, more: true }] : []),
   ...(session.meta?.channels ? [{ to: '/channels', route: 'channels', label: '聊天软件', icon: 'link' as const, more: true }] : []),

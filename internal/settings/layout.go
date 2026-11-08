@@ -43,6 +43,7 @@ var layout = []section{
 
 	{"chat", "上下文", []string{"chat.summarize", "chat.compact_at", "chat.keep_recent"}},
 	{"chat", "Cosplay", []string{"chat.character_max_runes"}},
+	{"chat", "后台任务", []string{"tasks.enabled", "tasks.default_budget", "tasks.max_budget", "~tasks.max_rounds", "~tasks.max_duration", "~tasks.max_running", "~tasks.per_user"}},
 	{"chat", "每日限额", []string{"quota.daily_messages", "quota.daily_tokens", "quota.daily_searches", "quota.exempt_admins"}},
 	{"chat", "性格", []string{"persona.disabled_presets", "~persona.file"}},
 
@@ -55,9 +56,10 @@ var layout = []section{
 	{"tools", "联网搜索", []string{"tools.search.provider", "tools.search.deepseek_api_key", "tools.search.bocha_api_key", "tools.search.tavily_api_key", "~tools.search.direct_fetch"}},
 	{"tools", "运行代码", []string{"tools.python.runner", "tools.python.packages", "tools.python.allow_install", "tools.python.index_url", "tools.python.workspace_mb",
 		"~tools.python.timeout", "~tools.python.memory_mb", "~tools.python.image", "~tools.python.docker", "~tools.python.python", "~tools.python.lib_dir",
-		"~tools.python.lib_max_mb", "~tools.python.workspace_dir", "~tools.python.install_timeout"}},
+		"~tools.python.lib_max_mb", "~tools.python.workspace_dir", "~tools.python.install_timeout",
+		"~tools.python.task_timeout", "~tools.python.task_memory_mb", "~tools.python.task_cpus", "~tools.python.max_concurrent", "~tools.python.runtime"}},
 
-	{"proactive", "提醒与主动关心", []string{"proactive.reminders", "proactive.care", "proactive.quiet_start", "proactive.quiet_end",
+	{"proactive", "提醒与主动关心", []string{"proactive.reminders", "proactive.care", "proactive.care_mode", "proactive.quiet_start", "proactive.quiet_end",
 		"~proactive.idle_hours", "~proactive.min_gap_hours", "~proactive.check_interval"}},
 
 	{"channels", "个人微信", []string{"channels.weixin.enabled"}},
@@ -86,14 +88,15 @@ var units = map[string]string{
 	"quota.daily_messages": "条", "quota.daily_searches": "次", "quota.daily_tokens": "百万 token",
 	"llm.chat.max_tokens": "token", "llm.utility.max_tokens": "token",
 	"memory.retrieval.top_k": "条", "memory.compact.max_memories": "条", "memory.retrieval.candidate_k": "条", "memory.cache.max_bytes": "字节",
-	"tools.python.memory_mb": "MB", "tools.python.lib_max_mb": "MB", "tools.python.workspace_mb": "MB",
+	"tools.python.memory_mb": "MB", "tools.python.task_memory_mb": "MB", "tools.python.task_cpus": "核", "tools.python.max_concurrent": "个", "tools.python.lib_max_mb": "MB", "tools.python.workspace_mb": "MB",
 	"chat.character_max_runes": "字",
-	"uploads.max_file_mb":      "MB", "uploads.user_quota_mb": "MB", "uploads.max_files": "个", "uploads.doc_chars": "字",
+	"tasks.max_rounds":         "轮", "tasks.default_budget": "百万 token", "tasks.max_budget": "百万 token", "tasks.max_running": "个", "tasks.per_user": "个",
+	"uploads.max_file_mb": "MB", "uploads.user_quota_mb": "MB", "uploads.max_files": "个", "uploads.doc_chars": "字",
 	"proactive.idle_hours": "小时", "proactive.min_gap_hours": "小时",
 }
 
 // scales 是网页上按大单位填写的数字设置（见 Field.Scale）。
-var scales = map[string]int64{"quota.daily_tokens": 1_000_000}
+var scales = map[string]int64{"quota.daily_tokens": 1_000_000, "tasks.default_budget": 1_000_000, "tasks.max_budget": 1_000_000}
 
 type place struct {
 	group, section string

@@ -157,8 +157,11 @@ type Entitlement struct {
 	QuotaTokens   int64  `json:"quota_tokens,omitempty"`
 	QuotaSearches int64  `json:"quota_searches,omitempty"`
 	// APIAccess 表示套餐包含 API 接入。
-	APIAccess bool      `json:"api_access,omitempty"`
-	ExpiresAt time.Time `json:"expires_at,omitzero"`
+	APIAccess bool `json:"api_access,omitempty"`
+	// TaskAccess 表示套餐包含后台任务；SandboxNetwork 表示后台任务的沙箱可以联网。
+	TaskAccess     bool      `json:"task_access,omitempty"`
+	SandboxNetwork bool      `json:"sandbox_network,omitempty"`
+	ExpiresAt      time.Time `json:"expires_at,omitzero"`
 	// Balance 是余额（微元）。
 	Balance int64 `json:"balance"`
 }

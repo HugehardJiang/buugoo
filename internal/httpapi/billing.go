@@ -464,6 +464,10 @@ type planDTO struct {
 	QuotaSearches int64  `json:"quota_searches"`
 	Amount        int64  `json:"amount"`
 	BuyURL        string `json:"buy_url"`
+	// 套餐包含的功能：API 接入、后台任务、后台任务的沙箱联网。
+	APIAccess      bool `json:"api_access"`
+	TaskAccess     bool `json:"task_access"`
+	SandboxNetwork bool `json:"sandbox_network"`
 	// 下面两项只给管理后台。
 	Visible *bool `json:"visible,omitempty"`
 	Sort    *int  `json:"sort,omitempty"`
@@ -472,7 +476,7 @@ type planDTO struct {
 func toPlanDTO(p store.Plan, console bool) planDTO {
 	d := planDTO{ID: p.ID, Name: p.Name, Description: p.Description, Price: p.Price, Kind: p.Kind,
 		Days: p.Days, Cycle: p.Cycle, QuotaMessages: p.QuotaMessages, QuotaTokens: p.QuotaTokens, QuotaSearches: p.QuotaSearches,
-		Amount: p.Amount, BuyURL: p.BuyURL}
+		Amount: p.Amount, BuyURL: p.BuyURL, APIAccess: p.APIAccess, TaskAccess: p.TaskAccess, SandboxNetwork: p.SandboxNetwork}
 	if console {
 		d.Visible, d.Sort = &p.Visible, &p.Sort
 	}
