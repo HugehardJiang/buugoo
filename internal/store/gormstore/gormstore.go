@@ -178,6 +178,7 @@ func (s *DB) Invites() store.InviteRepo             { return inviteRepo{s.db} }
 func (s *DB) Conversations() store.ConversationRepo { return conversationRepo{s.db} }
 func (s *DB) Messages() store.MessageRepo           { return messageRepo{s.db} }
 func (s *DB) Models() store.ModelRepo               { return modelRepo{s.db} }
+func (s *DB) Providers() store.ProviderRepo         { return providerRepo{s.db} }
 func (s *DB) Attachments() store.AttachmentRepo     { return attachmentRepo{s.db} }
 func (s *DB) Emotions() store.EmotionRepo           { return emotionRepo{s.db} }
 func (s *DB) Reminders() store.ReminderRepo         { return reminderRepo{s.db} }

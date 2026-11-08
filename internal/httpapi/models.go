@@ -24,7 +24,11 @@ func (s *server) listModels(c echo.Context) error {
 	if ms == nil {
 		ms = []models.View{}
 	}
-	out := map[string]any{"models": ms}
+	providers, err := s.Models.Providers(c.Request().Context(), modelUser(currentUser(c)))
+	if err != nil {
+		return err
+	}
+	out := map[string]any{"models": ms, "providers": providers}
 	// 计费开着时带上每个公共模型的价格（元 / 百万 token），选模型时显示。分时段计价的模型带上空闲价，
 	// peak 表示现在是不是高峰时段。
 	if s.Billing != nil {
@@ -235,4 +239,79 @@ func (s *server) adminSetUtility(c echo.Context) error {
 	}
 	s.audit(c, "修改了辅助模型", "model", v.Name)
 	return c.JSON(http.StatusOK, v)
+}
+
+// ---------- 供应商 ----------
+
+func (s *server) createProvider(c echo.Context) error {
+	var in models.ProviderInput
+	if err := bind(c, &in); err != nil {
+		return err
+	}
+	v, err := s.Models.CreateProvider(c.Request().Context(), modelUser(currentUser(c)), in)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusCreated, v)
+}
+
+func (s *server) updateProvider(c echo.Context) error {
+	id, err := pathID(c)
+	if err != nil {
+		return err
+	}
+	var in models.ProviderInput
+	if err := bind(c, &in); err != nil {
+		return err
+	}
+	v, err := s.Models.UpdateProvider(c.Request().Context(), modelUser(currentUser(c)), id, in)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, v)
+}
+
+func (s *server) deleteProvider(c echo.Context) error {
+	id, err := pathID(c)
+	if err != nil {
+		return err
+	}
+	n, err := s.Models.DeleteProvider(c.Request().Context(), modelUser(currentUser(c)), id)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]int{"removed": n})
+}
+
+// remoteModels 处理 GET /providers/:id/remote：请求供应商的模型列表。
+func (s *server) remoteModels(c echo.Context) error {
+	id, err := pathID(c)
+	if err != nil {
+		return err
+	}
+	list, err := s.Models.RemoteModels(c.Request().Context(), modelUser(currentUser(c)), id)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]any{"models": list})
+}
+
+// addProviderModels 处理 POST /providers/:id/models：在供应商下面一次添加多个模型。
+func (s *server) addProviderModels(c echo.Context) error {
+	id, err := pathID(c)
+	if err != nil {
+		return err
+	}
+	var req struct {
+		Models     []models.AddItem `json:"models"`
+		Restricted bool             `json:"restricted"`
+	}
+	if err := bind(c, &req); err != nil {
+		return err
+	}
+	n, err := s.Models.AddModels(c.Request().Context(), modelUser(currentUser(c)), id, req.Models, req.Restricted)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]int{"added": n})
 }

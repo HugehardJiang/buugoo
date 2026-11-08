@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { api, ApiError, type ModelInput, type ModelView, type TestResult, type ThinkingStyle } from '../api'
+import { api, ApiError, type ModelInput, type ModelView, type ProviderInput, type ProviderView, type RemoteModel, type TestResult, type ThinkingStyle } from '../api'
 import { session } from '../session'
 import { toast } from '../toast'
 import Modal from './Modal.vue'
 import ModelIcon from './ModelIcon.vue'
+import { shortName } from '../vendors'
 
 const models = ref<ModelView[]>([])
+const providers = ref<ProviderView[]>([])
 const error = ref('')
 const editing = ref<ModelView | null>(null)
 const formOpen = ref(false)
@@ -135,7 +137,9 @@ function fail(e: unknown, fallback = '操作失败') {
 
 async function load() {
   try {
-    models.value = (await api.models()).models
+    const r = await api.models()
+    models.value = r.models
+    providers.value = r.providers ?? []
   } catch (e) {
     fail(e, '加载模型失败')
   }
@@ -148,7 +152,7 @@ function openForm(m: ModelView | null) {
     Object.assign(form, {
       name: m.name, base_url: m.base_url, model: m.model, thinking_style: m.thinking_style,
       thinking_model: m.thinking_model, temperature: m.temperature, max_tokens: m.max_tokens, public: m.scope === 'public',
-      vision: m.vision, tools: m.tools, context_tokens: m.context_tokens, restricted: m.restricted,
+      vision: m.vision, tools: m.tools, context_tokens: m.context_tokens, restricted: m.restricted, provider_id: m.provider_id || undefined,
     })
   }
   contextUnits.value = form.context_tokens > 0 ? String(form.context_tokens / 100000) : ''
@@ -243,6 +247,131 @@ async function clearDefault() {
   }
 }
 
+// ---------- 供应商 ----------
+
+// groups 把模型按供应商分组：配置文件的模型、公共供应商、自己的供应商。空的供应商也列出来，方便往里加模型。
+const groups = computed(() => {
+  const out: { provider: ProviderView | null; label: string; items: ModelView[] }[] = []
+  const builtin = models.value.filter((m) => m.scope === 'builtin')
+  if (builtin.length) out.push({ provider: null, label: '配置文件', items: builtin })
+  for (const p of providers.value) out.push({ provider: p, label: p.name, items: models.value.filter((m) => m.provider_id === p.id) })
+  const loose = models.value.filter((m) => m.scope !== 'builtin' && !providers.value.some((p) => p.id === m.provider_id))
+  if (loose.length) out.push({ provider: null, label: '其他', items: loose })
+  return out
+})
+
+const providerPresets: { label: string; base_url: string }[] = [
+  { label: 'DeepSeek', base_url: 'https://api.deepseek.com/v1' },
+  { label: '阿里云百炼', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+  { label: '硅基流动', base_url: 'https://api.siliconflow.cn/v1' },
+  { label: 'OpenAI', base_url: 'https://api.openai.com/v1' },
+  { label: 'OpenRouter', base_url: 'https://openrouter.ai/api/v1' },
+  { label: '火山方舟', base_url: 'https://ark.cn-beijing.volces.com/api/v3' },
+  { label: '智谱', base_url: 'https://open.bigmodel.cn/api/paas/v4' },
+  { label: 'Moonshot', base_url: 'https://api.moonshot.cn/v1' },
+  { label: 'OpenCode Go', base_url: 'https://opencode.ai/inference/go/openai/v1' },
+]
+const pf = reactive<ProviderInput & { open: boolean; editing: ProviderView | null; busy: boolean; error: string }>({
+  open: false, editing: null, busy: false, error: '', name: '', base_url: '', api_key: '', public: false,
+})
+function openProvider(p: ProviderView | null) {
+  Object.assign(pf, { open: true, editing: p, busy: false, error: '', name: p?.name ?? '', base_url: p?.base_url ?? '', api_key: '', public: isMulti.value && isAdmin.value && !p })
+}
+function providerPreset(x: { label: string; base_url: string }) {
+  pf.name = x.label
+  pf.base_url = x.base_url
+}
+async function saveProvider() {
+  if (pf.busy) return
+  pf.busy = true
+  pf.error = ''
+  try {
+    const input = { name: pf.name, base_url: pf.base_url, api_key: pf.api_key, public: pf.public }
+    if (pf.editing) {
+      await api.updateProvider(pf.editing.id, input)
+      toast('供应商已保存，下面的模型一起生效')
+      pf.open = false
+      await load()
+    } else {
+      const p = await api.createProvider(input)
+      pf.open = false
+      await load()
+      openAdd(p) // 建好就接着挑模型
+    }
+  } catch (e) {
+    pf.error = e instanceof ApiError ? e.message : '保存失败'
+  } finally {
+    pf.busy = false
+  }
+}
+const removingProvider = ref<ProviderView | null>(null)
+async function removeProvider() {
+  const p = removingProvider.value
+  if (!p) return
+  try {
+    const r = await api.deleteProvider(p.id)
+    removingProvider.value = null
+    toast(`已删除「${p.name}」${r.removed ? `和下面的 ${r.removed} 个模型` : ''}`)
+    await load()
+  } catch (e) {
+    fail(e)
+  }
+}
+
+// 在供应商下面批量添加模型：读供应商的模型列表勾选，读不到时手动填模型名。
+type Pick = { id: string; vision: boolean; tools: boolean; thinking_style: ThinkingStyle | ''; context_tokens?: number }
+const add = reactive({
+  open: false, provider: null as ProviderView | null, loading: false, error: '', list: [] as RemoteModel[], query: '',
+  picked: new Map<string, Pick>(), manual: '', restricted: false, busy: false, showAll: false,
+})
+async function openAdd(p: ProviderView) {
+  Object.assign(add, { open: true, provider: p, loading: true, error: '', list: [], query: '', picked: new Map(), manual: '', restricted: false, busy: false, showAll: false })
+  try {
+    add.list = (await api.remoteModels(p.id)).models
+  } catch (e) {
+    add.error = e instanceof ApiError ? e.message : '读取模型列表失败'
+  } finally {
+    add.loading = false
+  }
+}
+const addShown = computed(() => {
+  const q = add.query.trim().toLowerCase()
+  return add.list.filter((m) => (add.showAll || m.chat || add.picked.has(m.id)) && (!q || m.id.toLowerCase().includes(q)))
+})
+const hiddenCount = computed(() => add.list.filter((m) => !m.chat).length)
+function togglePick(m: RemoteModel) {
+  const next = new Map(add.picked)
+  if (next.has(m.id)) next.delete(m.id)
+  else next.set(m.id, { id: m.id, vision: m.vision, tools: m.tools, thinking_style: m.thinking_style, context_tokens: m.context_tokens })
+  add.picked = next
+}
+function addManual() {
+  const ids = add.manual.split(/[\s,，]+/).map((x) => x.trim()).filter(Boolean)
+  const next = new Map(add.picked)
+  for (const id of ids) {
+    if (!next.has(id)) next.set(id, { id, vision: false, tools: true, thinking_style: '' })
+    if (!add.list.some((m) => m.id === id)) add.list.unshift({ id, added: false, chat: true, vision: false, tools: true, thinking_style: 'none' })
+  }
+  add.picked = next
+  add.manual = ''
+}
+async function saveAdd() {
+  if (!add.provider || !add.picked.size || add.busy) return
+  add.busy = true
+  add.error = ''
+  try {
+    const items = [...add.picked.values()].map((x) => ({ model: x.id, vision: x.vision, tools: x.tools, thinking_style: x.thinking_style as ThinkingStyle, context_tokens: x.context_tokens ?? 0 }))
+    const r = await api.addProviderModels(add.provider.id, items, add.restricted)
+    toast(r.added ? `添加了 ${r.added} 个模型` : '选中的模型都已经添加过了')
+    add.open = false
+    await load()
+  } catch (e) {
+    add.error = e instanceof ApiError ? e.message : '添加失败'
+  } finally {
+    add.busy = false
+  }
+}
+
 onMounted(load)
 defineExpose({ load })
 </script>
@@ -253,7 +382,7 @@ defineExpose({ load })
       <h2>模型</h2>
       <span class="head-actions">
         <button class="btn" @click="openOpenCode">OpenCode Go</button>
-        <button class="btn btn-primary" @click="openForm(null)">添加模型</button>
+        <button class="btn btn-primary" @click="openProvider(null)">添加供应商</button>
       </span>
     </div>
     <p class="muted intro">
@@ -261,22 +390,38 @@ defineExpose({ load })
         可以添加你自己的模型（填自己的 API Key），只有你能看到和使用，用它聊天不占每日限额。<template v-if="isAdmin">管理员还可以添加所有人都能用的公共模型。</template>
       </template>
       <template v-else>支持 OpenAI 兼容接口的服务，如 DeepSeek、通义千问、硅基流动、OpenAI、本地 Ollama。</template>
-      API Key 加密保存，添加后不会再显示明文。聊天时可以为每段对话单独选择模型。
+      先添加供应商（接口地址和 API Key 只填一次），再在它下面勾选要用的模型。API Key 加密保存，添加后不会再显示明文。聊天时可以为每段对话单独选择模型。
     </p>
     <p v-if="error" class="form-flash form-flash--error">{{ error }}</p>
 
-    <p v-if="!models.length" class="empty muted">还没有可用的模型。</p>
-    <div v-for="m in models" :key="m.id" class="model-row">
+    <p v-if="!models.length && !providers.length" class="empty muted">还没有可用的模型，先点「添加供应商」。</p>
+    <section v-for="g in groups" :key="g.provider ? `p${g.provider.id}` : g.label" class="prov">
+      <div class="prov__head">
+        <ModelIcon model="" :name="g.label" :size="22" />
+        <div class="prov__title">
+          <strong>{{ g.label }}</strong>
+          <span v-if="g.provider && isMulti" class="badge-pill">{{ g.provider.scope === 'public' ? '公共' : '我的' }}</span>
+          <p v-if="g.provider" class="caption">{{ g.provider.base_url }} · Key {{ g.provider.key_mask }} · {{ g.items.length }} 个模型</p>
+          <p v-else-if="g.label === '配置文件'" class="caption">来自 config.yaml 的 llm.chat，需在配置文件中修改</p>
+        </div>
+        <div v-if="g.provider?.editable" class="prov__actions">
+          <button class="btn btn-sm btn-primary" @click="openAdd(g.provider)">添加模型</button>
+          <button class="btn btn-sm" @click="openProvider(g.provider)">修改</button>
+          <button class="btn btn-sm btn-danger-lite" @click="removingProvider = g.provider">删除</button>
+        </div>
+      </div>
+      <p v-if="g.provider && !g.items.length" class="caption prov__empty">还没有模型，点「添加模型」从这个供应商的模型列表里勾选。</p>
+    <div v-for="m in g.items" :key="m.id" class="model-row">
       <div class="model-row__main">
         <div class="model-row__title">
           <ModelIcon :model="m.model" :name="m.name" :size="18" />
-          <strong>{{ m.name }}</strong>
+          <strong :title="m.name">{{ m.provider_id ? shortName(m.name) : m.name }}</strong>
           <span v-if="m.is_default" class="chip-note">默认</span>
-          <span v-if="scopeLabel(m)" class="badge-pill">{{ scopeLabel(m) }}</span>
+          <span v-if="scopeLabel(m) && !m.provider_id && m.scope !== 'builtin'" class="badge-pill">{{ scopeLabel(m) }}</span>
           <span v-if="m.restricted" class="badge-pill" title="只有管理员在用户管理里授权的用户能用">仅限授权用户</span>
         </div>
         <p class="caption">
-          {{ m.model }} · 上下文 {{ wan(m.context.tokens) }}<template v-if="m.thinking_style !== 'none'"> · 可调思考</template><template v-if="m.vision"> · 能看图</template><template v-if="m.tools"> · 可用工具</template> · {{ m.base_url }} · Key {{ m.key_mask || '未填写' }}
+          {{ m.model }} · 上下文 {{ wan(m.context.tokens) }}<template v-if="m.thinking_style !== 'none'"> · 可调思考</template><template v-if="m.vision"> · 能看图</template><template v-if="m.tools"> · 可用工具</template><template v-if="!m.provider_id"> · {{ m.base_url }} · Key {{ m.key_mask || '未填写' }}</template>
         </p>
         <p v-if="rowTest[m.id]" class="caption test-line">{{ rowTest[m.id] }}</p>
       </div>
@@ -289,10 +434,10 @@ defineExpose({ load })
         </template>
       </div>
     </div>
+    </section>
     <p v-if="hasPersonalDefault && isMulti" class="caption foot">
       正在用你自己的模型作为默认。<button class="text-btn" @click="clearDefault">改回站点默认</button>
     </p>
-    <p v-if="models.some((m) => m.scope === 'builtin')" class="caption foot">「配置文件」模型来自 config.yaml 的 llm.chat，需在配置文件中修改。</p>
 
     <Modal
       :open="formOpen"
@@ -315,11 +460,14 @@ defineExpose({ load })
             <input id="m-model" v-model="form.model" class="text-input" required placeholder="例如：deepseek-chat" />
           </div>
         </div>
-        <div class="field">
+        <p v-if="form.provider_id" class="caption">
+          供应商：{{ providers.find((p) => p.id === form.provider_id)?.name }}（接口地址和 API Key 在供应商里改，下面的模型一起生效）
+        </p>
+        <div v-if="!form.provider_id" class="field">
           <label class="field__label" for="m-url">Base URL</label>
           <input id="m-url" v-model="form.base_url" class="text-input" required placeholder="https://api.deepseek.com/v1" inputmode="url" />
         </div>
-        <div class="field">
+        <div v-if="!form.provider_id" class="field">
           <label class="field__label" for="m-key">API Key</label>
           <input
             id="m-key"
@@ -438,6 +586,85 @@ defineExpose({ load })
       </form>
     </Modal>
 
+    <Modal :open="pf.open" :title="pf.editing ? '修改供应商' : '添加供应商'" subtitle="填一次接口地址和 API Key，下面的模型都用它。支持所有 OpenAI 兼容接口。" @close="pf.open = false">
+      <form @submit.prevent="saveProvider">
+        <div v-if="!pf.editing" class="presets">
+          <span class="caption">常见的</span>
+          <button v-for="x in providerPresets" :key="x.label" type="button" class="badge-pill preset" @click="providerPreset(x)">{{ x.label }}</button>
+        </div>
+        <div class="field">
+          <label class="field__label" for="p-url">Base URL</label>
+          <input id="p-url" v-model="pf.base_url" class="text-input" required placeholder="https://api.deepseek.com/v1" inputmode="url" />
+        </div>
+        <div class="field">
+          <label class="field__label" for="p-key">API Key</label>
+          <input id="p-key" v-model="pf.api_key" class="text-input" type="password" autocomplete="new-password" :required="!pf.editing"
+            :placeholder="pf.editing ? `已保存 ${pf.editing.key_mask}，留空表示不修改` : 'sk-…'" />
+        </div>
+        <div class="field">
+          <label class="field__label" for="p-name">名称</label>
+          <input id="p-name" v-model="pf.name" class="text-input" maxlength="64" placeholder="留空按地址自动起名，例如 DeepSeek" />
+          <p class="field__hint">聊天时选模型会按这个名字分组显示。</p>
+        </div>
+        <label v-if="isMulti && isAdmin && !pf.editing" class="check-row">
+          <input v-model="pf.public" type="checkbox" />
+          <span>公共供应商：下面的模型所有用户都能用，按「计费」里的价格计入额度和余额；不勾就是只有你自己能用</span>
+        </label>
+        <p v-if="pf.editing" class="caption">改了地址或 Key，下面的 {{ models.filter((m) => m.provider_id === pf.editing?.id).length }} 个模型一起生效。</p>
+        <p v-if="pf.error" class="form-flash form-flash--error">{{ pf.error }}</p>
+        <div class="modal-actions">
+          <button type="button" class="btn" @click="pf.open = false">取消</button>
+          <button class="btn btn-primary" :disabled="pf.busy">{{ pf.busy ? '正在保存' : pf.editing ? '保存' : '下一步：选模型' }}</button>
+        </div>
+      </form>
+    </Modal>
+
+    <Modal :open="add.open" :title="`给「${add.provider?.name ?? ''}」添加模型`" subtitle="从供应商的模型列表里勾选，能力是按名字猜的，可以改；添加后还能逐个编辑。" wide @close="add.open = false">
+      <form @submit.prevent="saveAdd">
+        <div class="add-tools">
+          <input v-model="add.query" class="text-input" type="search" placeholder="搜索模型名" aria-label="搜索模型名" />
+          <label v-if="hiddenCount" class="check-row add-all"><input v-model="add.showAll" type="checkbox" /> 显示向量、语音等 {{ hiddenCount }} 个非聊天模型</label>
+        </div>
+        <p v-if="add.loading" class="caption">正在读取供应商的模型列表…</p>
+        <p v-if="add.error" class="form-flash form-flash--error">{{ add.error }}</p>
+        <div v-if="addShown.length" class="oc-list add-list">
+          <div v-for="m in addShown" :key="m.id" class="oc-item" :class="{ 'is-on': add.picked.has(m.id), 'is-added': m.added }">
+            <input type="checkbox" :checked="add.picked.has(m.id) || m.added" :disabled="m.added" :aria-label="m.id" @change="togglePick(m)" />
+            <ModelIcon :model="m.id" :size="18" />
+            <span class="add-item__main">
+              <strong class="add-item__id" @click="!m.added && togglePick(m)">{{ m.id }}</strong>
+              <span v-if="m.added" class="badge-pill">已添加</span>
+              <span v-if="add.picked.has(m.id)" class="add-item__caps">
+                <label><input v-model="add.picked.get(m.id)!.vision" type="checkbox" /> 看图</label>
+                <label><input v-model="add.picked.get(m.id)!.tools" type="checkbox" /> 工具</label>
+              </span>
+              <span v-else-if="!m.added" class="caption">{{ [m.vision && '看图', m.thinking_style !== 'none' && '可调思考', m.context_tokens && `${wan(m.context_tokens)} 上下文`].filter(Boolean).join(' · ') }}</span>
+            </span>
+          </div>
+        </div>
+        <p v-else-if="!add.loading && add.list.length" class="caption">没有叫「{{ add.query }}」的模型。</p>
+        <div class="add-manual">
+          <input v-model="add.manual" class="text-input" placeholder="列表里没有？手动填模型名，多个用逗号或空格隔开" aria-label="手动填模型名" @keydown.enter.prevent="addManual" />
+          <button type="button" class="btn btn-sm" :disabled="!add.manual.trim()" @click="addManual">加入</button>
+        </div>
+        <label v-if="isMulti && isAdmin && add.provider?.scope === 'public'" class="check-row">
+          <input v-model="add.restricted" type="checkbox" />
+          <span>仅限授权用户：只有在「管理后台 → 用户管理」里授权了「专属模型」的用户能用</span>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn" @click="add.open = false">取消</button>
+          <button class="btn btn-primary" :disabled="!add.picked.size || add.busy">{{ add.busy ? '正在添加' : `添加 ${add.picked.size} 个模型` }}</button>
+        </div>
+      </form>
+    </Modal>
+
+    <Modal v-if="removingProvider" :title="`删除供应商「${removingProvider.name}」？`" subtitle="下面的模型会一起删除，正在用它们的对话改回默认模型，聊天记录不受影响。" @close="removingProvider = null">
+      <div class="modal-actions">
+        <button class="btn" @click="removingProvider = null">取消</button>
+        <button class="btn btn-danger" @click="removeProvider">删除</button>
+      </div>
+    </Modal>
+
     <Modal v-if="removing" :title="`删除「${removing.name}」？`" subtitle="使用这个模型的对话会改回默认模型，聊天记录不受影响。" @close="removing = null">
       <div class="modal-actions">
         <button class="btn" @click="removing = null">取消</button>
@@ -473,4 +700,22 @@ defineExpose({ load })
 .oc-item { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid var(--color-divider); border-radius: var(--radius-md); font-size: 13px; cursor: pointer; line-height: 1.5; }
 .oc-item.is-on { border-color: var(--color-accent); background: var(--color-accent-tint, rgba(91, 122, 74, .08)); }
 .oc-item input { margin-top: 3px; }
+.prov { margin-top: 14px; padding: 14px 16px 2px; border: 1px solid var(--color-divider); border-radius: var(--radius-lg); }
+.prov__head { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 10px; padding-bottom: 10px; }
+.prov__title { flex: 1; min-width: 200px; }
+.prov__title strong { font-size: 15px; font-weight: 600; margin-right: 6px; }
+.prov__title .caption { margin: 2px 0 0; overflow-wrap: anywhere; }
+.prov__actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.prov__empty { margin: 0 0 12px; }
+.add-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 10px; }
+.add-tools .text-input { flex: 1; min-width: 180px; }
+.add-all { margin: 0; font-size: 13px; }
+.add-list { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.oc-item.is-added { opacity: .6; cursor: default; }
+.add-item__main { display: grid; gap: 2px; min-width: 0; }
+.add-item__id { overflow-wrap: anywhere; cursor: pointer; font-weight: 500; }
+.add-item__caps { display: flex; gap: 10px; font-size: 12px; color: var(--color-text-secondary); }
+.add-item__caps label { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
+.add-manual { display: flex; gap: 8px; margin: 4px 0 12px; }
+.add-manual .text-input { flex: 1; min-width: 0; }
 </style>

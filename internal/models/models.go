@@ -99,6 +99,9 @@ type View struct {
 	Editable      bool        `json:"editable"`
 	// Restricted 表示只有授权用户能用（公共模型）。
 	Restricted bool `json:"restricted"`
+	// ProviderID、Provider 是所属的供应商（配置文件模型没有供应商编号，Provider 按地址猜）。
+	ProviderID uint64 `json:"provider_id"`
+	Provider   string `json:"provider"`
 }
 
 // Input 是新增或修改模型的参数。修改时 APIKey 为空表示保持不变。
@@ -119,6 +122,8 @@ type Input struct {
 	Public bool `json:"public"`
 	// Restricted 为 true 时这个公共模型只给管理员在用户管理里授权的用户用。
 	Restricted bool `json:"restricted"`
+	// ProviderID 不为 0 时挂在这个供应商下面：地址和 Key 用供应商的，BaseURL、APIKey、Public 不用填。
+	ProviderID uint64 `json:"provider_id"`
 }
 
 // Resolved 是一轮对话实际使用的模型。
@@ -183,6 +188,12 @@ func NewService(ctx context.Context, s store.Store, box *secret.Box, cfg *config
 		return nil, err
 	}
 	svc.emb = NewDynamicEmbedding(emb)
+	// 升级前添加的模型按地址和 Key 归到供应商下面。
+	if n, err := svc.GroupModels(ctx); err != nil {
+		svc.log.Warn("模型归组失败", "err", err)
+	} else if n > 0 {
+		svc.log.Info("已把模型按供应商归组", "models", n)
+	}
 	return svc, nil
 }
 
@@ -207,7 +218,7 @@ func (s *Service) builtinView(isDefault bool) View {
 		style = store.ThinkingStyleNone
 	}
 	return View{
-		ID: BuiltinID, Name: c.Model, BaseURL: c.BaseURL, Model: c.Model,
+		ID: BuiltinID, Name: c.Model, BaseURL: c.BaseURL, Model: c.Model, Provider: GuessProviderName(c.BaseURL),
 		ThinkingStyle: style, ThinkingModel: c.ThinkingModel, Temperature: float64(c.Temperature), MaxTokens: c.MaxTokens,
 		Vision: c.Vision, Tools: c.Tools, Scope: ScopeBuiltin, IsDefault: isDefault, KeyMask: secret.Mask(c.APIKey),
 		ContextTokens: c.ContextTokens, Context: peekOr(c.ContextTokens, s.contexts.peek(c.BaseURL, c.Model)),
@@ -228,13 +239,17 @@ func (s *Service) view(m *store.ModelConfig, u User, isDefault bool) View {
 	} else if m.APIKey != "" {
 		mask = "无法解密，请重新填写"
 	}
-	return View{
+	v := View{
 		ID: m.ID, Name: m.Name, BaseURL: m.BaseURL, Model: m.Model, ThinkingStyle: m.ThinkingStyle,
 		ThinkingModel: m.ThinkingModel, Temperature: m.Temperature, MaxTokens: m.MaxTokens,
 		Vision: m.Vision, Tools: m.Tools, Scope: scope, IsDefault: isDefault, KeyMask: mask, Editable: s.canEdit(m, u),
 		ContextTokens: m.ContextTokens, Context: peekOr(m.ContextTokens, s.contexts.peek(m.BaseURL, m.Model)),
 		Restricted: m.Public() && m.Restricted,
 	}
+	if m.ProviderID != nil {
+		v.ProviderID = *m.ProviderID
+	}
+	return v
 }
 
 func (s *Service) canEdit(m *store.ModelConfig, u User) bool {
@@ -256,8 +271,18 @@ func (s *Service) List(ctx context.Context, u User) ([]View, error) {
 	if s.builtinAvailable() {
 		out = append(out, s.builtinView(def == BuiltinID))
 	}
+	names := map[uint64]string{}
+	if ps, err := s.store.Providers().ListVisible(ctx, u.ID); err == nil {
+		for _, p := range ps {
+			names[p.ID] = p.Name
+		}
+	}
 	for i := range ms {
-		out = append(out, s.view(&ms[i], u, ms[i].ID == def))
+		v := s.view(&ms[i], u, ms[i].ID == def)
+		if v.Provider = names[v.ProviderID]; v.Provider == "" {
+			v.Provider = GuessProviderName(v.BaseURL)
+		}
+		out = append(out, v)
 	}
 	return out, nil
 }
@@ -400,6 +425,14 @@ func validURL(raw string) bool {
 
 // Create 添加模型。single 模式下添加为公共模型；multi 模式下 Public 仅管理员可用。
 func (s *Service) Create(ctx context.Context, u User, in Input) (View, error) {
+	var provider *store.ModelProvider
+	if in.ProviderID != 0 {
+		p, err := s.fillFromProvider(ctx, u, &in)
+		if err != nil {
+			return View{}, err
+		}
+		provider = p
+	}
 	if err := validateInput(&in, true); err != nil {
 		return View{}, err
 	}
@@ -420,8 +453,17 @@ func (s *Service) Create(ctx context.Context, u User, in Input) (View, error) {
 		Temperature: in.Temperature, MaxTokens: in.MaxTokens, Vision: in.Vision, Tools: in.Tools, ContextTokens: in.ContextTokens,
 		Restricted: owner == store.PublicOwner && in.Restricted && !s.singleMode(),
 	}
+	if provider != nil {
+		m.ProviderID, m.APIKey = &provider.ID, provider.APIKey
+	}
 	if err := s.store.Models().Create(ctx, m); err != nil {
 		return View{}, err
+	}
+	// 没指定供应商：归到同样地址和 Key 的供应商下面（没有就新建一个）。
+	if provider == nil {
+		if err := s.attach(ctx, m, in.APIKey); err != nil {
+			s.log.Warn("模型归到供应商失败", "model_id", m.ID, "err", err)
+		}
 	}
 	return s.view(m, u, false), nil
 }
@@ -449,6 +491,18 @@ func (s *Service) Update(ctx context.Context, u User, id uint64, in Input) (View
 	if err != nil {
 		return View{}, err
 	}
+	// 挂在供应商下面的模型：没改地址和 Key 时照旧用供应商的；改了就换到对应的供应商下面。
+	var oldProvider *uint64
+	if m.ProviderID != nil {
+		if p, err := s.store.Providers().Get(ctx, *m.ProviderID); err == nil {
+			if in.BaseURL == "" {
+				in.BaseURL = p.BaseURL
+			}
+			if in.APIKey != "" || strings.TrimRight(strings.TrimSpace(in.BaseURL), "/") != p.BaseURL {
+				oldProvider = m.ProviderID
+			}
+		}
+	}
 	if err := validateInput(&in, false); err != nil {
 		return View{}, err
 	}
@@ -462,8 +516,21 @@ func (s *Service) Update(ctx context.Context, u User, id uint64, in Input) (View
 	m.Temperature, m.MaxTokens, m.ContextTokens = in.Temperature, in.MaxTokens, in.ContextTokens
 	m.Vision, m.Tools = in.Vision, in.Tools
 	m.Restricted = m.Public() && in.Restricted && !s.singleMode()
+	if oldProvider != nil {
+		m.ProviderID = nil
+	}
 	if err := s.store.Models().Update(ctx, m); err != nil {
 		return View{}, err
+	}
+	if oldProvider != nil {
+		key := in.APIKey
+		if key == "" {
+			key, _ = s.box.Open(m.APIKey)
+		}
+		if err := s.attach(ctx, m, key); err != nil {
+			s.log.Warn("模型换供应商失败", "model_id", m.ID, "err", err)
+		}
+		s.dropIfEmpty(ctx, *oldProvider)
 	}
 	return s.view(m, u, m.IsDefault), nil
 }
@@ -579,6 +646,11 @@ func (s *Service) Test(ctx context.Context, u User, id uint64, in *Input) (TestR
 	var cfg config.ModelConfig
 	switch {
 	case in != nil:
+		if in.ProviderID != 0 && in.APIKey == "" {
+			if _, err := s.fillFromProvider(ctx, u, in); err != nil {
+				return TestResult{}, err
+			}
+		}
 		if err := validateInput(in, id == 0); err != nil {
 			return TestResult{}, err
 		}

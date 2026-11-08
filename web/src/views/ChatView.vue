@@ -32,7 +32,7 @@ import TaskCard from '../components/TaskCard.vue'
 import ThinkingSlider from '../components/ThinkingSlider.vue'
 import ModelIcon from '../components/ModelIcon.vue'
 import CosplayPicker from '../components/CosplayPicker.vue'
-import { shortName, sourceOf } from '../vendors'
+import { shortName } from '../vendors'
 import { splitBubbles } from '../bubbles'
 import { dayKey, dayLabel, formatSize, renderMarkdown, shortWhen, timeOf } from '../format'
 import { memoriesUnlocked } from '../memoryLock'
@@ -493,11 +493,17 @@ watch(pickerOpen, async (v) => {
 const modelGroups = computed(() => {
   const q = modelQuery.value.trim().toLowerCase()
   const hit = models.value.filter((m) => !q || m.name.toLowerCase().includes(q) || m.model.toLowerCase().includes(q))
-  if (!isMulti.value) return [{ label: '', items: hit }]
-  return [
-    { label: '公共模型', items: hit.filter((m) => m.scope !== 'personal') },
-    { label: '我的模型', items: hit.filter((m) => m.scope === 'personal') },
-  ].filter((g) => g.items.length)
+  // 按供应商分组（像 OpenCode 那样）：公共的在前，自己添加的标上「我的」。
+  const groups: { key: string; label: string; items: ModelView[] }[] = []
+  for (const m of hit) {
+    const mine = isMulti.value && m.scope === 'personal'
+    const key = `${mine ? 'me' : 'pub'}:${m.provider_id || m.provider}`
+    let g = groups.find((x) => x.key === key)
+    if (!g) groups.push((g = { key, label: (mine ? '我的 · ' : '') + (m.provider || '其他'), items: [] }))
+    g.items.push(m)
+  }
+  if (groups.length === 1 && !isMulti.value) groups[0].label = ''
+  return groups.sort((a, b) => Number(a.key.startsWith('me')) - Number(b.key.startsWith('me')))
 })
 const modelCount = computed(() => modelGroups.value.reduce((n, g) => n + g.items.length, 0))
 
@@ -1375,7 +1381,7 @@ onBeforeUnmount(() => {
                     </span>
                     <small v-if="defaultModel">跟随设置里的默认：{{ shortName(defaultModel.name) }}</small>
                   </button>
-                  <template v-for="g in modelGroups" :key="g.label">
+                  <template v-for="g in modelGroups" :key="g.key">
                     <p v-if="g.label" class="picker__group">{{ g.label }}</p>
                     <button
                       v-for="m in g.items"
@@ -1388,7 +1394,6 @@ onBeforeUnmount(() => {
                       <ModelIcon :model="m.model" :name="m.name" :size="20" class="picker__opt-icon" />
                       <span class="picker__opt-main">
                         <span class="picker__opt-name" :title="m.name">{{ shortName(m.name) }}</span>
-                        <span v-if="sourceOf(m.base_url, m.name)" class="picker__src">{{ sourceOf(m.base_url, m.name) }}</span>
                         <Icon v-if="current?.model_id === m.id" name="check" :size="15" class="picker__check" />
                       </span>
                       <small class="picker__opt-meta">

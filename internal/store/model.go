@@ -231,12 +231,28 @@ type ModelConfig struct {
 	IsDefault     bool `gorm:"not null;default:false"`
 	// Restricted 为 true 的公共模型只有管理员在用户管理里授权的用户能用。
 	Restricted bool `gorm:"not null;default:false"`
+	// ProviderID 是所属的供应商。BaseURL、APIKey 和供应商保持一致（改供应商时一起改），其他代码照旧读模型自己的。
+	ProviderID *uint64 `gorm:"index"`
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }
 
 // Public 报告是否为公共模型。
 func (m *ModelConfig) Public() bool { return m.OwnerID == PublicOwner }
+
+// ModelProvider 是模型供应商：一个接口地址和 API Key，下面可以挂多个模型。OwnerID 为 PublicOwner 时是公共的。
+type ModelProvider struct {
+	ID        uint64 `gorm:"primaryKey"`
+	OwnerID   uint64 `gorm:"index;not null;default:0"`
+	Name      string `gorm:"size:64;not null"`
+	BaseURL   string `gorm:"size:512;not null"`
+	APIKey    string `gorm:"column:api_key_enc;size:2048;not null;default:''"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// Public 报告是否为公共供应商。
+func (p *ModelProvider) Public() bool { return p.OwnerID == PublicOwner }
 
 // 附件类型。
 const (

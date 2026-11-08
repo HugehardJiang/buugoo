@@ -310,6 +310,7 @@ func (r modelRepo) Update(ctx context.Context, m *store.ModelConfig) error {
 		"thinking_style": m.ThinkingStyle, "thinking_model": m.ThinkingModel,
 		"temperature": m.Temperature, "max_tokens": m.MaxTokens,
 		"vision": m.Vision, "tools": m.Tools, "context_tokens": m.ContextTokens, "restricted": m.Restricted,
+		"provider_id": m.ProviderID,
 	})
 	if res.Error != nil {
 		return mapErr(res.Error)
@@ -322,6 +323,67 @@ func (r modelRepo) Update(ctx context.Context, m *store.ModelConfig) error {
 
 func (r modelRepo) Delete(ctx context.Context, id uint64) error {
 	res := r.db.WithContext(ctx).Delete(&store.ModelConfig{}, id)
+	if res.Error != nil {
+		return mapErr(res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
+func (r modelRepo) ListUngrouped(ctx context.Context) ([]store.ModelConfig, error) {
+	var out []store.ModelConfig
+	return out, mapErr(r.db.WithContext(ctx).Where("provider_id IS NULL").Order("id").Find(&out).Error)
+}
+
+func (r modelRepo) ListByProvider(ctx context.Context, providerID uint64) ([]store.ModelConfig, error) {
+	var out []store.ModelConfig
+	return out, mapErr(r.db.WithContext(ctx).Where("provider_id = ?", providerID).Order("id").Find(&out).Error)
+}
+
+type providerRepo struct{ db *gorm.DB }
+
+func (r providerRepo) Create(ctx context.Context, p *store.ModelProvider) error {
+	return mapErr(r.db.WithContext(ctx).Create(p).Error)
+}
+
+func (r providerRepo) Get(ctx context.Context, id uint64) (*store.ModelProvider, error) {
+	var p store.ModelProvider
+	if err := r.db.WithContext(ctx).First(&p, id).Error; err != nil {
+		return nil, mapErr(err)
+	}
+	return &p, nil
+}
+
+func (r providerRepo) ListVisible(ctx context.Context, userID uint64) ([]store.ModelProvider, error) {
+	var out []store.ModelProvider
+	err := r.db.WithContext(ctx).Where("owner_id IN ?", []uint64{store.PublicOwner, userID}).Order("owner_id, id").Find(&out).Error
+	return out, mapErr(err)
+}
+
+func (r providerRepo) ListOwned(ctx context.Context, ownerID uint64) ([]store.ModelProvider, error) {
+	var out []store.ModelProvider
+	return out, mapErr(r.db.WithContext(ctx).Where("owner_id = ?", ownerID).Order("id").Find(&out).Error)
+}
+
+func (r providerRepo) Update(ctx context.Context, p *store.ModelProvider) error {
+	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		res := tx.Model(&store.ModelProvider{}).Where("id = ?", p.ID).Updates(map[string]any{
+			"name": p.Name, "base_url": p.BaseURL, "api_key_enc": p.APIKey, "updated_at": time.Now()})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return store.ErrNotFound
+		}
+		return tx.Model(&store.ModelConfig{}).Where("provider_id = ?", p.ID).
+			Updates(map[string]any{"base_url": p.BaseURL, "api_key_enc": p.APIKey}).Error
+	}))
+}
+
+func (r providerRepo) Delete(ctx context.Context, id uint64) error {
+	res := r.db.WithContext(ctx).Delete(&store.ModelProvider{}, id)
 	if res.Error != nil {
 		return mapErr(res.Error)
 	}

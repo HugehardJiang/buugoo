@@ -267,6 +267,37 @@ export interface ModelView {
   editable: boolean
   /** 只有授权用户能用（公共模型） */
   restricted: boolean
+  /** 所属供应商（配置文件模型为 0，provider 按地址猜的名字） */
+  provider_id: number
+  provider: string
+}
+
+/** 模型供应商：一个地址和 Key，下面挂多个模型 */
+export interface ProviderView {
+  id: number
+  name: string
+  base_url: string
+  key_mask: string
+  scope: 'public' | 'personal'
+  editable: boolean
+}
+
+export interface ProviderInput {
+  name: string
+  base_url: string
+  api_key: string
+  public: boolean
+}
+
+/** 供应商接口列出的模型（能力是猜的，添加前可以改） */
+export interface RemoteModel {
+  id: string
+  added: boolean
+  chat: boolean
+  vision: boolean
+  tools: boolean
+  thinking_style: ThinkingStyle
+  context_tokens?: number
 }
 
 export interface ModelInput {
@@ -283,6 +314,8 @@ export interface ModelInput {
   context_tokens: number
   public: boolean
   restricted?: boolean
+  /** 挂在供应商下面时地址和 Key 用供应商的 */
+  provider_id?: number
 }
 
 export interface TestResult {
@@ -870,7 +903,13 @@ export const api = {
     ),
   /** prices：计费开着时各公共模型现在的价格（元 / 百万 token）；peak：现在是不是高峰时段 */
   models: () =>
-    request<{ models: ModelView[]; prices?: Record<string, ModelPrice>; peak?: boolean }>('GET', '/models'),
+    request<{ models: ModelView[]; providers: ProviderView[]; prices?: Record<string, ModelPrice>; peak?: boolean }>('GET', '/models'),
+  createProvider: (input: ProviderInput) => request<ProviderView>('POST', '/providers', input),
+  updateProvider: (id: number, input: ProviderInput) => request<ProviderView>('PUT', `/providers/${id}`, input),
+  deleteProvider: (id: number) => request<{ removed: number }>('DELETE', `/providers/${id}`),
+  remoteModels: (id: number) => request<{ models: RemoteModel[] }>('GET', `/providers/${id}/remote`),
+  addProviderModels: (id: number, models: { model: string; name?: string; vision: boolean; tools: boolean; thinking_style: ThinkingStyle; context_tokens?: number }[], restricted: boolean) =>
+    request<{ added: number }>('POST', `/providers/${id}/models`, { models, restricted }),
   createModel: (input: ModelInput) => request<ModelView>('POST', '/models', input),
   updateModel: (id: number, input: ModelInput) => request<ModelView>('PUT', `/models/${id}`, input),
   deleteModel: (id: number) => request<void>('DELETE', `/models/${id}`),

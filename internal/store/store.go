@@ -36,6 +36,7 @@ type Store interface {
 	Invites() InviteRepo
 	Conversations() ConversationRepo
 	Models() ModelRepo
+	Providers() ProviderRepo
 	Messages() MessageRepo
 	Attachments() AttachmentRepo
 	Memories() MemoryRepo
@@ -193,6 +194,23 @@ type ModelRepo interface {
 	ClearDefault(ctx context.Context, ownerID uint64) error
 	// SetDefault 把 id 设为该所有者的默认模型（同一所有者只有一个默认模型）。
 	SetDefault(ctx context.Context, ownerID, id uint64) error
+	// ListUngrouped 列出还没归到供应商下的模型（所有人的）。
+	ListUngrouped(ctx context.Context) ([]ModelConfig, error)
+	// ListByProvider 列出供应商下的模型。
+	ListByProvider(ctx context.Context, providerID uint64) ([]ModelConfig, error)
+}
+
+// ProviderRepo 是模型供应商数据访问接口。
+type ProviderRepo interface {
+	Create(ctx context.Context, p *ModelProvider) error
+	Get(ctx context.Context, id uint64) (*ModelProvider, error)
+	// ListVisible 列出公共供应商与该用户自己的供应商。
+	ListVisible(ctx context.Context, userID uint64) ([]ModelProvider, error)
+	// ListOwned 列出某个所有者的供应商。
+	ListOwned(ctx context.Context, ownerID uint64) ([]ModelProvider, error)
+	// Update 修改名称、地址和 Key，并把地址和 Key 同步到它下面的所有模型。
+	Update(ctx context.Context, p *ModelProvider) error
+	Delete(ctx context.Context, id uint64) error
 }
 
 // MessageRepo 是消息数据访问接口。

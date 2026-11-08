@@ -232,6 +232,9 @@ func (s *Service) Delete(ctx context.Context, id uint64, confirm string) error {
 			}
 		}
 		// 他自己添加的模型（不是公共模型）一起删。
+		if err := tx.Where("owner_id = ? AND owner_id <> ?", id, store.PublicOwner).Delete(&store.ModelProvider{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("owner_id = ? AND owner_id <> ?", id, store.PublicOwner).Delete(&store.ModelConfig{}).Error; err != nil {
 			return err
 		}
