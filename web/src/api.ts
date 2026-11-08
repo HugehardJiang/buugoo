@@ -424,7 +424,8 @@ export interface Plan {
   description: string
   price: string
   // pack 是已经停用的旧余额包，只在管理后台里显示。
-  kind: 'period' | 'recharge' | 'pack'
+  // addon 是附加包：只加权限（API 接入、后台任务），不改额度，可以和时长套餐叠加；days 为 0 表示永久。
+  kind: 'period' | 'recharge' | 'addon' | 'pack'
   days: number
   cycle: 'day' | 'month' | ''
   // 时长套餐每周期的额度，0 表示不限。
@@ -526,8 +527,19 @@ export interface CostItem {
   tokens: number
 }
 
+/** 用户开通的附加包；expires_at 为空表示永久 */
+export interface UserAddon {
+  id: number
+  plan_name: string
+  api_access: boolean
+  task_access: boolean
+  sandbox_network: boolean
+  expires_at: string | null
+}
+
 export interface BillingAccount {
   subscription?: { plan_name: string; cycle: string; quota_messages: number; quota_tokens: number; quota_searches: number; expires_at: string }
+  addons?: UserAddon[]
   balance: number
   today: CostItem[]
   month: CostItem[]

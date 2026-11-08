@@ -2,7 +2,7 @@
 // 管理后台 → 用户管理：搜索、筛选、查看用量和会员，开通套餐、调整余额、重置密码、设管理员、停用、删除。
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ApiError, type BillingAccount, type Plan, type Quota } from '../api'
-import { dateTime, mtok, shortWhen, yuan, YUAN } from '../format'
+import { addonPerms, dateTime, mtok, shortWhen, yuan, YUAN } from '../format'
 import Modal from './Modal.vue'
 import { toast } from '../toast'
 
@@ -124,6 +124,23 @@ async function impersonate() {
   }
 }
 
+// removeAddon 收回用户的一个附加包（权限马上失效）。
+async function removeAddon(id: number, name: string) {
+  const d = detail.value
+  if (!d || busy.value || !confirm(`收回附加包「${name}」？权限马上失效，不退钱。`)) return
+  busy.value = true
+  try {
+    await props.call('DELETE', `/users/${d.user.id}/addons/${id}`)
+    toast('已收回')
+    await open(d.user.id)
+    await load()
+  } catch (e) {
+    toast(e instanceof ApiError ? e.message : '操作失败')
+  } finally {
+    busy.value = false
+  }
+}
+
 async function act(path: string, body: unknown, ok: string) {
   const d = detail.value
   if (!d || busy.value) return
@@ -220,6 +237,12 @@ function costTotal(items: { amount: number }[]) {
             <p>当前周期用量：{{ usageText(detail.quota) }}<span class="caption">（{{ detail.quota.period === 'month' ? '每月' : '每天' }}重置）</span></p>
             <p v-if="detail.account.subscription">会员：<strong>{{ detail.account.subscription.plan_name }}</strong>，{{ dateTime(detail.account.subscription.expires_at) }} 到期</p>
             <p v-else class="caption">没有开通时长套餐</p>
+            <ul v-if="detail.account.addons?.length" class="packs">
+              <li v-for="a in detail.account.addons" :key="a.id">
+                附加包 <strong>{{ a.plan_name }}</strong><span class="caption">（{{ addonPerms(a) }}） · {{ a.expires_at ? `${dateTime(a.expires_at)} 到期` : '永久' }}</span>
+                <button type="button" class="link caption" :disabled="busy" @click="removeAddon(a.id, a.plan_name)">收回</button>
+              </li>
+            </ul>
             <p>余额：<strong :class="{ neg: detail.account.balance < 0 }">{{ yuan(detail.account.balance) }}</strong>
               <span class="caption">· 今天花了 {{ yuan(costTotal(detail.account.today)) }} · 本月 {{ yuan(costTotal(detail.account.month)) }}</span></p>
             <ul v-if="detail.account.month.length" class="packs">
@@ -232,7 +255,7 @@ function costTotal(items: { amount: number }[]) {
             <h3>开通套餐</h3>
             <div class="inline">
               <select v-model.number="grant.plan_id" class="text-input" aria-label="套餐">
-                <option v-for="p in plans" :key="p.id" :value="p.id">{{ p.name }}</option>
+                <option v-for="p in plans" :key="p.id" :value="p.id">{{ p.name }}（{{ { period: '时长套餐', recharge: '充值', addon: '附加包' }[p.kind as string] ?? p.kind }}）</option>
               </select>
               <input v-model="grant.note" class="text-input" placeholder="备注（可选）" maxlength="50" aria-label="备注" />
               <button type="button" class="btn btn-sm btn-primary" :disabled="busy || !grant.plan_id" @click="act('grant', { ...grant }, '已开通')">开通</button>

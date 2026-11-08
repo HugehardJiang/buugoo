@@ -248,7 +248,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 			return false, false
 		}
 		ent, err := billingSvc.Entitlement(ctx, u.ID)
-		if err != nil || !ent.Active || !ent.TaskAccess {
+		if err != nil || !ent.TaskAccess {
 			return false, false
 		}
 		return true, ent.SandboxNetwork

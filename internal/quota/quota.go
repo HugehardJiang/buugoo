@@ -148,7 +148,8 @@ func (e *ExceededError) Error() string {
 	return msg
 }
 
-// Entitlement 是用户现在的会员权益：时长套餐（Active 为 true 时）和余额。
+// Entitlement 是用户现在的会员权益：时长套餐（Active 为 true 时）、附加包和余额。
+// APIAccess、TaskAccess、SandboxNetwork 是时长套餐和附加包合起来的权限，不需要 Active。
 type Entitlement struct {
 	Active        bool   `json:"active"`
 	PlanName      string `json:"plan_name,omitempty"`
@@ -162,6 +163,8 @@ type Entitlement struct {
 	TaskAccess     bool      `json:"task_access,omitempty"`
 	SandboxNetwork bool      `json:"sandbox_network,omitempty"`
 	ExpiresAt      time.Time `json:"expires_at,omitzero"`
+	// Addons 是还没过期的附加包（权限已经合进上面的 APIAccess 等字段）。
+	Addons []store.UserAddon `json:"addons,omitempty"`
 	// Balance 是余额（微元）。
 	Balance int64 `json:"balance"`
 }

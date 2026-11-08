@@ -663,6 +663,7 @@ type Todo struct {
 const (
 	PlanPeriod   = "period"   // 时长套餐：有效期内每天（或每月）有固定额度
 	PlanRecharge = "recharge" // 充值：兑换后往余额里加一笔钱
+	PlanAddon    = "addon"    // 附加包：只加权限（API 接入、后台任务），不改额度，可以和时长套餐、充值叠加
 	PlanPack     = "pack"     // 旧的余额包（条数 / token），已停用，不能再新建和兑换
 
 	UnitMessages = "messages"
@@ -704,6 +705,21 @@ type Plan struct {
 	Sort           int  `gorm:"not null;default:0"`
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+}
+
+// UserAddon 是用户开通的附加包（开通时从套餐复制权限，之后改套餐不影响已开通的）。
+// 同一个附加包再次兑换时在原来的到期时间上往后加；ExpiresAt 为空表示永久。
+type UserAddon struct {
+	ID             uint64     `gorm:"primaryKey" json:"id"`
+	UserID         uint64     `gorm:"index;not null" json:"-"`
+	PlanID         uint64     `gorm:"not null" json:"plan_id"`
+	PlanName       string     `gorm:"size:64;not null" json:"plan_name"`
+	APIAccess      bool       `gorm:"not null;default:false" json:"api_access"`
+	TaskAccess     bool       `gorm:"not null;default:false" json:"task_access"`
+	SandboxNetwork bool       `gorm:"not null;default:false" json:"sandbox_network"`
+	ExpiresAt      *time.Time `json:"expires_at"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"-"`
 }
 
 // Subscription 是用户开通的时长套餐（记下开通时的额度，之后改套餐不影响已开通的）。

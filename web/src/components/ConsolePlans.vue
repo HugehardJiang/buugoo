@@ -67,6 +67,17 @@ function openEdit(p: Plan) {
   formError.value = ''
 }
 
+// setAddon 切到附加包：新建时默认 30 天、勾上 API 接入，免得一个权限都没有。
+function setAddon() {
+  const p = editing.value
+  if (!p) return
+  if (p.kind !== 'addon' && isNew.value) {
+    p.days = 30
+    if (!p.api_access && !p.task_access) p.api_access = true
+  }
+  p.kind = 'addon'
+}
+
 const preview = computed(() => (editing.value ? planSummary(toPlan(editing.value)) : ''))
 
 async function save() {
@@ -120,7 +131,7 @@ async function confirmRemove() {
     </div>
     <p class="muted intro">
       时长套餐在有效期内每天（或每月）给固定额度：消息、token、联网搜索各自限，不填的不限；额度用完后按「计费」里的价格扣余额。
-      充值套餐兑换后把钱加到余额里。显示的套餐会出现在用户「个人中心 → 会员」里，可以附上购买链接（发卡平台、店铺等），用户买到卡密后在那里兑换。
+      充值套餐兑换后把钱加到余额里。附加包只开通权限（API 接入、后台任务），不改额度，可以和时长套餐叠加，适合「充值 + 按需加权限」的卖法。显示的套餐会出现在用户「个人中心 → 会员」里，可以附上购买链接（发卡平台、店铺等），用户买到卡密后在那里兑换。
     </p>
     <p v-if="error" class="form-flash form-flash--error">{{ error }}</p>
     <div v-else-if="plans === null" class="skeleton skel" aria-hidden="true" />
@@ -130,7 +141,7 @@ async function confirmRemove() {
         <div class="plan__main">
           <p class="plan__name">
             {{ p.name }}
-            <span class="badge-pill">{{ { period: '时长套餐', recharge: '充值', pack: '旧余额包 · 已停用' }[p.kind] }}</span>
+            <span class="badge-pill">{{ { period: '时长套餐', recharge: '充值', addon: '附加包', pack: '旧余额包 · 已停用' }[p.kind] }}</span>
             <span v-if="p.price" class="price">{{ p.price }}</span>
           </p>
           <p class="caption">{{ planSummary(p) }}<template v-if="p.buy_url"> · 有购买链接</template></p>
@@ -160,8 +171,17 @@ async function confirmRemove() {
           <span class="field__label">种类</span>
           <div class="type-switch" role="group">
             <button type="button" :class="{ 'is-active': editing.kind === 'period' }" @click="editing.kind = 'period'">时长套餐</button>
+            <button type="button" :class="{ 'is-active': editing.kind === 'addon' }" @click="setAddon">附加包</button>
             <button type="button" :class="{ 'is-active': editing.kind === 'recharge' }" @click="editing.kind = 'recharge'">充值</button>
           </div>
+        </div>
+        <p v-if="editing.kind === 'addon'" class="caption hint">
+          附加包只给权限，不改额度：用户原来的免费额度、时长套餐和余额都照旧，用量照常按额度或余额计费。可以和时长套餐、其他附加包同时有效；同一个附加包再次兑换会在到期时间上往后加。
+        </p>
+        <div v-if="editing.kind === 'addon'" class="field">
+          <label class="field__label" for="pl-ad">时长（天）</label>
+          <input id="pl-ad" v-model.number="editing.days" class="text-input" type="number" min="0" max="3660" required />
+          <p class="field__hint">填 0 表示永久有效。</p>
         </div>
         <template v-if="editing.kind === 'period'">
           <div class="form-row">
@@ -193,6 +213,8 @@ async function confirmRemove() {
             </div>
           </div>
           <p class="caption hint">哪一项先用完就停在哪一项：消息或 token 用完后有余额就接着扣余额；搜索次数用完只是不能联网搜索，聊天照常。</p>
+        </template>
+        <template v-if="editing.kind === 'period' || editing.kind === 'addon'">
           <label class="check-row">
             <input v-model="editing.api_access" type="checkbox" />
             <span>包含 API 接入（开通后可以用 OpenAI / Anthropic 格式的接口调用模型，按「API 接入」里的倍率计费）</span>
@@ -206,7 +228,7 @@ async function confirmRemove() {
             <span>后台任务里运行代码的沙箱可以联网（能直接下载数据、调接口；不勾时只能用布谷的搜索和读网页工具）</span>
           </label>
         </template>
-        <div v-else class="field">
+        <div v-if="editing.kind === 'recharge'" class="field">
           <label class="field__label" for="pl-a">到账金额</label>
           <div class="with-unit">
             <input id="pl-a" v-model.number="form.yuan" class="text-input" type="number" min="0.01" step="any" required />

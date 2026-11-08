@@ -14,6 +14,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/secret"
 	"github.com/HugehardJiang/buugoo/internal/store"
 	"github.com/HugehardJiang/buugoo/internal/store/gormstore"
+	"gorm.io/gorm"
 )
 
 func setup(t *testing.T) (*Service, *gormstore.DB) {
@@ -367,5 +368,86 @@ func TestPeakNowUsesLocation(t *testing.T) {
 	svc.now = func() time.Time { return time.Date(2026, 10, 29, 2, 0, 0, 0, time.UTC) }
 	if !svc.PeakNow(context.Background()) {
 		t.Fatal("北京时间 10:00 是高峰时段")
+	}
+}
+
+// 附加包只加权限、不碰额度；和时长套餐叠加，换时长套餐不会丢；同一个附加包续费往后加；0 天是永久。
+func TestAddons(t *testing.T) {
+	s, db := setup(t)
+	ctx := context.Background()
+	u := newUser(t, db, "addon")
+	if _, err := s.CreatePlan(ctx, PlanInput{Name: "空包", Kind: store.PlanAddon, Days: 30}); err == nil {
+		t.Fatal("没有任何权限的附加包应该建不了")
+	}
+	api, err := s.CreatePlan(ctx, PlanInput{Name: "API", Kind: store.PlanAddon, Days: 30, APIAccess: true, QuotaTokens: 99, SandboxNetwork: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if api.QuotaTokens != 0 || api.SandboxNetwork || api.Cycle != "" {
+		t.Fatalf("附加包不应带额度和无效的联网：%+v", api)
+	}
+	task, err := s.CreatePlan(ctx, PlanInput{Name: "后台任务", Kind: store.PlanAddon, Days: 0, TaskAccess: true, SandboxNetwork: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	month, err := s.CreatePlan(ctx, PlanInput{Name: "月卡", Kind: store.PlanPeriod, Days: 30, Cycle: store.CycleDay, QuotaMessages: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 只有附加包：有权限，但不算开通了时长套餐（额度照旧）。
+	if _, err := s.Grant(ctx, u.ID, api.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	ent, _ := s.Entitlement(ctx, u.ID)
+	if ent.Active || !ent.APIAccess || ent.TaskAccess || len(ent.Addons) != 1 {
+		t.Fatalf("只有 API 附加包：%+v", ent)
+	}
+	// 续费同一个附加包往后加 30 天。
+	first := *ent.Addons[0].ExpiresAt
+	if _, err := s.Grant(ctx, u.ID, api.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	ent, _ = s.Entitlement(ctx, u.ID)
+	if len(ent.Addons) != 1 || ent.Addons[0].ExpiresAt.Sub(first) < 29*24*time.Hour {
+		t.Fatalf("续费应往后加：%+v", ent.Addons)
+	}
+	// 再开永久的后台任务附加包和时长套餐：权限叠加，额度按时长套餐。
+	if _, err := s.Grant(ctx, u.ID, task.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Grant(ctx, u.ID, month.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	ent, _ = s.Entitlement(ctx, u.ID)
+	if !ent.Active || ent.QuotaMessages != 100 || !ent.APIAccess || !ent.TaskAccess || !ent.SandboxNetwork || len(ent.Addons) != 2 {
+		t.Fatalf("叠加后：%+v", ent)
+	}
+	if ent.Addons[1].ExpiresAt != nil || ent.Addons[1].PlanName != "后台任务" {
+		t.Fatalf("永久的附加包应排在最后、没有到期时间：%+v", ent.Addons)
+	}
+	acc, err := s.Account(ctx, u.ID, 10)
+	if err != nil || len(acc.Addons) != 2 || acc.Subscription == nil {
+		t.Fatalf("个人中心：%+v %v", acc, err)
+	}
+	// 管理员收回 API 附加包。
+	if err := s.RemoveAddon(ctx, u.ID, ent.Addons[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RemoveAddon(ctx, u.ID+1, ent.Addons[1].ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("不能收回别人的：%v", err)
+	}
+	ent, _ = s.Entitlement(ctx, u.ID)
+	if ent.APIAccess || !ent.TaskAccess {
+		t.Fatalf("收回后：%+v", ent)
+	}
+	// 删除用户时一起删掉。
+	if err := db.Gorm().Transaction(func(tx *gorm.DB) error { return DeleteUserData(tx, u.ID) }); err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	db.Gorm().Model(&store.UserAddon{}).Where("user_id = ?", u.ID).Count(&n)
+	if n != 0 {
+		t.Fatalf("删除用户后还剩 %d 个附加包", n)
 	}
 }

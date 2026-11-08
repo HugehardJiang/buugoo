@@ -35,6 +35,7 @@ func (s *server) routeBilling(api, priv, console *echo.Group) {
 	m.POST("/users/:id/restricted-models", s.consoleSetRestrictedModels)
 	m.POST("/users/:id/password", s.consoleResetPassword)
 	m.POST("/users/:id/grant", s.consoleGrant)
+	m.DELETE("/users/:id/addons/:aid", s.consoleRemoveAddon)
 	m.POST("/users/:id/adjust", s.consoleAdjust)
 	m.POST("/users/:id/delete", s.consoleDeleteUser)
 	m.GET("/plans", s.consolePlans)
@@ -228,6 +229,23 @@ func (s *server) consoleGrant(c echo.Context) error {
 	}
 	s.audit(c, "管理后台给用户开通了套餐", "user", id, "plan", req.PlanID)
 	return c.JSON(http.StatusOK, map[string]any{"message": msg})
+}
+
+// consoleRemoveAddon 处理 DELETE /console/users/:id/addons/:aid：收回用户的一个附加包。
+func (s *server) consoleRemoveAddon(c echo.Context) error {
+	id, err := pathID(c)
+	if err != nil {
+		return err
+	}
+	aid, err := strconv.ParseUint(c.Param("aid"), 10, 64)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "附加包编号不对")
+	}
+	if err := s.Billing.RemoveAddon(c.Request().Context(), id, aid); err != nil {
+		return err
+	}
+	s.audit(c, "管理后台收回了用户的附加包", "user", id, "addon", aid)
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (s *server) consoleAdjust(c echo.Context) error {

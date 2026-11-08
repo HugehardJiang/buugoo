@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -395,6 +396,14 @@ func (in *PlanInput) validate() error {
 			}
 		}
 		in.Amount = 0
+	case store.PlanAddon:
+		if in.Days < 0 || in.Days > 3660 {
+			return userErr("时长要 0 到 3660 天（0 表示永久）")
+		}
+		if !in.APIAccess && !in.TaskAccess {
+			return userErr("附加包至少要包含一项权限（API 接入或后台任务）")
+		}
+		in.Cycle, in.QuotaMessages, in.QuotaTokens, in.QuotaSearches, in.Amount = "", 0, 0, 0, 0
 	case store.PlanRecharge:
 		if in.Amount <= 0 || in.Amount > 1e6*Yuan {
 			return userErr("充值金额要大于 0，最多 100 万元")
@@ -404,8 +413,10 @@ func (in *PlanInput) validate() error {
 	case store.PlanPack:
 		return userErr("余额包已经停用，请改用「充值」套餐")
 	default:
-		return userErr("套餐种类只能是时长套餐或充值")
+		return userErr("套餐种类只能是时长套餐、附加包或充值")
 	}
+	// 沙箱联网只对后台任务有意义。
+	in.SandboxNetwork = in.SandboxNetwork && in.TaskAccess
 	if in.BuyURL != "" {
 		u, err := url.Parse(in.BuyURL)
 		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
@@ -519,9 +530,18 @@ func (s *Service) Entitlement(ctx context.Context, userID uint64) (quota.Entitle
 	case err == nil:
 		ent.Active, ent.PlanName, ent.Cycle, ent.ExpiresAt = true, sub.PlanName, sub.Cycle, sub.ExpiresAt
 		ent.QuotaMessages, ent.QuotaTokens, ent.QuotaSearches = sub.QuotaMessages, sub.QuotaTokens, sub.QuotaSearches
-		ent.APIAccess, ent.TaskAccess, ent.SandboxNetwork = sub.APIAccess, sub.TaskAccess, sub.SandboxNetwork
+		ent.APIAccess, ent.TaskAccess, ent.SandboxNetwork = sub.APIAccess, sub.TaskAccess, sub.TaskAccess && sub.SandboxNetwork
 	case !errors.Is(err, gorm.ErrRecordNotFound):
 		return ent, err
+	}
+	// 附加包的权限和时长套餐的合在一起（任何一个有就算有）。
+	if ent.Addons, err = s.activeAddons(ctx, userID); err != nil {
+		return ent, err
+	}
+	for _, a := range ent.Addons {
+		ent.APIAccess = ent.APIAccess || a.APIAccess
+		ent.TaskAccess = ent.TaskAccess || a.TaskAccess
+		ent.SandboxNetwork = ent.SandboxNetwork || (a.TaskAccess && a.SandboxNetwork)
 	}
 	ent.Balance, err = s.Balance(ctx, userID)
 	return ent, err
@@ -536,6 +556,8 @@ func (s *Service) grant(tx *gorm.DB, userID uint64, p *store.Plan) (string, erro
 			return "", err
 		}
 		return fmt.Sprintf("充值「%s」¥%s", p.Name, quota.Yuan(p.Amount)), nil
+	case store.PlanAddon:
+		return s.grantAddon(tx, userID, p)
 	case store.PlanPeriod:
 	default:
 		return "", userErr("这个套餐（旧的余额包）已经停用了，请联系管理员")
@@ -557,6 +579,64 @@ func (s *Service) grant(tx *gorm.DB, userID uint64, p *store.Plan) (string, erro
 		return "", err
 	}
 	return fmt.Sprintf("开通「%s」%d 天，到期 %s", p.Name, p.Days, sub.ExpiresAt.Format("2006-01-02 15:04")), nil
+}
+
+// grantAddon 开通附加包：同一个附加包还没过期就在原来的到期时间上往后加（权限按套餐现在的设置），否则新开一个。
+// 附加包不碰时长套餐和额度。
+func (s *Service) grantAddon(tx *gorm.DB, userID uint64, p *store.Plan) (string, error) {
+	now := s.now()
+	var a store.UserAddon
+	err := tx.Where("user_id = ? AND plan_id = ? AND (expires_at IS NULL OR expires_at > ?)", userID, p.ID, now).Order("id DESC").First(&a).Error
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		a = store.UserAddon{UserID: userID, PlanID: p.ID}
+		start := now
+		a.ExpiresAt = &start
+	case err != nil:
+		return "", err
+	}
+	a.PlanName, a.APIAccess, a.TaskAccess, a.SandboxNetwork = p.Name, p.APIAccess, p.TaskAccess, p.SandboxNetwork
+	if p.Days == 0 || a.ExpiresAt == nil {
+		a.ExpiresAt = nil
+	} else {
+		t := a.ExpiresAt.AddDate(0, 0, p.Days)
+		a.ExpiresAt = &t
+	}
+	if err := tx.Save(&a).Error; err != nil {
+		return "", err
+	}
+	if a.ExpiresAt == nil {
+		return fmt.Sprintf("开通附加包「%s」（永久）", p.Name), nil
+	}
+	return fmt.Sprintf("开通附加包「%s」%d 天，到期 %s", p.Name, p.Days, a.ExpiresAt.Format("2006-01-02 15:04")), nil
+}
+
+// activeAddons 返回用户还没过期的附加包（先到期的在前，永久的在最后）。
+func (s *Service) activeAddons(ctx context.Context, userID uint64) ([]store.UserAddon, error) {
+	out := []store.UserAddon{}
+	err := s.db.WithContext(ctx).Where("user_id = ? AND (expires_at IS NULL OR expires_at > ?)", userID, s.now()).Order("id").Find(&out).Error
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i].ExpiresAt, out[j].ExpiresAt
+		return a != nil && (b == nil || a.Before(*b))
+	})
+	return out, err
+}
+
+// RemoveAddon 由管理员收回用户的一个附加包。
+func (s *Service) RemoveAddon(ctx context.Context, userID, addonID uint64) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var a store.UserAddon
+		if err := tx.Where("id = ? AND user_id = ?", addonID, userID).First(&a).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if err := tx.Delete(&a).Error; err != nil {
+			return err
+		}
+		return s.log(tx, userID, "grant", "管理员收回了附加包「"+a.PlanName+"」")
+	})
 }
 
 func (s *Service) log(tx *gorm.DB, userID uint64, kind, detail string) error {
@@ -634,7 +714,9 @@ func (s *Service) Costs(ctx context.Context, userID uint64, fromDay, toDay strin
 // Account 是一个用户的会员情况。
 type Account struct {
 	Subscription *store.Subscription `json:"subscription,omitempty"`
-	Balance      int64               `json:"balance"`
+	// Addons 是还没过期的附加包。
+	Addons  []store.UserAddon `json:"addons"`
+	Balance int64             `json:"balance"`
 	// Today、Month 是今天、本月按计价项合计的消费。
 	Today []CostItem         `json:"today"`
 	Month []CostItem         `json:"month"`
@@ -651,6 +733,9 @@ func (s *Service) Account(ctx context.Context, userID uint64, logs int) (*Accoun
 	case err == nil:
 		a.Subscription = &sub
 	case !errors.Is(err, gorm.ErrRecordNotFound):
+		return nil, err
+	}
+	if a.Addons, err = s.activeAddons(ctx, userID); err != nil {
 		return nil, err
 	}
 	if a.Balance, err = s.Balance(ctx, userID); err != nil {
@@ -672,7 +757,7 @@ func (s *Service) Account(ctx context.Context, userID uint64, logs int) (*Accoun
 
 // DeleteUserData 删除用户的会员数据（删除用户时调用，tx 为外层事务）。
 func DeleteUserData(tx *gorm.DB, userID uint64) error {
-	for _, m := range []any{&store.Subscription{}, &store.CreditPack{}, &store.BillingLog{}, &store.Wallet{}, &store.CostDaily{}} {
+	for _, m := range []any{&store.Subscription{}, &store.UserAddon{}, &store.CreditPack{}, &store.BillingLog{}, &store.Wallet{}, &store.CostDaily{}} {
 		if err := tx.Where("user_id = ?", userID).Delete(m).Error; err != nil {
 			return err
 		}

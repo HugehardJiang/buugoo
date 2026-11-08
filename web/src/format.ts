@@ -1,5 +1,5 @@
 // 时间与文本格式化工具。
-import type { Plan } from './api'
+import type { Plan, UserAddon } from './api'
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
 import { mathPlugin } from './math'
@@ -117,10 +117,19 @@ export function planQuotas(p: { quota_messages: number; quota_tokens: number; qu
   return out
 }
 
+// addonPerms 是附加包包含的权限：API 接入、后台任务（沙箱可联网）。
+export function addonPerms(a: Partial<Pick<UserAddon, 'api_access' | 'task_access' | 'sandbox_network'>>): string {
+  const out: string[] = []
+  if (a.api_access) out.push('API 接入')
+  if (a.task_access) out.push(a.sandbox_network ? '后台任务（沙箱可联网）' : '后台任务')
+  return out.join('、')
+}
+
 // planSummary 是套餐内容的一句话：30 天 · 每天 200 条消息、2 百万 token；或 充值 ¥10。
 export function planSummary(p: Pick<Plan, 'kind' | 'days' | 'cycle' | 'quota_messages' | 'quota_tokens' | 'quota_searches' | 'amount'>): string {
   if (p.kind === 'recharge') return `充值 ${yuan(p.amount)} 到余额`
   if (p.kind === 'pack') return '旧余额包（已停用）'
+  if (p.kind === 'addon') return `${p.days ? `${p.days} 天` : '永久'} · ${addonPerms(p as Partial<UserAddon>) || '没有选权限'}`
   const q = planQuotas(p)
   return `${p.days} 天 · 每${p.cycle === 'month' ? '月' : '天'} ${q.length ? q.join('、') : '不限量'}${(p as { api_access?: boolean }).api_access ? ' · 含 API 接入' : ''}${(p as { task_access?: boolean }).task_access ? ' · 含后台任务' : ''}`
 }

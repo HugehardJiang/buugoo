@@ -147,7 +147,7 @@ func (s *server) apiAllowed(ctx context.Context, u *store.User) bool {
 		return false
 	}
 	ent, err := s.Billing.Entitlement(ctx, u.ID)
-	return err == nil && ent.Active && ent.APIAccess
+	return err == nil && ent.APIAccess
 }
 
 // requireAPIKey 用 API Key 认证（OpenAI 的 Authorization: Bearer，或 Anthropic 的 x-api-key）。

@@ -2,7 +2,7 @@
 // 个人中心 → 会员：现在的套餐、余额和消费、这个周期用了多少，可以买的套餐（带购买链接），兑换卡密。
 import { computed, onMounted, ref } from 'vue'
 import { api, ApiError, type BillingAccount, type Plan, type Quota } from '../api'
-import { dateTime, mtok, planSummary, yuan } from '../format'
+import { addonPerms, dateTime, mtok, planSummary, yuan } from '../format'
 import { toast } from '../toast'
 
 const account = ref<BillingAccount | null>(null)
@@ -112,6 +112,17 @@ const monthRows = computed(() => {
         </div>
       </div>
 
+      <template v-if="account.addons?.length">
+        <h3 class="sec">附加包</h3>
+        <div v-for="a in account.addons" :key="a.id" class="line">
+          <div class="row__label">
+            <span>{{ a.plan_name }}</span>
+            <small>{{ addonPerms(a) }}</small>
+          </div>
+          <span class="caption">{{ a.expires_at ? `${dateTime(a.expires_at)} 到期` : '永久有效' }}</span>
+        </div>
+      </template>
+
       <h3 class="sec">余额</h3>
       <div class="line">
         <div class="row__label">
@@ -157,7 +168,7 @@ const monthRows = computed(() => {
             <a v-if="p.buy_url" :href="p.buy_url" target="_blank" rel="noopener noreferrer" class="btn btn-sm buy">去购买</a>
           </article>
         </div>
-        <p class="caption">买到卡密后在上面兑换。续费同一个时长套餐会接着现在的到期时间往后加；充值的钱一直有效。</p>
+        <p class="caption">买到卡密后在上面兑换。续费同一个时长套餐或附加包会接着现在的到期时间往后加；附加包只开通功能、不影响额度，可以和时长套餐同时有；充值的钱一直有效。</p>
       </div>
 
       <button v-if="account.logs.length" type="button" class="link caption" @click="showLogs = !showLogs">{{ showLogs ? '收起记录' : '查看兑换和充值记录' }}</button>

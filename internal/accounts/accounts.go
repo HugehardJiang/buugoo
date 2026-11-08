@@ -84,7 +84,9 @@ func (s *Service) List(ctx context.Context, f Filter, limit, offset int) ([]Row,
 	case "admin":
 		q = q.Where("is_admin = ?", true)
 	case "member":
-		q = q.Where("id IN (?)", s.db.Model(&store.Subscription{}).Select("user_id").Where("expires_at > ?", now))
+		// 有时长套餐或附加包的都算会员。
+		q = q.Where("id IN (?) OR id IN (?)", s.db.Model(&store.Subscription{}).Select("user_id").Where("expires_at > ?", now),
+			s.db.Model(&store.UserAddon{}).Select("user_id").Where("expires_at IS NULL OR expires_at > ?", now))
 	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
