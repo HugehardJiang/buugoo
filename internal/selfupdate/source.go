@@ -107,28 +107,53 @@ func (s Source) get(ctx context.Context, url string, limit int64) ([]byte, error
 }
 
 // download 把 url 下载到 dst。
+// downloadRetries 是下载失败后的重试次数；retryWait 是第一次重试前等多久（之后每次翻倍）。
+var (
+	downloadRetries = 3
+	retryWait       = 3 * time.Second
+)
+
+// download 下载文件。GitHub 的下载服务器偶尔会返回 502/503/504 或者断开连接，这类临时错误自动重试几次。
 func (s Source) download(ctx context.Context, url, dst string) error {
+	wait := retryWait
+	for attempt := 0; ; attempt++ {
+		temporary, err := s.downloadOnce(ctx, url, dst)
+		if err == nil || !temporary || attempt >= downloadRetries {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(wait):
+		}
+		wait *= 2
+	}
+}
+
+// downloadOnce 下载一次，temporary 报告失败是不是值得重试。
+func (s Source) downloadOnce(ctx context.Context, url, dst string) (temporary bool, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return err
+		return false, err
 	}
 	resp, err := s.HTTP.Do(req)
 	if err != nil {
-		return fmt.Errorf("下载 %s: %w", url, err)
+		return ctx.Err() == nil, fmt.Errorf("下载 %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("下载 %s: HTTP %d", url, resp.StatusCode)
+		retry := resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests
+		return retry, fmt.Errorf("下载 %s: HTTP %d", url, resp.StatusCode)
 	}
 	f, err := os.Create(dst)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if _, err := io.Copy(f, resp.Body); err != nil {
 		f.Close()
-		return fmt.Errorf("下载 %s: %w", url, err)
+		return ctx.Err() == nil, fmt.Errorf("下载 %s: %w", url, err)
 	}
-	return f.Close()
+	return false, f.Close()
 }
 
 // AssetName 返回某平台的发布包文件名，与 .goreleaser.yaml 的 name_template 保持一致。

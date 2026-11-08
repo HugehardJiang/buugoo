@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/store/gormstore"
@@ -190,5 +191,35 @@ func TestHealthURL(t *testing.T) {
 		if got := healthURL(in); got != want {
 			t.Errorf("healthURL(%q)=%q", in, got)
 		}
+	}
+}
+
+// GitHub 的下载服务器偶尔返回 504：临时错误自动重试，404 这种不重试。
+func TestDownloadRetries(t *testing.T) {
+	retryWait = time.Millisecond
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		switch {
+		case r.URL.Path == "/missing":
+			http.NotFound(w, r)
+		case hits < 3:
+			w.WriteHeader(http.StatusGatewayTimeout)
+		default:
+			fmt.Fprint(w, "ok")
+		}
+	}))
+	defer srv.Close()
+	s := NewSource("", srv.URL+"/")
+	dst := filepath.Join(t.TempDir(), "f")
+	if err := s.download(context.Background(), srv.URL+"/f", dst); err != nil || hits != 3 {
+		t.Fatalf("应重试两次后成功：hits=%d err=%v", hits, err)
+	}
+	if b, _ := os.ReadFile(dst); string(b) != "ok" {
+		t.Fatalf("内容：%q", b)
+	}
+	hits = 0
+	if err := s.download(context.Background(), srv.URL+"/missing", dst); err == nil || hits != 1 {
+		t.Fatalf("404 不应重试：hits=%d err=%v", hits, err)
 	}
 }
