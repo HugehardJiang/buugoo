@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/HugehardJiang/buugoo/internal/config"
@@ -237,6 +238,9 @@ type Docker struct {
 	lib   *Library
 	log   *slog.Logger
 
+	// imageCJK 表示镜像自带中文字体（启动时检查）。
+	imageCJK atomic.Bool
+
 	mu        sync.Mutex
 	checkedAt time.Time
 	ok        bool
@@ -300,6 +304,7 @@ func (d *Docker) Prepare(ctx context.Context) {
 		}
 		d.log.Info("镜像已就绪", "image", d.image)
 	}
+	d.checkImageFonts(ctx)
 	d.lib.ensureBase(ctx, d.Install)
 	d.warmFonts(ctx)
 }

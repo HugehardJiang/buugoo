@@ -44,3 +44,24 @@ func TestDockerShell(t *testing.T) {
 		t.Fatalf("应断网：%+v", res)
 	}
 }
+
+// TestDockerImageFonts：服务器字体不能盖住镜像自带的中文字体（盖住后 LibreOffice 转出的 PDF 中文是空白）。
+// 设置 BUUGOO_TEST_FONT_IMAGE 为一个在 /usr/share/fonts 里带中文字体的镜像时才跑。
+func TestDockerImageFonts(t *testing.T) {
+	img := os.Getenv("BUUGOO_TEST_FONT_IMAGE")
+	if img == "" {
+		t.Skip("设置 BUUGOO_TEST_FONT_IMAGE 才跑")
+	}
+	cfg := config.Default().Tools.Python
+	cfg.Image, cfg.LibDir, cfg.Packages = img, t.TempDir(), nil
+	d := NewDocker(cfg, nil)
+	d.checkImageFonts(context.Background())
+	if !d.HasCJKFont() {
+		t.Fatal("应检测到镜像自带的中文字体")
+	}
+	s := New(Options{Python: d})
+	res := s.Run(context.Background(), llm.ToolCall{ID: "1", Name: NameShell, Arguments: `{"command":"find /usr/share/fonts -iname '*cjk*'"}`})
+	if !strings.Contains(res.Output, "CJK") {
+		t.Fatalf("运行时镜像的中文字体被盖住了：%+v", res)
+	}
+}

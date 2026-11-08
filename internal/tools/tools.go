@@ -152,7 +152,8 @@ func New(o Options) *Set {
 		// 画图：保存到当前目录的图片或没有关闭的 matplotlib 图表会直接显示给用户。
 		plot := "需要画图时用 matplotlib 画好即可（不用 plt.show），或用 savefig 保存为 png/jpg 到当前目录，图片会自动显示给用户，一次最多 6 张"
 		if o.CJKFont {
-			plot += "；图中可以写中文"
+			plot += "；图中可以写中文。做含中文的 PDF：有 LibreOffice（soffice）时先写成 docx 或 html 再用 soffice --headless --convert-to pdf 转换；" +
+				"用 reportlab、fpdf 等直接生成时必须先注册中文字体文件（fc-list :lang=zh 可以查到路径），否则中文会是空白"
 		} else {
 			plot += "；图中的标题、坐标轴和图例请用英文（没有中文字体，中文会显示成方框）"
 		}

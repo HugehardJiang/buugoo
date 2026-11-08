@@ -519,3 +519,15 @@ func TestSendFile(t *testing.T) {
 		}
 	}
 }
+
+func TestFontMountKeepsImageFonts(t *testing.T) {
+	d := &Docker{}
+	for _, a := range d.fontArgs() {
+		if strings.HasSuffix(a, ":/usr/share/fonts:ro") {
+			t.Fatalf("服务器字体挂到了 /usr/share/fonts，会盖住镜像自带的字体：%s", a)
+		}
+	}
+	if !isCJKFontFile("NotoSansCJK-Regular.ttc") || isCJKFontFile("DejaVuSans.ttf") {
+		t.Fatal("中文字体识别不对")
+	}
+}

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	_ "embed"
 	"encoding/base64"
@@ -10,10 +11,12 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // 代码生成图片的上限。
@@ -127,20 +130,32 @@ var (
 	cjkFound bool
 )
 
+// containerHostFonts 是服务器字体目录在沙箱里的位置。不能挂到 /usr/share/fonts：
+// 那样会盖住镜像自带的字体（布谷完整沙箱镜像的中文字体就在那里），LibreOffice 转出的 PDF 中文变成空白。
+// /usr/local/share/fonts 也在 fontconfig 和 matplotlib 默认查找的目录里。
+const containerHostFonts = "/usr/local/share/fonts/host"
+
+// isCJKFontFile 按文件名判断是不是中文字体。
+func isCJKFontFile(name string) bool {
+	name = strings.ToLower(strings.ReplaceAll(name, "-", ""))
+	for _, k := range []string{"cjk", "wqy", "wenquanyi", "sourcehan", "simhei", "simsun", "msyh", "notosanssc", "notoserifsc", "droidsansfallback"} {
+		if strings.Contains(name, k) {
+			return true
+		}
+	}
+	return false
+}
+
 // HasCJKFont 报告服务器上是否装了中文字体（决定图表里能不能写中文）。
 func HasCJKFont() bool {
 	cjkOnce.Do(func() {
-		keys := []string{"cjk", "wqy", "wenquanyi", "sourcehan", "simhei", "simsun", "msyh", "notosanssc", "notoserifsc", "droidsansfallback"}
 		_ = filepath.WalkDir(hostFonts, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || cjkFound {
 				return fs.SkipAll
 			}
-			name := strings.ToLower(strings.ReplaceAll(d.Name(), "-", ""))
-			for _, k := range keys {
-				if strings.Contains(name, k) {
-					cjkFound = true
-					return fs.SkipAll
-				}
+			if isCJKFontFile(d.Name()) {
+				cjkFound = true
+				return fs.SkipAll
 			}
 			return nil
 		})
@@ -148,10 +163,33 @@ func HasCJKFont() bool {
 	return cjkFound
 }
 
-// fontArgs 把服务器的字体目录只读挂载进容器。
+// fontArgs 把服务器的字体目录只读挂载进容器（不盖住镜像自带的字体）。
 func (d *Docker) fontArgs() []string {
 	if info, err := os.Stat(hostFonts); err == nil && info.IsDir() {
-		return []string{"-v", hostFonts + ":" + hostFonts + ":ro"}
+		return []string{"-v", hostFonts + ":" + containerHostFonts + ":ro"}
 	}
 	return nil
+}
+
+// HasCJKFont 报告沙箱里能不能用中文字体：服务器装了，或者镜像自带（启动时检查）。
+func (d *Docker) HasCJKFont() bool {
+	return HasCJKFont() || d.imageCJK.Load()
+}
+
+// checkImageFonts 看镜像自带的字体里有没有中文字体。
+func (d *Docker) checkImageFonts(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, d.bin, "run", "--rm", "--network", "none", "--entrypoint", "sh", d.image, "-c",
+		"find /usr/share/fonts /usr/local/share/fonts -type f 2>/dev/null").Output()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if isCJKFontFile(filepath.Base(line)) {
+			d.imageCJK.Store(true)
+			d.log.Info("沙箱镜像自带中文字体")
+			return
+		}
+	}
 }

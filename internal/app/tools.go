@@ -204,6 +204,9 @@ func (p *toolProvider) build(ctx context.Context, u *store.User, conv *store.Con
 		opts.Python = r
 		opts.Packages = p.cfg.Tools.Python.Packages
 		opts.CJKFont = tools.HasCJKFont()
+		if d, ok := r.(*tools.Docker); ok {
+			opts.CJKFont = d.HasCJKFont()
+		}
 		if dws, inputs := p.workspace(ctx, u, conv, pending); dws != nil {
 			ws = dws
 			opts.Workspace, opts.Inputs, opts.Saved = dws, inputs, tools.ListWorkspace(dws.Dir, 30)
