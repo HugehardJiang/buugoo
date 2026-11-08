@@ -146,3 +146,44 @@ func TestCreateAttachesProvider(t *testing.T) {
 		t.Fatalf("换 Key 后应只剩新的供应商：%+v", ps)
 	}
 }
+
+// Claude 经中转站接入：有「-thinking」版本的开思考时换用它，没有的用 reasoning_effort。
+func TestRemoteClaudeThinking(t *testing.T) {
+	ctx := context.Background()
+	svc, db := newService(t, config.ModeMulti, "")
+	admin := User{ID: 1, IsAdmin: true}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{
+			{"id": "claude-opus-4-6"}, {"id": "claude-opus-4-6-thinking"}, {"id": "claude-opus-5-5"}, {"id": "some-chat-model"}}})
+	}))
+	defer srv.Close()
+	p, err := svc.CreateProvider(ctx, admin, ProviderInput{Name: "中转", BaseURL: srv.URL + "/v1", APIKey: "k", Public: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rm, err := svc.RemoteModels(ctx, admin, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]RemoteModel{}
+	for _, m := range rm {
+		got[m.ID] = m
+	}
+	if m := got["claude-opus-4-6"]; m.ThinkingStyle != store.ThinkingStyleSwitchMod || m.ThinkingModel != "claude-opus-4-6-thinking" {
+		t.Fatalf("有 -thinking 版本：%+v", m)
+	}
+	if m := got["claude-opus-5-5"]; m.ThinkingStyle != store.ThinkingStyleEffort || m.ThinkingModel != "" {
+		t.Fatalf("没有 -thinking 版本：%+v", m)
+	}
+	if m := got["some-chat-model"]; m.ThinkingStyle != store.ThinkingStyleNone {
+		t.Fatalf("认不出的模型不开思考：%+v", m)
+	}
+	o := got["claude-opus-4-6"]
+	if _, err := svc.AddModels(ctx, admin, p.ID, []AddItem{{Model: o.ID, Tools: true, ThinkingStyle: o.ThinkingStyle, ThinkingModel: o.ThinkingModel}}, false); err != nil {
+		t.Fatal(err)
+	}
+	ms, _ := db.Models().ListByProvider(ctx, p.ID)
+	if len(ms) != 1 || ms[0].ThinkingStyle != store.ThinkingStyleSwitchMod || ms[0].ThinkingModel != "claude-opus-4-6-thinking" {
+		t.Fatalf("添加后：%+v", ms)
+	}
+}

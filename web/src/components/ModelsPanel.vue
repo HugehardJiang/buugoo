@@ -319,7 +319,7 @@ async function removeProvider() {
 }
 
 // 在供应商下面批量添加模型：读供应商的模型列表勾选，读不到时手动填模型名。
-type Pick = { id: string; vision: boolean; tools: boolean; thinking_style: ThinkingStyle | ''; context_tokens?: number }
+type Pick = { id: string; vision: boolean; tools: boolean; thinking_style: ThinkingStyle | ''; thinking_model?: string; context_tokens?: number }
 const add = reactive({
   open: false, provider: null as ProviderView | null, loading: false, error: '', list: [] as RemoteModel[], query: '',
   picked: new Map<string, Pick>(), manual: '', restricted: false, busy: false, showAll: false,
@@ -342,7 +342,7 @@ const hiddenCount = computed(() => add.list.filter((m) => !m.chat).length)
 function togglePick(m: RemoteModel) {
   const next = new Map(add.picked)
   if (next.has(m.id)) next.delete(m.id)
-  else next.set(m.id, { id: m.id, vision: m.vision, tools: m.tools, thinking_style: m.thinking_style, context_tokens: m.context_tokens })
+  else next.set(m.id, { id: m.id, vision: m.vision, tools: m.tools, thinking_style: m.thinking_style, thinking_model: m.thinking_model, context_tokens: m.context_tokens })
   add.picked = next
 }
 function addManual() {
@@ -360,7 +360,7 @@ async function saveAdd() {
   add.busy = true
   add.error = ''
   try {
-    const items = [...add.picked.values()].map((x) => ({ model: x.id, vision: x.vision, tools: x.tools, thinking_style: x.thinking_style as ThinkingStyle, context_tokens: x.context_tokens ?? 0 }))
+    const items = [...add.picked.values()].map((x) => ({ model: x.id, vision: x.vision, tools: x.tools, thinking_style: x.thinking_style as ThinkingStyle, thinking_model: x.thinking_model ?? '', context_tokens: x.context_tokens ?? 0 }))
     const r = await api.addProviderModels(add.provider.id, items, add.restricted)
     toast(r.added ? `添加了 ${r.added} 个模型` : '选中的模型都已经添加过了')
     add.open = false
@@ -638,7 +638,7 @@ defineExpose({ load })
                 <label><input v-model="add.picked.get(m.id)!.vision" type="checkbox" /> 看图</label>
                 <label><input v-model="add.picked.get(m.id)!.tools" type="checkbox" /> 工具</label>
               </span>
-              <span v-else-if="!m.added" class="caption">{{ [m.vision && '看图', m.thinking_style !== 'none' && '可调思考', m.context_tokens && `${wan(m.context_tokens)} 上下文`].filter(Boolean).join(' · ') }}</span>
+              <span v-else-if="!m.added" class="caption">{{ [m.vision && '看图', m.thinking_model ? `开思考用 ${m.thinking_model}` : m.thinking_style !== 'none' && '可调思考', m.context_tokens && `${wan(m.context_tokens)} 上下文`].filter(Boolean).join(' · ') }}</span>
             </span>
           </div>
         </div>

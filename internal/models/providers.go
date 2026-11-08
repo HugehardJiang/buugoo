@@ -107,7 +107,9 @@ func guessThinking(baseURL, model string) string {
 	case strings.Contains(low, "opencode.ai"), strings.Contains(low, "api.openai.com"), strings.Contains(low, "openrouter.ai"):
 		return store.ThinkingStyleEffort
 	}
-	if regexp.MustCompile(`(^|[/-])(o[134]|gpt-5)`).MatchString(m) {
+	// Claude（一般经中转站接入）：New API、OpenRouter 等会把 reasoning_effort 转成 Claude 的思考设置。
+	// 中转站另外提供「-thinking」版本时，添加列表里会改成开思考时换用那个模型。
+	if regexp.MustCompile(`(^|[/-])(o[134]|gpt-5)`).MatchString(m) || strings.Contains(m, "claude") {
 		return store.ThinkingStyleEffort
 	}
 	return store.ThinkingStyleNone
@@ -263,6 +265,8 @@ type RemoteModel struct {
 	Vision        bool   `json:"vision"`
 	Tools         bool   `json:"tools"`
 	ThinkingStyle string `json:"thinking_style"`
+	// ThinkingModel 是开思考时换用的模型（列表里有同名的「-thinking」版本时）。
+	ThinkingModel string `json:"thinking_model,omitempty"`
 	ContextTokens int    `json:"context_tokens,omitempty"`
 }
 
@@ -299,6 +303,16 @@ func (s *Service) RemoteModels(ctx context.Context, u User, id uint64) ([]Remote
 		seen[id] = true
 		out = append(out, RemoteModel{ID: id, Added: added[id], Chat: !noChat.MatchString(id), Vision: visionHint.MatchString(id),
 			Tools: true, ThinkingStyle: guessThinking(p.BaseURL, id), ContextTokens: apiContext(it)})
+	}
+	// 有「xxx-thinking」版本的模型：开思考时换用它（中转站常用这种方式打开 Claude 等模型的思考）。
+	ids := map[string]bool{}
+	for _, m := range out {
+		ids[m.ID] = true
+	}
+	for i := range out {
+		if t := out[i].ID + "-thinking"; ids[t] {
+			out[i].ThinkingStyle, out[i].ThinkingModel = store.ThinkingStyleSwitchMod, t
+		}
 	}
 	// 聊天模型在前，各自按名字排。
 	sort.SliceStable(out, func(i, j int) bool {
@@ -352,6 +366,7 @@ type AddItem struct {
 	Vision        bool   `json:"vision"`
 	Tools         bool   `json:"tools"`
 	ThinkingStyle string `json:"thinking_style"`
+	ThinkingModel string `json:"thinking_model"`
 	ContextTokens int    `json:"context_tokens"`
 }
 
@@ -390,10 +405,17 @@ func (s *Service) AddModels(ctx context.Context, u User, id uint64, items []AddI
 		if it.ThinkingStyle == "" {
 			it.ThinkingStyle = guessThinking(p.BaseURL, it.Model)
 		}
+		it.ThinkingModel = strings.TrimSpace(it.ThinkingModel)
+		if it.ThinkingStyle == store.ThinkingStyleSwitchMod && it.ThinkingModel == "" {
+			it.ThinkingStyle = guessThinking(p.BaseURL, it.Model)
+			if it.ThinkingStyle == store.ThinkingStyleSwitchMod {
+				it.ThinkingStyle = store.ThinkingStyleNone
+			}
+		}
 		if it.ContextTokens < 0 || it.ContextTokens > 20_000_000 {
 			it.ContextTokens = 0
 		}
-		in := Input{Name: name, Model: it.Model, ProviderID: p.ID, ThinkingStyle: it.ThinkingStyle, Vision: it.Vision, Tools: it.Tools,
+		in := Input{Name: name, Model: it.Model, ProviderID: p.ID, ThinkingStyle: it.ThinkingStyle, ThinkingModel: it.ThinkingModel, Vision: it.Vision, Tools: it.Tools,
 			Temperature: 0.8, ContextTokens: it.ContextTokens, Public: p.Public(), Restricted: restricted}
 		if _, err := s.Create(ctx, u, in); err != nil {
 			return added, fmt.Errorf("添加「%s」: %w", it.Model, err)

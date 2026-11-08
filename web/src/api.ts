@@ -297,6 +297,8 @@ export interface RemoteModel {
   vision: boolean
   tools: boolean
   thinking_style: ThinkingStyle
+  /** 开思考时换用的模型（列表里有「-thinking」版本时） */
+  thinking_model?: string
   context_tokens?: number
 }
 
@@ -908,7 +910,7 @@ export const api = {
   updateProvider: (id: number, input: ProviderInput) => request<ProviderView>('PUT', `/providers/${id}`, input),
   deleteProvider: (id: number) => request<{ removed: number }>('DELETE', `/providers/${id}`),
   remoteModels: (id: number) => request<{ models: RemoteModel[] }>('GET', `/providers/${id}/remote`),
-  addProviderModels: (id: number, models: { model: string; name?: string; vision: boolean; tools: boolean; thinking_style: ThinkingStyle; context_tokens?: number }[], restricted: boolean) =>
+  addProviderModels: (id: number, models: { model: string; name?: string; vision: boolean; tools: boolean; thinking_style: ThinkingStyle; thinking_model?: string; context_tokens?: number }[], restricted: boolean) =>
     request<{ added: number }>('POST', `/providers/${id}/models`, { models, restricted }),
   createModel: (input: ModelInput) => request<ModelView>('POST', '/models', input),
   updateModel: (id: number, input: ModelInput) => request<ModelView>('PUT', `/models/${id}`, input),
