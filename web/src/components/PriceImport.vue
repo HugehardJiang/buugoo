@@ -15,6 +15,27 @@ type Parsed = { currency: string; multiplier: number; prices: Entry[] }
 const text = ref('')
 const opt = reactive({ group: '', rate: 1, markup: 1, writeExtra: 0 })
 const off = ref<Set<string>>(new Set())
+// map：价格表里的模型名 → 手动映射到的计价项（价格表里的名字和网站里的模型名不一样时用）。记在浏览器里，下次导入自动带上。
+const MAP_KEY = 'buugoo.priceImportMap'
+const map = ref<Record<string, string>>({})
+function loadMap() {
+  try {
+    map.value = JSON.parse(localStorage.getItem(MAP_KEY) || '{}') ?? {}
+  } catch {
+    map.value = {}
+  }
+}
+function setMap(model: string, key: string) {
+  const next = { ...map.value }
+  if (key) next[model] = key
+  else delete next[model]
+  map.value = next
+  try {
+    localStorage.setItem(MAP_KEY, JSON.stringify(next))
+  } catch {
+    /* 存不了就只在这次有效 */
+  }
+}
 
 // 只导入按 token 计价的聊天模型。
 const modelItems = computed(() => props.items.filter((it) => it.kind === 'tokens' && it.model && it.group.startsWith('聊天模型')))
@@ -27,6 +48,7 @@ watch(
     if (!v) return
     text.value = ''
     off.value = new Set()
+    loadMap()
     Object.assign(opt, { group: groupNames.value.length === 1 ? groupNames.value[0] : '', rate: 1, markup: 1, writeExtra: 0 })
   },
 )
@@ -102,22 +124,49 @@ watch(
 
 const norm = (s: string) => s.toLowerCase().trim().replace(/^.*\//, '').replace(/[\s_]+/g, '-')
 
-type Row = { entry: Entry; matches: PricingItem[]; input: number; cache_input: number; output: number }
+// similar 是两个模型名有多像（字符二元组的 Dice 系数，0～1），给没对上的模型推荐映射目标。
+function similar(a: string, b: string): number {
+  const grams = (s: string) => {
+    const t = norm(s).replace(/-/g, '')
+    const out = new Map<string, number>()
+    for (let i = 0; i < t.length - 1; i++) out.set(t.slice(i, i + 2), (out.get(t.slice(i, i + 2)) ?? 0) + 1)
+    return out
+  }
+  const x = grams(a), y = grams(b)
+  let both = 0, total = 0
+  for (const [g, n] of x) both += Math.min(n, y.get(g) ?? 0)
+  for (const n of x.values()) total += n
+  for (const n of y.values()) total += n
+  return total ? (2 * both) / total : 0
+}
+// candidates 是没对上的模型可以映射到的模型，最像的排前面。
+function candidates(model: string) {
+  return targets.value
+    .map((it) => ({ it, score: similar(model, it.model ?? '') }))
+    .sort((a, b) => b.score - a.score)
+}
+
+type Row = { entry: Entry; exact: boolean; matches: PricingItem[]; input: number; cache_input: number; output: number }
 const rows = computed<Row[]>(() => {
   const d = parsed.value.data
   if (!d) return []
   const k = d.multiplier * (Number(opt.rate) || 0) * (Number(opt.markup) || 0)
   const round = (x: number) => Math.round(x * 10000) / 10000
-  return d.prices.map((e) => ({
+  return d.prices.map((e) => {
+    const exact = targets.value.filter((it) => norm(it.model ?? '') === norm(e.model))
+    const mapped = targets.value.filter((it) => it.key === map.value[e.model])
+    return {
     entry: e,
-    matches: targets.value.filter((it) => norm(it.model ?? '') === norm(e.model)),
+    exact: exact.length > 0,
+    matches: exact.length ? exact : mapped,
     input: round(e.input * k * (1 + (Number(opt.writeExtra) || 0) / 100)),
     cache_input: round((e.cache_read ?? 0) * k),
     output: round(e.output * k),
-  }))
+    }
+  })
 })
 const matched = computed(() => rows.value.filter((r) => r.matches.length && !off.value.has(r.entry.model)))
-const unmatched = computed(() => rows.value.filter((r) => !r.matches.length))
+const unmatched = computed(() => rows.value.filter((r) => !r.exact))
 
 function toggle(model: string) {
   const s = new Set(off.value)
@@ -182,13 +231,22 @@ function apply() {
       <div class="table-wrap">
         <table class="table">
           <thead>
-            <tr><th /><th>模型</th><th>对上了</th><th>未命中</th><th>命中缓存</th><th>输出</th></tr>
+            <tr><th /><th>价格表里的模型</th><th>网站里的模型</th><th>未命中</th><th>命中缓存</th><th>输出</th></tr>
           </thead>
           <tbody>
             <tr v-for="r in rows" :key="r.entry.model" :class="{ 'is-off': !r.matches.length || off.has(r.entry.model) }">
               <td><input type="checkbox" :disabled="!r.matches.length" :checked="r.matches.length > 0 && !off.has(r.entry.model)" :aria-label="r.entry.model" @change="toggle(r.entry.model)" /></td>
               <td class="mono">{{ r.entry.model }}</td>
-              <td class="caption">{{ r.matches.length ? r.matches.map((m) => m.label).join('、') : '没有这个模型' }}</td>
+              <td class="caption">
+                <template v-if="r.exact">{{ r.matches.map((m) => m.label).join('、') }}</template>
+                <select v-else class="text-input map" :class="{ 'is-unset': !map[r.entry.model] }" :value="map[r.entry.model] ?? ''" :aria-label="`${r.entry.model} 映射到`"
+                  @change="setMap(r.entry.model, ($event.target as HTMLSelectElement).value)">
+                  <option value="">没找到，不导入</option>
+                  <option v-for="(c, i) in candidates(r.entry.model)" :key="c.it.key" :value="c.it.key">
+                    映射到 {{ c.it.label }}{{ i === 0 && c.score > 0.4 ? '（最像）' : '' }}
+                  </option>
+                </select>
+              </td>
               <td class="num">{{ r.input }}</td>
               <td class="num">{{ r.cache_input || '—' }}</td>
               <td class="num">{{ r.output }}</td>
@@ -196,8 +254,10 @@ function apply() {
           </tbody>
         </table>
       </div>
-      <p v-if="unmatched.length" class="caption">
-        {{ unmatched.length }} 个模型布谷里还没有（或不在选中的供应商下面），先在「设置 → 模型」里添加，再导入一次就能填上。
+      <p v-if="unmatched.length" class="form-flash map-note">
+        价格表里有 {{ unmatched.length }} 个模型在{{ opt.group ? '这个供应商下面' : '网站里' }}没找到同名的：{{ unmatched.map((r) => r.entry.model).join('、') }}。
+        如果只是名字写法不一样（例如价格表写 claude-opus-4-6，网站里叫 claude-opus-4-6-thinking），在表格里选「映射到」哪个模型，
+        选过的下次导入会自动记住；真的没有的先在「设置 → 模型」里添加，或者留着「不导入」。
       </p>
     </template>
 
@@ -221,4 +281,8 @@ function apply() {
 .table-wrap { max-height: 40vh; overflow: auto; }
 .table td.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 tr.is-off td { opacity: .5; }
+tr.is-off td:nth-child(3) { opacity: 1; }
+.map { min-width: 180px; max-width: 280px; min-height: 30px; padding: 2px 6px; font-size: 12px; }
+.map.is-unset { border-color: var(--color-warning, #c98a1b); }
+.map-note { margin-top: 10px; line-height: 1.7; }
 </style>
