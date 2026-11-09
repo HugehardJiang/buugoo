@@ -32,7 +32,7 @@ import TaskCard from '../components/TaskCard.vue'
 import ThinkingSlider from '../components/ThinkingSlider.vue'
 import ModelIcon from '../components/ModelIcon.vue'
 import CosplayPicker from '../components/CosplayPicker.vue'
-import { shortName } from '../vendors'
+import { shortName, vendorOf } from '../vendors'
 import { splitBubbles } from '../bubbles'
 import { dayKey, dayLabel, formatSize, renderMarkdown, shortWhen, timeOf } from '../format'
 import { memoriesUnlocked } from '../memoryLock'
@@ -498,16 +498,41 @@ function toggleFav(id: number) {
   }
 }
 const railKey = ref('')
+// 左边栏按模型厂商分（DeepSeek、Claude、智谱……，用厂商的 logo），认不出厂商的放「其他」；
+// 点进一个厂商，按供应商分小组列出各家提供的这个厂商的模型。
+type Section = { key: string; label: string; items: ModelView[] }
+type VendorGroup = { key: string; label: string; icon: ModelView | null; sections: Section[] }
+const vendorKey = (m: ModelView) => vendorOf(m.model, m.name)?.name ?? '其他'
+function vendorGroupsOf(list: ModelView[]): VendorGroup[] {
+  const out: VendorGroup[] = []
+  for (const s of providerSections(list)) {
+    for (const m of s.items) {
+      const v = vendorKey(m)
+      let g = out.find((x) => x.key === v)
+      if (!g) out.push((g = { key: v, label: v, icon: v === '其他' ? null : m, sections: [] }))
+      let sec = g.sections.find((x) => x.key === s.key)
+      if (!sec) g.sections.push((sec = { key: s.key, label: s.label, items: [] }))
+      sec.items.push(m)
+    }
+  }
+  // 「其他」放最后。
+  return out.sort((a, b) => Number(a.key === '其他') - Number(b.key === '其他'))
+}
+const vendorGroups = computed(() => vendorGroupsOf(models.value))
 const railItems = computed(() => {
-  const groups = modelQuery.value.trim() ? [] : modelGroups.value
   const fav = models.value.filter((m) => favs.value.includes(m.id))
-  return [...(fav.length ? [{ key: 'fav', label: '收藏', items: fav }] : []), ...groups]
+  const favGroup: VendorGroup[] = fav.length ? [{ key: 'fav', label: '收藏', icon: null, sections: providerSections(fav) }] : []
+  return [...favGroup, ...vendorGroups.value]
 })
-// 搜索时列出所有分组的结果；否则只列选中那一栏。
-const listGroups = computed(() => {
-  if (modelQuery.value.trim()) return modelGroups.value
+// 搜索时按「厂商 · 供应商」列出全部结果；否则列选中那个厂商下面各供应商的模型。
+const listGroups = computed<Section[]>(() => {
+  if (modelQuery.value.trim()) {
+    return vendorGroupsOf(modelGroups.value.flatMap((g) => g.items)).flatMap((v) =>
+      v.sections.map((s) => ({ key: `${v.key}/${s.key}`, label: s.label ? `${v.label} · ${s.label}` : v.label, items: s.items })),
+    )
+  }
   const g = railItems.value.find((x) => x.key === railKey.value) ?? railItems.value[0]
-  return g ? [g] : []
+  return g ? g.sections : []
 })
 
 watch(pickerOpen, async (v) => {
@@ -518,27 +543,32 @@ watch(pickerOpen, async (v) => {
   railKey.value =
     cur != null && favs.value.includes(cur)
       ? 'fav'
-      : (modelGroups.value.find((g) => g.items.some((m) => m.id === (cur ?? defaultModel.value?.id)))?.key ?? railItems.value[0]?.key ?? '')
+      : (vendorGroups.value.find((g) => g.sections.some((s) => s.items.some((m) => m.id === (cur ?? defaultModel.value?.id))))?.key ??
+        railItems.value[0]?.key ??
+        '')
   await nextTick()
   // 手机上不自动弹出键盘。
   if (window.matchMedia('(hover: hover)').matches) pickerSearch.value?.focus()
 })
 
 // 按搜索词过滤，再按「公共 / 我的」分组。
-const modelGroups = computed(() => {
-  const q = modelQuery.value.trim().toLowerCase()
-  const hit = models.value.filter((m) => !q || m.name.toLowerCase().includes(q) || m.model.toLowerCase().includes(q))
-  // 按供应商分组（像 OpenCode 那样）：公共的在前，自己添加的标上「我的」。
-  const groups: { key: string; label: string; items: ModelView[] }[] = []
-  for (const m of hit) {
+// providerSections 按供应商分组（像 OpenCode 那样）：公共的在前，自己添加的标上「我的」。
+function providerSections(list: ModelView[]): Section[] {
+  const groups: Section[] = []
+  for (const m of list) {
     const mine = isMulti.value && m.scope === 'personal'
     const key = `${mine ? 'me' : 'pub'}:${m.provider_id || m.provider}`
     let g = groups.find((x) => x.key === key)
     if (!g) groups.push((g = { key, label: (mine ? '我的 · ' : '') + (m.provider || '其他'), items: [] }))
     g.items.push(m)
   }
-  if (groups.length === 1 && !isMulti.value) groups[0].label = ''
   return groups.sort((a, b) => Number(a.key.startsWith('me')) - Number(b.key.startsWith('me')))
+}
+const modelGroups = computed(() => {
+  const q = modelQuery.value.trim().toLowerCase()
+  const groups = providerSections(models.value.filter((m) => !q || m.name.toLowerCase().includes(q) || m.model.toLowerCase().includes(q)))
+  if (groups.length === 1 && !isMulti.value) groups[0].label = ''
+  return groups
 })
 const modelCount = computed(() => modelGroups.value.reduce((n, g) => n + g.items.length, 0))
 
@@ -1409,7 +1439,8 @@ onBeforeUnmount(() => {
                     @click="railKey = g.key; modelQuery = ''"
                   >
                     <Icon v-if="g.key === 'fav'" name="star" :size="18" />
-                    <ModelIcon v-else model="" :name="g.label.replace('我的 · ', '')" :size="20" />
+                    <ModelIcon v-else-if="g.icon" :model="g.icon.model" :name="g.icon.name" :size="22" />
+                    <Icon v-else name="grid" :size="18" />
                     <span class="picker__rail-name">{{ g.label }}</span>
                   </button>
                 </nav>
