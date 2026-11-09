@@ -481,9 +481,44 @@ const isMulti = computed(() => session.meta?.mode === 'multi')
 const modelPrices = ref<Record<string, ModelPrice> | null>(null)
 const pricePeak = ref(false)
 
+// 左边栏：收藏（星标的模型，存在这个浏览器里）和各个供应商；中间列出选中那一栏的模型，搜索时搜全部。
+const FAV_KEY = 'buugoo.favModels'
+const favs = ref<number[]>([])
+try {
+  favs.value = (JSON.parse(localStorage.getItem(FAV_KEY) || '[]') as unknown[]).filter((x): x is number => typeof x === 'number')
+} catch {
+  favs.value = []
+}
+function toggleFav(id: number) {
+  favs.value = favs.value.includes(id) ? favs.value.filter((x) => x !== id) : [...favs.value, id]
+  try {
+    localStorage.setItem(FAV_KEY, JSON.stringify(favs.value))
+  } catch {
+    /* 存不了就只在这次有效 */
+  }
+}
+const railKey = ref('')
+const railItems = computed(() => {
+  const groups = modelQuery.value.trim() ? [] : modelGroups.value
+  const fav = models.value.filter((m) => favs.value.includes(m.id))
+  return [...(fav.length ? [{ key: 'fav', label: '收藏', items: fav }] : []), ...groups]
+})
+// 搜索时列出所有分组的结果；否则只列选中那一栏。
+const listGroups = computed(() => {
+  if (modelQuery.value.trim()) return modelGroups.value
+  const g = railItems.value.find((x) => x.key === railKey.value) ?? railItems.value[0]
+  return g ? [g] : []
+})
+
 watch(pickerOpen, async (v) => {
   if (!v) return
   modelQuery.value = ''
+  // 默认停在现在这个模型所在的供应商（有收藏且模型在收藏里时停在收藏）。
+  const cur = current.value?.model_id
+  railKey.value =
+    cur != null && favs.value.includes(cur)
+      ? 'fav'
+      : (modelGroups.value.find((g) => g.items.some((m) => m.id === (cur ?? defaultModel.value?.id)))?.key ?? railItems.value[0]?.key ?? '')
   await nextTick()
   // 手机上不自动弹出键盘。
   if (window.matchMedia('(hover: hover)').matches) pickerSearch.value?.focus()
@@ -1361,60 +1396,106 @@ onBeforeUnmount(() => {
                 <Icon name="chevron" :size="12" class="picker__chev" />
               </button>
               <Transition name="pop">
-              <div v-if="pickerOpen" class="picker__panel" role="dialog" aria-label="模型与思考等级">
-                <div class="picker__search">
-                  <Icon name="search" :size="15" />
-                  <input ref="pickerSearch" v-model="modelQuery" type="search" placeholder="搜索模型" aria-label="搜索模型" />
-                </div>
-                <div class="picker__list">
+              <div v-if="pickerOpen" class="picker__panel" :class="{ 'has-think': thinkingOptions.length }" role="dialog" aria-label="模型与思考等级">
+                <nav v-if="railItems.length > 1" class="picker__rail" aria-label="供应商">
                   <button
-                    v-if="!modelQuery.trim()"
+                    v-for="g in railItems"
+                    :key="g.key"
                     type="button"
-                    class="picker__opt"
-                    :class="{ 'is-active': current?.model_id == null }"
-                    @click="chooseModel(null)"
+                    class="picker__rail-btn"
+                    :class="{ 'is-active': !modelQuery.trim() && (railKey || railItems[0]?.key) === g.key }"
+                    :title="g.label"
+                    :aria-label="g.label"
+                    @click="railKey = g.key; modelQuery = ''"
                   >
-                    <span class="picker__opt-icon picker__opt-auto"><Icon name="sparkle" :size="14" /></span>
-                    <span class="picker__opt-main">
-                      <span class="picker__opt-name">默认模型</span>
-                      <Icon v-if="current?.model_id == null" name="check" :size="15" class="picker__check" />
-                    </span>
-                    <small v-if="defaultModel">跟随设置里的默认：{{ shortName(defaultModel.name) }}</small>
+                    <Icon v-if="g.key === 'fav'" name="star" :size="18" />
+                    <ModelIcon v-else model="" :name="g.label.replace('我的 · ', '')" :size="20" />
+                    <span class="picker__rail-name">{{ g.label }}</span>
                   </button>
-                  <template v-for="g in modelGroups" :key="g.key">
-                    <p v-if="g.label" class="picker__group">{{ g.label }}</p>
+                </nav>
+                <div class="picker__main">
+                  <div class="picker__search">
+                    <Icon name="search" :size="15" />
+                    <input ref="pickerSearch" v-model="modelQuery" type="search" placeholder="搜索模型" aria-label="搜索模型" />
+                  </div>
+                  <div class="picker__list">
                     <button
-                      v-for="m in g.items"
-                      :key="m.id"
+                      v-if="!modelQuery.trim()"
                       type="button"
                       class="picker__opt"
-                      :class="{ 'is-active': current?.model_id === m.id }"
-                      @click="chooseModel(m.id)"
+                      :class="{ 'is-active': current?.model_id == null }"
+                      @click="chooseModel(null)"
                     >
-                      <ModelIcon :model="m.model" :name="m.name" :size="20" class="picker__opt-icon" />
+                      <span class="picker__opt-icon picker__opt-auto"><Icon name="sparkle" :size="14" /></span>
                       <span class="picker__opt-main">
-                        <span class="picker__opt-name" :title="m.name">{{ shortName(m.name) }}</span>
-                        <Icon v-if="current?.model_id === m.id" name="check" :size="15" class="picker__check" />
+                        <span class="picker__opt-name">默认模型</span>
+                        <Icon v-if="current?.model_id == null" name="check" :size="15" class="picker__check" />
                       </span>
-                      <small class="picker__opt-meta">
-                        <span>{{ modelTraits(m) }}</span>
-                        <span v-if="modelPrice(m)" class="picker__price" :title="modelPrice(m)!.title">
-                          <span v-if="modelPrice(m)!.tag" class="picker__tag" :class="{ 'is-peak': modelPrice(m)!.tag === '高峰' }">{{ modelPrice(m)!.tag }}</span>
-                          {{ modelPrice(m)!.text }}
-                        </span>
-                      </small>
+                      <small v-if="defaultModel">跟随设置里的默认：{{ shortName(defaultModel.name) }}</small>
                     </button>
-                  </template>
-                  <p v-if="!modelCount && modelQuery.trim()" class="picker__empty">没有叫「{{ modelQuery.trim() }}」的模型</p>
-                </div>
-                <p v-if="modelPrices" class="picker__note">价格是每百万 token 的输入 / 输出（有免费或套餐额度时先用额度）</p>
-                <div v-if="thinkingOptions.length" class="picker__think-box">
-                  <div class="picker__think-head">
-                    <span>思考</span>
-                    <strong>{{ thinkingLabel }}</strong>
+                    <template v-for="g in listGroups" :key="g.key">
+                      <p v-if="g.label" class="picker__group">{{ g.label }}</p>
+                      <div
+                        v-for="m in g.items"
+                        :key="m.id"
+                        role="button"
+                        tabindex="0"
+                        class="picker__opt"
+                        :class="{ 'is-active': current?.model_id === m.id }"
+                        @click="chooseModel(m.id)"
+                        @keydown.enter.prevent="chooseModel(m.id)"
+                      >
+                        <ModelIcon :model="m.model" :name="m.name" :size="20" class="picker__opt-icon" />
+                        <span class="picker__opt-main">
+                          <span class="picker__opt-name" :title="m.name">{{ shortName(m.name) }}</span>
+                          <button
+                            type="button"
+                            class="picker__fav"
+                            :class="{ 'is-on': favs.includes(m.id) }"
+                            :aria-label="favs.includes(m.id) ? '取消收藏' : '收藏'"
+                            :title="favs.includes(m.id) ? '取消收藏' : '收藏（放到最上面的星标栏）'"
+                            @click.stop="toggleFav(m.id)"
+                          >
+                            <Icon name="star" :size="14" />
+                          </button>
+                          <Icon v-if="current?.model_id === m.id" name="check" :size="15" class="picker__check" />
+                        </span>
+                        <small class="picker__opt-meta">
+                          <span>{{ modelTraits(m) }}</span>
+                          <span v-if="modelPrice(m)" class="picker__price" :title="modelPrice(m)!.title">
+                            <span v-if="modelPrice(m)!.tag" class="picker__tag" :class="{ 'is-peak': modelPrice(m)!.tag === '高峰' }">{{ modelPrice(m)!.tag }}</span>
+                            {{ modelPrice(m)!.text }}
+                          </span>
+                        </small>
+                      </div>
+                    </template>
+                    <p v-if="!modelCount && modelQuery.trim()" class="picker__empty">没有叫「{{ modelQuery.trim() }}」的模型</p>
                   </div>
-                  <ThinkingSlider :stops="thinkingOptions" :model-value="thinkingValue" @update:model-value="setThinking" />
+                  <p v-if="modelPrices" class="picker__note">价格是每百万 token 的输入 / 输出（有免费或套餐额度时先用额度）</p>
+                  <div v-if="thinkingOptions.length" class="picker__think-box">
+                    <div class="picker__think-head">
+                      <span>思考</span>
+                      <strong>{{ thinkingLabel }}</strong>
+                    </div>
+                    <ThinkingSlider :stops="thinkingOptions" :model-value="thinkingValue" @update:model-value="setThinking" />
+                  </div>
                 </div>
+                <aside v-if="thinkingOptions.length" class="picker__reason" aria-label="思考等级">
+                  <p class="picker__reason-head">思考 <span>{{ activeModel ? shortName(activeModel.name) : '' }}</span></p>
+                  <button
+                    v-for="o in thinkingOptions"
+                    :key="o.v"
+                    type="button"
+                    class="picker__reason-opt"
+                    :class="{ 'is-active': thinkingValue === o.v }"
+                    :title="o.d"
+                    @click="setThinking(o.v)"
+                  >
+                    <span>{{ o.l }}</span>
+                    <Icon v-if="thinkingValue === o.v" name="check" :size="15" class="picker__check" />
+                    <small v-if="o.d">{{ o.d }}</small>
+                  </button>
+                </aside>
               </div>
               </Transition>
             </div>
@@ -1621,17 +1702,46 @@ onBeforeUnmount(() => {
 .picker__think { flex-shrink: 0; color: var(--color-muted); }
 .picker__chev { flex-shrink: 0; transform: rotate(-90deg); }
 .picker__panel {
-  position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 20; width: 360px; max-width: calc(100vw - 24px);
-  padding: 10px; border: 1px solid var(--color-divider); border-radius: var(--radius-lg); background: var(--color-surface);
-  box-shadow: var(--shadow-float); animation: toast-in 180ms var(--ease-editorial);
+  position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 20; display: flex; max-width: calc(100vw - 24px);
+  border: 1px solid var(--color-divider); border-radius: var(--radius-lg); background: var(--color-surface);
+  box-shadow: var(--shadow-float); animation: toast-in 180ms var(--ease-editorial); overflow: hidden;
 }
+/* 三栏：左边供应商（和收藏），中间搜索和模型，右边思考等级（参考常见的模型选择器）。 */
+.picker__rail { display: flex; flex-direction: column; gap: 4px; padding: 10px 7px; border-right: 1px solid var(--color-divider); background: var(--color-canvas-soft, transparent); overflow-y: auto; max-height: min(480px, 64vh); }
+.picker__rail-btn {
+  position: relative; display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 40px; border-radius: 10px;
+  color: var(--color-text-secondary); transition: background-color .12s ease, color .12s ease;
+}
+.picker__rail-btn:hover { background: var(--color-hover-wash); color: var(--color-ink); }
+.picker__rail-btn.is-active { background: var(--color-surface); color: var(--color-ink); box-shadow: 0 1px 3px rgba(20, 20, 19, .08), 0 0 0 1px rgba(20, 20, 19, .05); }
+.picker__rail-btn.is-active::after { content: ''; position: absolute; right: -7px; top: 9px; bottom: 9px; width: 3px; border-radius: 3px; background: var(--color-accent); }
+.picker__rail-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.picker__main { width: 340px; min-width: 0; padding: 10px; }
+.picker__reason { width: 196px; padding: 12px 10px; border-left: 1px solid var(--color-divider); overflow-y: auto; max-height: min(480px, 64vh); }
+.picker__reason-head { margin: 0 4px 8px; color: var(--color-muted); font-size: 12px; font-weight: 600; letter-spacing: .04em; }
+.picker__reason-head span { margin-left: 4px; color: var(--color-text-secondary); font-weight: 400; letter-spacing: 0; }
+.picker__reason-opt {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 6px; width: 100%; padding: 8px 10px; border-radius: var(--radius-md);
+  color: var(--color-ink); font-size: 14px; text-align: left; transition: background-color .12s ease;
+}
+.picker__reason-opt:hover { background: var(--color-surface-hover); }
+.picker__reason-opt.is-active { background: var(--color-canvas-soft); }
+.picker__reason-opt small { grid-column: 1 / -1; color: var(--color-muted); font-size: 11.5px; line-height: 1.45; }
+.picker__panel.has-think .picker__think-box { display: none; }
+.picker__fav { display: grid; place-items: center; flex-shrink: 0; width: 22px; height: 22px; border-radius: 6px; color: var(--color-muted); opacity: 0; transition: opacity .12s ease, color .12s ease; }
+.picker__fav:hover { color: var(--color-ink); background: var(--color-hover-wash); }
+.picker__opt:hover .picker__fav, .picker__opt:focus-within .picker__fav, .picker__fav.is-on { opacity: 1; }
+.picker__fav.is-on { color: #d4a017; }
+.picker__fav.is-on :deep(path), .picker__fav.is-on path { fill: currentColor; }
+@media (hover: none) { .picker__fav { opacity: .55; } }
+div.picker__opt { cursor: pointer; }
 .picker__search {
   display: flex; align-items: center; gap: 8px; height: 38px; margin-bottom: 6px; padding: 0 10px;
   border-radius: var(--radius-md); background: var(--color-canvas-soft); color: var(--color-muted);
 }
 .picker__search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--color-ink); font: inherit; font-size: 14px; }
 .picker__search input::-webkit-search-cancel-button { cursor: pointer; }
-.picker__list { display: grid; gap: 1px; max-height: min(340px, 48vh); overflow-y: auto; margin: 0 -2px; padding: 0 2px; }
+.picker__list { display: grid; gap: 1px; max-height: min(360px, calc(100dvh - 330px)); overflow-y: auto; margin: 0 -2px; padding: 0 2px; }
 .picker__group { margin: 8px 8px 2px; color: var(--color-muted); font-size: 11px; font-weight: 600; letter-spacing: .06em; }
 .picker__opt {
   display: grid; gap: 2px; width: 100%; padding: 7px 10px; border-radius: var(--radius-md); color: var(--color-ink); text-align: left;
@@ -1721,6 +1831,20 @@ onBeforeUnmount(() => {
   .composer__box { position: relative; }
   .picker { position: static; }
   .hide-sm { display: none; }
-  .picker__panel { left: 0; right: 0; width: auto; max-width: none; }
+  /* 手机上从屏幕底部弹出（输入框可能在屏幕中间，往上弹放不下）。 */
+  .picker__panel {
+    position: fixed; left: 0; right: 0; top: auto; bottom: 0; width: auto; max-width: none; max-height: 84dvh; flex-direction: column;
+    border-radius: 18px 18px 0 0; border-bottom: 0; padding-bottom: env(safe-area-inset-bottom); overflow-y: auto; z-index: 60;
+    box-shadow: 0 -8px 32px rgba(20, 20, 19, .18);
+  }
+  /* 手机上：供应商变成顶上一排可以左右滑的标签，思考用原来的滑块。 */
+  .picker__rail { flex-direction: row; gap: 6px; padding: 8px 10px; max-height: none; border-right: 0; border-bottom: 1px solid var(--color-divider); overflow-x: auto; overflow-y: hidden; }
+  .picker__rail-btn { display: inline-flex; gap: 6px; width: auto; height: 32px; padding: 0 10px; border-radius: 999px; }
+  .picker__rail-btn.is-active::after { display: none; }
+  .picker__rail-name { position: static; width: auto; height: auto; overflow: visible; clip: auto; font-size: 13px; }
+  .picker__main { width: auto; }
+  .picker__list { max-height: 46dvh; }
+  .picker__reason { display: none; }
+  .picker__panel.has-think .picker__think-box { display: block; }
 }
 </style>
