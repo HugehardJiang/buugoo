@@ -1738,7 +1738,8 @@ onBeforeUnmount(() => {
   box-shadow: var(--shadow-float); animation: toast-in 180ms var(--ease-editorial); overflow: hidden;
 }
 /* 三栏：左边供应商（和收藏），中间搜索和模型，右边思考等级（参考常见的模型选择器）。 */
-.picker__rail { display: flex; flex-direction: column; gap: 4px; padding: 10px 7px; border-right: 1px solid var(--color-divider); background: var(--color-canvas-soft, transparent); overflow-y: auto; max-height: min(480px, 64vh); }
+.picker__rail { display: flex; flex-direction: column; gap: 4px; padding: 10px 7px; border-right: 1px solid var(--color-divider); background: var(--color-canvas-soft, transparent); overflow-x: hidden; overflow-y: auto; scrollbar-width: none; max-height: min(480px, 64vh); }
+.picker__rail::-webkit-scrollbar { display: none; }
 .picker__rail-btn {
   position: relative; display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 40px; border-radius: 10px;
   color: var(--color-text-secondary); transition: background-color .12s ease, color .12s ease;
