@@ -2,7 +2,7 @@
 // 管理后台：用配置文件中的管理员密码登录，查看与修改全部系统设置。
 // 保存后写入数据目录中的 settings.yaml，管理员需要自己重启服务才会生效。
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ApiError } from '../api'
+import { api, ApiError } from '../api'
 import { getConsoleToken, setConsoleToken } from '../consoleToken'
 import ConsoleChannels from '../components/ConsoleChannels.vue'
 import ConsoleDatabase from '../components/ConsoleDatabase.vue'
@@ -161,8 +161,15 @@ async function login() {
   loggingIn.value = true
   error.value = ''
   try {
-    const r = await call<{ token: string }>('POST', '/login', { password: password.value })
-    store(r.token)
+    const r = await call<{ token?: string; opencode_unlocked?: boolean }>('POST', '/login', { password: password.value })
+    // 输入的是 OpenCode 启用口令：打开 OpenCode 接入，不登录管理后台。
+    if (r.opencode_unlocked) {
+      password.value = ''
+      session.meta = await api.meta()
+      toast('已开放 OpenCode 接入')
+      return
+    }
+    store(r.token ?? '')
     password.value = ''
     await load()
   } catch (e) {
@@ -364,7 +371,7 @@ onMounted(() => {
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'persona' }" @click="openTab('persona')">人格档案</button>
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'extensions' }" @click="openTab('extensions')">技能与插件</button>
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'channels' }" @click="openTab('channels')">聊天软件连接</button>
-              <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'opencode' }" @click="openTab('opencode')">OpenCode Go</button>
+              <button v-if="session.meta?.opencode" type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'opencode' }" @click="openTab('opencode')">OpenCode Go</button>
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'database' }" @click="openTab('database')">数据库迁移</button>
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'diagnostics' }" @click="openTab('diagnostics')">诊断</button>
               <button type="button" class="toc__item" :class="{ 'is-active': !searching && tab === 'observed' }" @click="openTab('observed')">主动关心记录</button>
@@ -415,7 +422,7 @@ onMounted(() => {
 
           <ConsoleDatabase v-else-if="!searching && tab === 'database'" :call="call" />
 
-          <ConsoleOpenCode v-else-if="!searching && tab === 'opencode'" :call="call" />
+          <ConsoleOpenCode v-else-if="!searching && tab === 'opencode' && session.meta?.opencode" :call="call" />
 
           <template v-else>
             <p v-if="error" class="form-flash form-flash--error">{{ error }}</p>

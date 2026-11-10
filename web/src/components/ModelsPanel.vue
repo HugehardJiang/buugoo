@@ -51,7 +51,7 @@ function wan(n: number) {
 const form = reactive<ModelInput>(blank())
 
 // 常见服务的预设，选中后自动填写地址、模型名与思考方式，仍可修改。
-const presets: { label: string; v: Partial<ModelInput> }[] = [
+const presets: { label: string; v: Partial<ModelInput> }[] = (<{ label: string; v: Partial<ModelInput> }[]>[
   { label: 'DeepSeek', v: { name: 'DeepSeek', base_url: 'https://api.deepseek.com/v1', model: 'deepseek-flash', thinking_style: 'deepseek', thinking_model: '', vision: true, tools: true } },
   { label: '阿里云百炼', v: { name: '通义千问', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', thinking_style: 'enable_thinking', thinking_model: '', vision: false, tools: true } },
   { label: '硅基流动', v: { name: '硅基流动', base_url: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen3-32B', thinking_style: 'enable_thinking', thinking_model: '', vision: false, tools: true } },
@@ -59,7 +59,7 @@ const presets: { label: string; v: Partial<ModelInput> }[] = [
   // OpenCode Go：所有文本模型都能走这个 OpenAI 兼容接口；模型名见 opencode.ai/docs/go（例如 glm-5.2、kimi-k3、deepseek-v4-pro）。
   // 一般用上面的「OpenCode Go」一键添加，这里留着给想手动填的人。
   { label: 'OpenCode Go', v: { name: 'OpenCode Go', base_url: 'https://opencode.ai/inference/go/openai/v1', model: 'glm-5.2', thinking_style: 'reasoning_effort', thinking_model: '', vision: false, tools: true } },
-]
+]).filter((p) => p.label !== 'OpenCode Go' || session.meta?.opencode)
 
 // OpenCode Go 一键添加：填自己的 Key、勾选模型，每个模型添加成一个「我的」模型（用自己的 Key 不计费）。
 type OcModel = { id: string; name: string; vision?: boolean; free?: boolean; note?: string }
@@ -270,7 +270,7 @@ const providerPresets: { label: string; base_url: string }[] = [
   { label: '智谱', base_url: 'https://open.bigmodel.cn/api/paas/v4' },
   { label: 'Moonshot', base_url: 'https://api.moonshot.cn/v1' },
   { label: 'OpenCode Go', base_url: 'https://opencode.ai/inference/go/openai/v1' },
-]
+].filter((x) => x.label !== 'OpenCode Go' || session.meta?.opencode)
 const pf = reactive<ProviderInput & { open: boolean; editing: ProviderView | null; busy: boolean; error: string }>({
   open: false, editing: null, busy: false, error: '', name: '', base_url: '', api_key: '', public: false,
 })
@@ -480,7 +480,7 @@ defineExpose({ load })
       <h2>模型</h2>
       <span class="head-actions">
         <button v-if="models.some(canBatch)" class="btn" :class="{ 'btn-primary': batchMode }" @click="toggleBatch">{{ batchMode ? '退出批量' : '批量修改' }}</button>
-        <button class="btn" @click="openOpenCode">OpenCode Go</button>
+        <button v-if="session.meta?.opencode" class="btn" @click="openOpenCode">OpenCode Go</button>
         <button class="btn btn-primary" @click="openProvider(null)">添加供应商</button>
       </span>
     </div>

@@ -178,13 +178,14 @@ func New(d Deps) http.Handler {
 	console.GET("/diagnostics", s.consoleDiagnostics)
 	console.POST("/channels/weixin/:id/logout", s.consoleWeixinKick)
 	if s.OpenCode != nil {
-		console.GET("/opencode", s.consoleOpenCode)
-		console.POST("/opencode/import", s.consoleOpenCodeImport)
-		console.POST("/opencode/sync", s.consoleOpenCodeSync)
-		console.POST("/opencode/apply", s.consoleOpenCodeApply)
-		console.PUT("/opencode/options", s.consoleOpenCodeOptions)
-		console.PUT("/opencode/key", s.consoleOpenCodeKey)
-		console.POST("/opencode/remove", s.consoleOpenCodeRemove)
+		oc := console.Group("/opencode", s.requireOpenCode)
+		oc.GET("", s.consoleOpenCode)
+		oc.POST("/import", s.consoleOpenCodeImport)
+		oc.POST("/sync", s.consoleOpenCodeSync)
+		oc.POST("/apply", s.consoleOpenCodeApply)
+		oc.PUT("/options", s.consoleOpenCodeOptions)
+		oc.PUT("/key", s.consoleOpenCodeKey)
+		oc.POST("/remove", s.consoleOpenCodeRemove)
 	}
 	if s.DBMove != nil {
 		console.GET("/database", s.consoleDatabase)
@@ -300,9 +301,9 @@ func New(d Deps) http.Handler {
 		priv.DELETE("/memos/:id", s.deleteMemo)
 	}
 	if s.OpenCode != nil {
-		priv.GET("/opencode/catalog", s.openCodeCatalog)
-		priv.POST("/opencode/mine", s.addMyOpenCode)
-		priv.POST("/opencode/mine/remove", s.removeMyOpenCode)
+		priv.GET("/opencode/catalog", s.openCodeCatalog, s.requireOpenCode)
+		priv.POST("/opencode/mine", s.addMyOpenCode, s.requireOpenCode)
+		priv.POST("/opencode/mine/remove", s.removeMyOpenCode, s.requireOpenCode)
 	}
 	if s.Todos != nil {
 		priv.GET("/todos", s.listTodos)
@@ -373,6 +374,8 @@ func (s *server) meta(c echo.Context) error {
 		"uploads":           s.uploadLimits(),
 		// reminders 为 true 时显示「定时任务」入口（提醒或主动关心至少开了一个）。
 		"reminders": s.Config.Proactive.Reminders || s.Config.Proactive.Care,
+		// opencode 为 true 时显示 OpenCode Go 的一键添加（多用户版默认关闭，见 openCodeOn）。
+		"opencode": s.openCodeOn(c.Request().Context()),
 		// bg_tasks 为 true 时显示「后台任务」入口（能不能用还看套餐）。
 		"bg_tasks": s.Config.Tasks.Enabled && s.Tasks != nil,
 		// channels 为 true 时显示「聊天软件」入口。

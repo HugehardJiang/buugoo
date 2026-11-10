@@ -287,7 +287,7 @@ function costTotal(items: { amount: number }[]) {
           </div>
           <div class="inline">
             <span class="caption grow">
-              {{ detail.user.is_admin ? '管理员可以用所有模型。' : detail.restricted_models ? '可以用「仅限授权用户」的模型（例如站长的 OpenCode Go）。' : '不能用「仅限授权用户」的模型。' }}
+              {{ detail.user.is_admin ? '管理员可以用所有模型。' : detail.restricted_models ? '可以用「仅限授权用户」的模型。' : '不能用「仅限授权用户」的模型。' }}
             </span>
             <button
               v-if="!detail.user.is_admin"

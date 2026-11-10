@@ -15,6 +15,7 @@ import (
 
 	"github.com/HugehardJiang/buugoo/configs"
 	"github.com/HugehardJiang/buugoo/internal/config"
+	"github.com/HugehardJiang/buugoo/internal/opencode"
 	"github.com/HugehardJiang/buugoo/internal/persona"
 	"github.com/HugehardJiang/buugoo/internal/settings"
 )
@@ -77,6 +78,15 @@ func (s *server) consoleLogin(c echo.Context) error {
 		return err
 	}
 	want := s.Config.Admin.Password
+	// 多用户版输入 OpenCode 启用口令：打开 OpenCode 接入，不登录管理后台。
+	if s.OpenCode != nil && s.Config.Mode == config.ModeMulti && opencode.IsUnlockCode(req.Password) &&
+		(want == "" || subtle.ConstantTimeCompare([]byte(req.Password), []byte(want)) != 1) {
+		if err := s.OpenCode.Unlock(c.Request().Context()); err != nil {
+			return err
+		}
+		s.log.Info("已用启用口令打开 OpenCode 接入", "ip", c.RealIP())
+		return c.JSON(http.StatusOK, map[string]any{"opencode_unlocked": true})
+	}
 	if want == "" || subtle.ConstantTimeCompare([]byte(req.Password), []byte(want)) != 1 {
 		s.log.Warn("管理后台登录失败", "ip", c.RealIP())
 		return &apiError{Status: http.StatusUnauthorized, Code: "invalid_credentials", Message: "管理员密码不正确"}

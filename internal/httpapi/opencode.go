@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/models"
 	"github.com/HugehardJiang/buugoo/internal/opencode"
 )
@@ -166,4 +168,22 @@ func (s *server) removeMyOpenCode(c echo.Context) error {
 		return err
 	}
 	return c.JSON(http.StatusOK, map[string]any{"removed": n})
+}
+
+// openCodeOn 报告 OpenCode 接入是否开放：单人版总是开放；多用户版要输入过启用口令，或者已经添加过 OpenCode 模型。
+func (s *server) openCodeOn(ctx context.Context) bool {
+	if s.OpenCode == nil {
+		return false
+	}
+	return s.Config.Mode != config.ModeMulti || s.OpenCode.Enabled(ctx)
+}
+
+// requireOpenCode 在 OpenCode 接入没开放时拒绝 OpenCode 的接口（不只是藏起网页上的按钮）。
+func (s *server) requireOpenCode(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		if !s.openCodeOn(c.Request().Context()) {
+			return &apiError{Status: http.StatusForbidden, Code: "opencode_disabled", Message: "这个站点没有开放 OpenCode 接入"}
+		}
+		return next(c)
+	}
 }
