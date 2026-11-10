@@ -83,6 +83,32 @@ func (s *server) updateModel(c echo.Context) error {
 	return c.JSON(http.StatusOK, v)
 }
 
+// batchModels 处理 POST /models/batch：多选模型后一起改同一项设置（patch），或者一起删除（delete）。
+func (s *server) batchModels(c echo.Context) error {
+	var req struct {
+		IDs    []uint64     `json:"ids"`
+		Patch  models.Patch `json:"patch"`
+		Delete bool         `json:"delete"`
+	}
+	if err := bind(c, &req); err != nil {
+		return err
+	}
+	u := modelUser(currentUser(c))
+	var (
+		res models.BatchResult
+		err error
+	)
+	if req.Delete {
+		res, err = s.Models.BatchDelete(c.Request().Context(), u, req.IDs)
+	} else {
+		res, err = s.Models.BatchUpdate(c.Request().Context(), u, req.IDs, req.Patch)
+	}
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, res)
+}
+
 func (s *server) deleteModel(c echo.Context) error {
 	id, err := pathID(c)
 	if err != nil {

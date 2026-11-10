@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { api, ApiError, type ModelInput, type ModelView, type ProviderInput, type ProviderView, type RemoteModel, type TestResult, type ThinkingStyle } from '../api'
+import { api, ApiError, type ModelInput, type ModelPatch, type ModelView, type ProviderInput, type ProviderView, type RemoteModel, type TestResult, type ThinkingStyle } from '../api'
 import { session } from '../session'
 import { toast } from '../toast'
 import Modal from './Modal.vue'
@@ -372,6 +372,104 @@ async function saveAdd() {
   }
 }
 
+// ---------- 批量修改 ----------
+
+// 进入批量模式后每个能改的模型前面有勾选框，底部一条操作栏：批量修改、删除。
+const batchMode = ref(false)
+const picked = ref<Set<number>>(new Set())
+const canBatch = (m: ModelView) => m.editable && m.scope !== 'builtin'
+function toggleBatch() {
+  batchMode.value = !batchMode.value
+  picked.value = new Set()
+}
+function pickModel(id: number) {
+  const s = new Set(picked.value)
+  if (s.has(id)) s.delete(id)
+  else s.add(id)
+  picked.value = s
+}
+function groupState(items: ModelView[]) {
+  const ids = items.filter(canBatch).map((m) => m.id)
+  const n = ids.filter((id) => picked.value.has(id)).length
+  return { ids, all: ids.length > 0 && n === ids.length, some: n > 0 && n < ids.length }
+}
+function toggleGroup(items: ModelView[]) {
+  const st = groupState(items)
+  const s = new Set(picked.value)
+  for (const id of st.ids) {
+    if (st.all) s.delete(id)
+    else s.add(id)
+  }
+  picked.value = s
+}
+const pickedModels = computed(() => models.value.filter((m) => picked.value.has(m.id)))
+const pickedHasPublic = computed(() => pickedModels.value.some((m) => m.scope === 'public'))
+
+// 批量修改窗口：每项前面勾上「改这一项」才会改。
+const bf = reactive({
+  open: false, busy: false, error: '',
+  on: { thinking: false, vision: false, tools: false, restricted: false, context: false, max: false, temp: false },
+  thinking_style: 'none' as ThinkingStyle, thinking_model: '', vision: true, tools: true, restricted: false,
+  context: '' as string | number, max_tokens: 0, temperature: 0.8,
+})
+function openBatch() {
+  const first = pickedModels.value[0]
+  Object.assign(bf, {
+    open: true, busy: false, error: '',
+    on: { thinking: false, vision: false, tools: false, restricted: false, context: false, max: false, temp: false },
+    thinking_style: first?.thinking_style ?? 'none', thinking_model: first?.thinking_model ?? '', vision: first?.vision ?? true,
+    tools: first?.tools ?? true, restricted: first?.restricted ?? false, context: '', max_tokens: first?.max_tokens ?? 0, temperature: first?.temperature ?? 0.8,
+  })
+}
+const batchCount = computed(() => Object.values(bf.on).filter(Boolean).length)
+function batchSummary(r: { done: number; failed: { name: string; error: string }[] }, verb: string) {
+  if (!r.failed.length) return `${verb}了 ${r.done} 个模型`
+  const why = r.failed.slice(0, 3).map((f) => `${f.name || '模型'}：${f.error}`).join('；')
+  return `${verb}了 ${r.done} 个，${r.failed.length} 个没成功（${why}${r.failed.length > 3 ? '…' : ''}）`
+}
+async function saveBatch() {
+  if (!batchCount.value || bf.busy) return
+  const p: ModelPatch = {}
+  if (bf.on.thinking) {
+    p.thinking_style = bf.thinking_style
+    p.thinking_model = bf.thinking_style === 'model_switch' ? bf.thinking_model.trim() : ''
+  }
+  if (bf.on.vision) p.vision = bf.vision
+  if (bf.on.tools) p.tools = bf.tools
+  if (bf.on.restricted) p.restricted = bf.restricted
+  if (bf.on.context) {
+    const n = typeof bf.context === 'number' ? bf.context : parseFloat(String(bf.context))
+    p.context_tokens = Number.isFinite(n) && n > 0 ? Math.round(n * 100000) : 0
+  }
+  if (bf.on.max) p.max_tokens = Math.max(0, Math.round(Number(bf.max_tokens) || 0))
+  if (bf.on.temp) p.temperature = Number(bf.temperature) || 0
+  bf.busy = true
+  bf.error = ''
+  try {
+    const r = await api.batchModels([...picked.value], p)
+    toast(batchSummary(r, '改好'))
+    bf.open = false
+    if (!r.failed.length) toggleBatch()
+    await load()
+  } catch (e) {
+    bf.error = e instanceof ApiError ? e.message : '修改失败'
+  } finally {
+    bf.busy = false
+  }
+}
+const batchDeleting = ref(false)
+async function deleteBatch() {
+  try {
+    const r = await api.batchModels([...picked.value], null, true)
+    batchDeleting.value = false
+    toast(batchSummary(r, '删除'))
+    toggleBatch()
+    await load()
+  } catch (e) {
+    fail(e)
+  }
+}
+
 onMounted(load)
 defineExpose({ load })
 </script>
@@ -381,6 +479,7 @@ defineExpose({ load })
     <div class="panel-head">
       <h2>模型</h2>
       <span class="head-actions">
+        <button v-if="models.some(canBatch)" class="btn" :class="{ 'btn-primary': batchMode }" @click="toggleBatch">{{ batchMode ? '退出批量' : '批量修改' }}</button>
         <button class="btn" @click="openOpenCode">OpenCode Go</button>
         <button class="btn btn-primary" @click="openProvider(null)">添加供应商</button>
       </span>
@@ -397,6 +496,16 @@ defineExpose({ load })
     <p v-if="!models.length && !providers.length" class="empty muted">还没有可用的模型，先点「添加供应商」。</p>
     <section v-for="g in groups" :key="g.provider ? `p${g.provider.id}` : g.label" class="prov">
       <div class="prov__head">
+        <input
+          v-if="batchMode && groupState(g.items).ids.length"
+          type="checkbox"
+          class="pick"
+          :checked="groupState(g.items).all"
+          :indeterminate="groupState(g.items).some"
+          :aria-label="`全选「${g.label}」下的模型`"
+          :title="`全选「${g.label}」下的模型`"
+          @change="toggleGroup(g.items)"
+        />
         <ModelIcon model="" :name="g.label" :size="22" />
         <div class="prov__title">
           <strong>{{ g.label }}</strong>
@@ -404,14 +513,15 @@ defineExpose({ load })
           <p v-if="g.provider" class="caption">{{ g.provider.base_url }} · Key {{ g.provider.key_mask }} · {{ g.items.length }} 个模型</p>
           <p v-else-if="g.label === '配置文件'" class="caption">来自 config.yaml 的 llm.chat，需在配置文件中修改</p>
         </div>
-        <div v-if="g.provider?.editable" class="prov__actions">
+        <div v-if="g.provider?.editable && !batchMode" class="prov__actions">
           <button class="btn btn-sm btn-primary" @click="openAdd(g.provider)">添加模型</button>
           <button class="btn btn-sm" @click="openProvider(g.provider)">修改</button>
           <button class="btn btn-sm btn-danger-lite" @click="removingProvider = g.provider">删除</button>
         </div>
       </div>
       <p v-if="g.provider && !g.items.length" class="caption prov__empty">还没有模型，点「添加模型」从这个供应商的模型列表里勾选。</p>
-    <div v-for="m in g.items" :key="m.id" class="model-row">
+    <div v-for="m in g.items" :key="m.id" class="model-row" :class="{ 'is-picked': picked.has(m.id) }" @click="batchMode && canBatch(m) && pickModel(m.id)">
+      <input v-if="batchMode" type="checkbox" class="pick" :disabled="!canBatch(m)" :checked="picked.has(m.id)" :aria-label="`选择 ${m.name}`" @click.stop @change="pickModel(m.id)" />
       <div class="model-row__main">
         <div class="model-row__title">
           <ModelIcon :model="m.model" :name="m.name" :size="18" />
@@ -425,7 +535,7 @@ defineExpose({ load })
         </p>
         <p v-if="rowTest[m.id]" class="caption test-line">{{ rowTest[m.id] }}</p>
       </div>
-      <div class="model-row__actions">
+      <div v-if="!batchMode" class="model-row__actions">
         <button v-if="canSetDefault(m)" class="btn btn-ghost" @click="setDefault(m)">设为默认</button>
         <button v-if="!isMulti || isAdmin || m.scope === 'personal'" class="btn" @click="testRow(m)">测试</button>
         <template v-if="m.editable && m.scope !== 'builtin'">
@@ -586,6 +696,79 @@ defineExpose({ load })
       </form>
     </Modal>
 
+    <div v-if="batchMode" class="batch-bar">
+      <span>已选 <strong>{{ picked.size }}</strong> 个模型</span>
+      <span class="batch-bar__btns">
+        <button class="btn btn-sm btn-ghost" :disabled="!picked.size" @click="picked = new Set()">清空</button>
+        <button class="btn btn-sm btn-danger-lite" :disabled="!picked.size" @click="batchDeleting = true">删除</button>
+        <button class="btn btn-sm btn-primary" :disabled="!picked.size" @click="openBatch">批量修改</button>
+      </span>
+    </div>
+
+    <Modal :open="bf.open" :title="`批量修改 ${picked.size} 个模型`" subtitle="勾上「改这一项」的才会改，没勾的保持各自原来的设置。" @close="bf.open = false">
+      <form class="batch" @submit.prevent="saveBatch">
+        <div class="batch__row">
+          <label class="check-row batch__on"><input v-model="bf.on.thinking" type="checkbox" /> 思考方式</label>
+          <div class="batch__ctl" :class="{ 'is-off': !bf.on.thinking }">
+            <select v-model="bf.thinking_style" class="text-input" :disabled="!bf.on.thinking" aria-label="思考方式">
+              <option v-for="s in styles" :key="s.v" :value="s.v">{{ s.l }}</option>
+            </select>
+            <input v-if="bf.thinking_style === 'model_switch'" v-model="bf.thinking_model" class="text-input" :disabled="!bf.on.thinking" placeholder="推理模型名" aria-label="推理模型名" />
+          </div>
+        </div>
+        <div class="batch__row">
+          <label class="check-row batch__on"><input v-model="bf.on.vision" type="checkbox" /> 能看图</label>
+          <div class="batch__ctl" :class="{ 'is-off': !bf.on.vision }">
+            <select v-model="bf.vision" class="text-input" :disabled="!bf.on.vision" aria-label="能看图"><option :value="true">能</option><option :value="false">不能</option></select>
+          </div>
+        </div>
+        <div class="batch__row">
+          <label class="check-row batch__on"><input v-model="bf.on.tools" type="checkbox" /> 工具调用</label>
+          <div class="batch__ctl" :class="{ 'is-off': !bf.on.tools }">
+            <select v-model="bf.tools" class="text-input" :disabled="!bf.on.tools" aria-label="工具调用"><option :value="true">支持</option><option :value="false">不支持</option></select>
+          </div>
+        </div>
+        <div v-if="isMulti && isAdmin && pickedHasPublic" class="batch__row">
+          <label class="check-row batch__on"><input v-model="bf.on.restricted" type="checkbox" /> 仅限授权用户</label>
+          <div class="batch__ctl" :class="{ 'is-off': !bf.on.restricted }">
+            <select v-model="bf.restricted" class="text-input" :disabled="!bf.on.restricted" aria-label="仅限授权用户"><option :value="true">是（只给授权的用户用）</option><option :value="false">否（所有人能用）</option></select>
+          </div>
+        </div>
+        <div class="batch__row">
+          <label class="check-row batch__on"><input v-model="bf.on.context" type="checkbox" /> 上下文长度</label>
+          <div class="batch__ctl ctx-row" :class="{ 'is-off': !bf.on.context }">
+            <input v-model="bf.context" class="text-input" type="number" min="0" step="0.01" :disabled="!bf.on.context" placeholder="留空自动识别" aria-label="上下文长度" />
+            <span class="caption">× 10 万 token</span>
+          </div>
+        </div>
+        <div class="batch__row">
+          <label class="check-row batch__on"><input v-model="bf.on.max" type="checkbox" /> 最大输出 token</label>
+          <div class="batch__ctl" :class="{ 'is-off': !bf.on.max }">
+            <input v-model.number="bf.max_tokens" class="text-input" type="number" min="0" step="1024" :disabled="!bf.on.max" aria-label="最大输出 token" />
+          </div>
+        </div>
+        <div class="batch__row">
+          <label class="check-row batch__on"><input v-model="bf.on.temp" type="checkbox" /> Temperature</label>
+          <div class="batch__ctl" :class="{ 'is-off': !bf.on.temp }">
+            <input v-model.number="bf.temperature" class="text-input" type="number" min="0" max="2" step="0.1" :disabled="!bf.on.temp" aria-label="Temperature" />
+          </div>
+        </div>
+        <p class="caption">选中的：{{ pickedModels.slice(0, 6).map((m) => shortName(m.name)).join('、') }}{{ pickedModels.length > 6 ? ` 等 ${pickedModels.length} 个` : '' }}</p>
+        <p v-if="bf.error" class="form-flash form-flash--error">{{ bf.error }}</p>
+        <div class="modal-actions">
+          <button type="button" class="btn" @click="bf.open = false">取消</button>
+          <button class="btn btn-primary" :disabled="!batchCount || bf.busy">{{ bf.busy ? '正在修改' : batchCount ? `修改 ${batchCount} 项` : '先勾选要改的项' }}</button>
+        </div>
+      </form>
+    </Modal>
+
+    <Modal v-if="batchDeleting" :title="`删除选中的 ${picked.size} 个模型？`" subtitle="正在用这些模型的对话会改回默认模型，聊天记录不受影响。" @close="batchDeleting = false">
+      <div class="modal-actions">
+        <button class="btn" @click="batchDeleting = false">取消</button>
+        <button class="btn btn-danger" @click="deleteBatch">删除</button>
+      </div>
+    </Modal>
+
     <Modal :open="pf.open" :title="pf.editing ? '修改供应商' : '添加供应商'" subtitle="填一次接口地址和 API Key，下面的模型都用它。支持所有 OpenAI 兼容接口。" @close="pf.open = false">
       <form @submit.prevent="saveProvider">
         <div v-if="!pf.editing" class="presets">
@@ -717,5 +900,22 @@ defineExpose({ load })
 .add-item__caps { display: flex; gap: 10px; font-size: 12px; color: var(--color-text-secondary); }
 .add-item__caps label { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
 .add-manual { display: flex; gap: 8px; margin: 4px 0 12px; }
+.pick { flex-shrink: 0; width: 16px; height: 16px; margin: 0; accent-color: var(--color-accent); cursor: pointer; }
+.prov__head .pick { margin-top: 3px; }
+.model-row.is-picked { background: var(--color-accent-tint, rgba(91, 122, 74, .08)); }
+.model-row:has(.pick) { cursor: pointer; margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: var(--radius-md); }
+.batch-bar {
+  position: sticky; bottom: 12px; z-index: 5; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 14px;
+  margin-top: 16px; padding: 10px 14px; border: 1px solid var(--color-divider); border-radius: var(--radius-lg);
+  background: var(--color-surface); box-shadow: var(--shadow-float); font-size: 14px;
+}
+.batch-bar__btns { display: flex; gap: 6px; }
+.batch { display: grid; gap: 10px; }
+.batch__row { display: grid; grid-template-columns: 140px minmax(0, 1fr); align-items: center; gap: 10px; }
+.batch__on { margin: 0; font-weight: 500; }
+.batch__ctl { display: flex; gap: 8px; min-width: 0; transition: opacity .15s ease; }
+.batch__ctl.is-off { opacity: .45; }
+.batch__ctl .text-input { min-width: 0; }
+@media (max-width: 520px) { .batch__row { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
 .add-manual .text-input { flex: 1; min-width: 0; }
 </style>

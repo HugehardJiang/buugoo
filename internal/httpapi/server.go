@@ -231,6 +231,7 @@ func New(d Deps) http.Handler {
 	priv.GET("/models", s.listModels)
 	priv.POST("/models", s.createModel)
 	priv.POST("/models/test", s.testModelInput)
+	priv.POST("/models/batch", s.batchModels)
 	priv.DELETE("/models/default", s.clearDefaultModel)
 	priv.PUT("/models/:id", s.updateModel)
 	priv.DELETE("/models/:id", s.deleteModel)

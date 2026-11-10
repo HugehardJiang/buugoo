@@ -320,6 +320,18 @@ export interface ModelInput {
   provider_id?: number
 }
 
+/** 批量修改模型：只改写了的项 */
+export interface ModelPatch {
+  thinking_style?: ThinkingStyle
+  thinking_model?: string
+  vision?: boolean
+  tools?: boolean
+  restricted?: boolean
+  context_tokens?: number
+  max_tokens?: number
+  temperature?: number
+}
+
 export interface TestResult {
   ok: boolean
   latency_ms: number
@@ -915,6 +927,9 @@ export const api = {
   createModel: (input: ModelInput) => request<ModelView>('POST', '/models', input),
   updateModel: (id: number, input: ModelInput) => request<ModelView>('PUT', `/models/${id}`, input),
   deleteModel: (id: number) => request<void>('DELETE', `/models/${id}`),
+  /** 多选模型后一起改同一项设置（patch 里没写的项不改），或者一起删除 */
+  batchModels: (ids: number[], patch: ModelPatch | null, del = false) =>
+    request<{ done: number; failed: { id: number; name: string; error: string }[] }>('POST', '/models/batch', { ids, patch: patch ?? {}, delete: del }),
   setDefaultModel: (id: number) => request<void>('POST', `/models/${id}/default`),
   clearDefaultModel: () => request<void>('DELETE', '/models/default'),
   // 不带 input 时测试已保存的模型；带 input 时测试表单中的配置（id 为 0 表示尚未保存）。
