@@ -1,15 +1,40 @@
 // markdown-it 数学公式插件：用 KaTeX 渲染 \( … \)、\[ … \]、$ … $、$$ … $$。
 // 模型（例如 DeepSeek）常用 \( \) 与 \[ \] 写公式，Markdown 会把其中的反斜杠当成转义吃掉，
 // 所以要在 Markdown 解析之前识别出来。
-import katex from 'katex'
-import 'katex/dist/katex.min.css'
 import type { MarkdownIt, StateBlock, StateInline, Token } from 'markdown-it'
+import { ref } from 'vue'
+
+// KaTeX 很大（约 260 KB），等内容里真的出现公式时才下载；下载好之后 mathReady 变成 true，
+// 用到公式的地方（renderMarkdown 读了它）会自动重新渲染。下载完之前先显示公式原文。
+type Katex = typeof import('katex').default
+let katex: Katex | null = null
+let loading = false
+export const mathReady = ref(false)
+
+function loadKatex() {
+  if (loading) return
+  loading = true
+  Promise.all([import('katex'), import('katex/dist/katex.min.css')])
+    .then(([m]) => {
+      katex = m.default
+      mathReady.value = true
+    })
+    .catch(() => {
+      loading = false // 下载失败，下次遇到公式再试
+    })
+}
+
+const escape = (tex: string) => tex.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!)
 
 function render(tex: string, displayMode: boolean): string {
+  if (!katex) {
+    loadKatex()
+    return displayMode ? `<span class="math-pending math-pending--block">${escape(tex)}</span>` : `<span class="math-pending">${escape(tex)}</span>`
+  }
   try {
     return katex.renderToString(tex, { displayMode, throwOnError: false, output: 'html', strict: 'ignore' })
   } catch {
-    return `<code>${tex.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!)}</code>`
+    return `<code>${escape(tex)}</code>`
   }
 }
 

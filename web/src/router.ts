@@ -1,3 +1,4 @@
+import { ref } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import { setUnauthorizedHandler } from './api'
 import { bootstrap, logout, needsLogin, session } from './session'
@@ -20,6 +21,20 @@ export const router = createRouter({
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })
+
+// routeLoading 为 true 时页面顶部显示一根细进度线：切换页面要下载新页面的代码、超过 150 毫秒才显示，快的时候不闪。
+export const routeLoading = ref(false)
+let loadingTimer: ReturnType<typeof setTimeout> | undefined
+router.beforeEach(() => {
+  clearTimeout(loadingTimer)
+  loadingTimer = setTimeout(() => (routeLoading.value = true), 150)
+})
+const stopLoading = () => {
+  clearTimeout(loadingTimer)
+  routeLoading.value = false
+}
+router.afterEach(stopLoading)
+router.onError(stopLoading)
 
 router.beforeEach(async (to) => {
   if (!session.loaded) {

@@ -1,10 +1,14 @@
 package httpapi
 
 import (
+	"bytes"
+	"compress/gzip"
 	"io/fs"
+	"mime"
 	"net/http"
 	"path"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v4"
 
@@ -36,6 +40,9 @@ func (s *server) mountWeb(e *echo.Echo) {
 					// Vite 产物文件名带内容哈希，可以长期缓存。
 					c.Response().Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 				}
+				if serveGzip(c, fsys, p) {
+					return nil
+				}
 				fileServer.ServeHTTP(c.Response(), c.Request())
 				return nil
 			}
@@ -45,6 +52,61 @@ func (s *server) mountWeb(e *echo.Echo) {
 			return err
 		}
 		c.Response().Header().Set("Cache-Control", "no-cache")
+		if serveGzip(c, fsys, "index.html") {
+			return nil
+		}
 		return c.HTMLBlob(http.StatusOK, index)
 	})
+}
+
+// 静态文件压缩：JS、CSS 这类文本文件压缩后小 3～4 倍（没有经过宝塔、nginx 等反向代理时尤其明显）。
+// 内嵌的文件不会变，每个文件只压一次，结果放在内存里。
+
+var compressible = map[string]bool{".js": true, ".css": true, ".html": true, ".svg": true, ".json": true, ".txt": true, ".map": true}
+
+var gzipCache sync.Map // 路径 → []byte（压缩后反而不更小的存 nil）
+
+// serveGzip 在浏览器接受 gzip、而且这个文件值得压缩时返回压缩过的内容，返回 false 表示交给普通的文件服务。
+func serveGzip(c echo.Context, fsys fs.FS, p string) bool {
+	ext := path.Ext(p)
+	if !compressible[ext] || !strings.Contains(c.Request().Header.Get("Accept-Encoding"), "gzip") {
+		return false
+	}
+	var gz []byte
+	if v, ok := gzipCache.Load(p); ok {
+		gz, _ = v.([]byte)
+	} else {
+		raw, err := fs.ReadFile(fsys, p)
+		if err != nil {
+			return false
+		}
+		var buf bytes.Buffer
+		w, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+		_, _ = w.Write(raw)
+		_ = w.Close()
+		if buf.Len() < len(raw)*9/10 {
+			gz = buf.Bytes()
+		}
+		gzipCache.Store(p, gz)
+	}
+	if gz == nil {
+		return false
+	}
+	h := c.Response().Header()
+	ctype := mime.TypeByExtension(ext)
+	if ext == ".html" {
+		ctype = "text/html; charset=utf-8"
+	}
+	if ctype == "" {
+		ctype = "application/octet-stream"
+	}
+	h.Set("Content-Type", ctype)
+	h.Set("Content-Encoding", "gzip")
+	h.Add("Vary", "Accept-Encoding")
+	if c.Request().Method == http.MethodHead {
+		c.Response().WriteHeader(http.StatusOK)
+		return true
+	}
+	_ = c.Blob(http.StatusOK, ctype, gz)
+	return true
 }

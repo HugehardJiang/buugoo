@@ -322,3 +322,14 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--color-accent);
 ::-webkit-scrollbar-thumb:hover { border-width: 2px; background-color: var(--scroll-thumb-hover); }
 ::-webkit-scrollbar-thumb:active { background-color: var(--scroll-thumb-hover); }
 ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+
+/* 公式库还在下载时先显示公式原文（淡一点），下载好会自动换成排好版的公式。 */
+.math-pending { font-family: var(--font-mono); font-size: .92em; color: var(--color-text-secondary); }
+.math-pending--block { display: block; margin: 8px 0; text-align: center; }
+
+/* 切换页面时的顶部进度线：慢慢走到大约八成，等页面打开就消失。 */
+.route-bar {
+  position: fixed; top: 0; left: 0; z-index: 1000; height: 2px; width: 0; border-radius: 0 2px 2px 0;
+  background: var(--color-accent); box-shadow: 0 0 6px rgba(91, 122, 74, .4); animation: route-bar 8s cubic-bezier(.1, .7, .2, 1) forwards;
+}
+@keyframes route-bar { 0% { width: 0; } 15% { width: 45%; } 100% { width: 88%; } }

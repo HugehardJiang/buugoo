@@ -4,7 +4,7 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { api, ApiError, type AgentAction, type AgentMessage, type AgentState, type ModelView } from '../api'
 import { consoleLogin } from '../consoleToken'
-import { renderMarkdown } from '../format'
+import { renderMarkdown } from '../markdown'
 import Icon from '../Icon.vue'
 import Modal from './Modal.vue'
 import { session } from '../session'

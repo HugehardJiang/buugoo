@@ -2,7 +2,7 @@
 // 设置 → 通知：管理员发过的所有通知（弹过一次就不再弹，可以在这里再看）。
 import { onMounted, ref } from 'vue'
 import { api, ApiError, type Notice } from '../api'
-import { renderMarkdown } from '../format'
+import { renderMarkdown } from '../markdown'
 import Icon from '../Icon.vue'
 
 const list = ref<Notice[] | null>(null)

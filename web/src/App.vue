@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import { api } from './api'
@@ -7,10 +7,13 @@ import { connectedCount, refreshChannels } from './channelState'
 import { activeConvId, navOpen, openConvHandler, recentConvs, recentQuery, searching, sidebarCollapsed, wideScreen } from './sidebarState'
 import Avatar from './components/Avatar.vue'
 import Lightbox from './components/Lightbox.vue'
-import NoticeGate from './components/NoticeGate.vue'
 import { memoriesUnlocked } from './memoryLock'
 import { logout, needsLogin, session } from './session'
 import { toasts } from './toast'
+import { routeLoading } from './router'
+
+// 强制通知弹窗要用 Markdown 渲染，单独加载，不拖慢首屏。
+const NoticeGate = defineAsyncComponent(() => import('./components/NoticeGate.vue'))
 
 const route = useRoute()
 const router = useRouter()
@@ -117,6 +120,7 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
 </script>
 
 <template>
+  <div v-if="routeLoading" class="route-bar" role="progressbar" aria-label="正在打开页面" />
   <!-- 管理员临时登录到别人账号时一直显示，免得忘了自己在用谁的账号 -->
   <div v-if="session.impersonated && session.user" class="imp-bar" role="status">
     <span>正在临时登录「{{ userName }}」的账号排查问题 · 操作和本人一样生效</span>

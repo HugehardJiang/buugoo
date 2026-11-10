@@ -26,7 +26,7 @@ import Icon from '../Icon.vue'
 import AttachmentList from '../components/AttachmentList.vue'
 import Modal from '../components/Modal.vue'
 import ContextMeter from '../components/ContextMeter.vue'
-import FatBird from '../components/FatBird.vue'
+import InkBird from '../components/InkBird.vue'
 import ToolSteps from '../components/ToolSteps.vue'
 import TaskCard from '../components/TaskCard.vue'
 import ThinkingSlider from '../components/ThinkingSlider.vue'
@@ -34,7 +34,8 @@ import ModelIcon from '../components/ModelIcon.vue'
 import CosplayPicker from '../components/CosplayPicker.vue'
 import { shortName, vendorOf } from '../vendors'
 import { splitBubbles } from '../bubbles'
-import { dayKey, dayLabel, formatSize, renderMarkdown, shortWhen, timeOf } from '../format'
+import { dayKey, dayLabel, formatSize, shortWhen, timeOf } from '../format'
+import { renderMarkdown } from '../markdown'
 import { memoriesUnlocked } from '../memoryLock'
 import Collapse from '../components/Collapse.vue'
 import { session } from '../session'
@@ -1287,7 +1288,7 @@ onBeforeUnmount(() => {
               <div v-else-if="row.item.content" class="bubble">{{ row.item.content }}</div>
               <AttachmentList v-if="toolImages(row.item).length" :items="toolImages(row.item)" size="large" />
               <AttachmentList v-if="toolFiles(row.item).length" :items="toolFiles(row.item)" />
-              <FatBird
+              <InkBird
                 v-if="row.item.streaming && !row.item.content && !row.item.tools?.some((t) => t.status === 'running')"
                 :label="row.item.reasoning ? '正在思考' : compactPending ? '先整理一下之前聊的' : '正在回复'"
               />

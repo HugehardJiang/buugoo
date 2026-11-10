@@ -3,7 +3,7 @@
 // 关掉后不再主动弹（设置 → 通知 里还能看到）。服务器也会检查看够了没有，改网页绕不过去。
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api, ApiError, type Notice } from '../api'
-import { renderMarkdown } from '../format'
+import { renderMarkdown } from '../markdown'
 
 const queue = ref<Notice[]>([])
 const current = computed(() => queue.value[0] ?? null)

@@ -2,7 +2,7 @@
 // 管理后台 → 通知：发布强制弹窗通知。用户下次打开网页时弹出，看够设定的秒数才能关；之后注册的用户也会弹。
 import { onMounted, reactive, ref } from 'vue'
 import { ApiError, type Notice } from '../api'
-import { renderMarkdown } from '../format'
+import { renderMarkdown } from '../markdown'
 import Modal from './Modal.vue'
 import { toast } from '../toast'
 
