@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -91,7 +92,7 @@ func TestFieldsAndSave(t *testing.T) {
 	if len(changed) != 5 {
 		t.Fatalf("留空的密钥不应算作修改: %v", changed)
 	}
-	if info, _ := os.Stat(cfg.SettingsPath()); info.Mode().Perm() != 0o600 {
+	if info, _ := os.Stat(cfg.SettingsPath()); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("设置文件权限应为 0600: %v", info.Mode())
 	}
 	fields, _ = Fields(cfg)

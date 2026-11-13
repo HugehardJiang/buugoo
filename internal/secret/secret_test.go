@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -15,7 +16,7 @@ func TestSealOpen(t *testing.T) {
 		t.Fatal(src, err)
 	}
 	st, _ := os.Stat(src)
-	if st.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Fatalf("密钥文件权限应为 0600: %v", st.Mode())
 	}
 	sealed, err := b.Seal("sk-secret-123456")

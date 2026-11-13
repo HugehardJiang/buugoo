@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -71,7 +72,7 @@ func TestCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	st, _ := os.Stat(path)
-	if st.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Fatalf("权限应为 0600: %v", st.Mode())
 	}
 	c2, _ := LoadCredentials(path)

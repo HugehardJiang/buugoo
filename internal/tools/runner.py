@@ -171,10 +171,20 @@ def _collect(fd, wd, since, before):
 
 
 def _main():
+    if _os.name == "nt":
+        for _s in (_sys.stdout, _sys.stderr):
+            if hasattr(_s, "reconfigure"):
+                _s.reconfigure(newline="\n")
+        import msvcrt as _ms
+        _ms.setmode(1, _os.O_BINARY)
+        _ms.setmode(2, _os.O_BINARY)
     wd = _setup()
     _restore(wd)
     before = _manifest(wd) if _os.environ.get("BUUGOO_WS_SYNC") == "1" else None
     fd = _os.dup(1)
+    if _os.name == "nt":
+        import msvcrt as _ms
+        _ms.setmode(fd, _os.O_BINARY)
     since = _time.time()
     _lc.cache["<code>"] = (len(_SRC), None, _SRC.splitlines(True), "<code>")
     g = {"__name__": "__main__", "__builtins__": __builtins__}

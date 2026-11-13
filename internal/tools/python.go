@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -485,7 +487,11 @@ func NewLocal(c config.PythonConfig, log *slog.Logger) *Local {
 	if log == nil {
 		log = slog.Default()
 	}
-	l := &Local{python: c.Python, timeout: c.Timeout, memoryMB: c.MemoryMB, taskTimeout: c.TaskTimeout, taskMemoryMB: c.TaskMemoryMB,
+	py := c.Python
+	if runtime.GOOS == "windows" && (py == "" || py == "python3") && !usablePython(py) && usablePython("python") {
+		py = "python"
+	}
+	l := &Local{python: py, timeout: c.Timeout, memoryMB: c.MemoryMB, taskTimeout: c.TaskTimeout, taskMemoryMB: c.TaskMemoryMB,
 		lib: newLibrary(c, log.With("component", "python"))}
 	if l.taskTimeout <= 0 {
 		l.taskTimeout = l.timeout
@@ -494,6 +500,23 @@ func NewLocal(c config.PythonConfig, log *slog.Logger) *Local {
 		l.taskMemoryMB = l.memoryMB
 	}
 	return l
+}
+
+// usablePython 检查解释器是否真能启动，排除 Windows 应用商店占位符（退出码 9009）。
+func usablePython(bin string) bool {
+	if bin == "" {
+		return false
+	}
+	p, err := exec.LookPath(bin)
+	if err != nil {
+		return false
+	}
+	if runtime.GOOS != "windows" {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, p, "-c", "").Run() == nil
 }
 
 // Library 返回第三方库目录。
@@ -528,8 +551,7 @@ func (l *Local) Sandboxed() bool { return false }
 
 // Available 报告解释器是否存在。
 func (l *Local) Available() bool {
-	_, err := exec.LookPath(l.python)
-	return err == nil
+	return usablePython(l.python)
 }
 
 // Run 实现 Runner。
@@ -537,6 +559,9 @@ func (l *Local) Run(ctx context.Context, code string, env RunEnv) (ExecResult, e
 	dir, err := os.MkdirTemp("", "buugoo-py-")
 	if err != nil {
 		return ExecResult{}, err
+	}
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = real
 	}
 	defer os.RemoveAll(dir)
 	// 本机运行不在沙箱里：直接在这段对话的工作目录中运行，input/ 是指向上传文件的链接。
@@ -549,9 +574,11 @@ func (l *Local) Run(ctx context.Context, code string, env RunEnv) (ExecResult, e
 	}
 	if env.Input != "" {
 		link := filepath.Join(wd, "input")
-		_ = os.RemoveAll(link)
+		removeReadOnlyDir(link)
 		if err := os.Symlink(env.Input, link); err == nil {
 			defer os.Remove(link)
+		} else if copyReadOnlyDir(env.Input, link) == nil {
+			defer removeReadOnlyDir(link)
 		}
 	}
 	timeout, memMB := l.timeout, l.memoryMB
@@ -601,4 +628,47 @@ func (l *Local) Run(ctx context.Context, code string, env RunEnv) (ExecResult, e
 		res.ExitCode = code
 	}
 	return res, nil
+}
+
+// copyReadOnlyDir 在无法建符号链接时（如 Windows 普通用户）把只读输入目录复制一份。
+func copyReadOnlyDir(src, dst string) error {
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		in, err := os.Open(filepath.Join(src, e.Name()))
+		if err != nil {
+			continue
+		}
+		outPath := filepath.Join(dst, e.Name())
+		out, err := os.OpenFile(outPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+		if err != nil {
+			_ = in.Close()
+			continue
+		}
+		_, cerr := io.Copy(out, in)
+		_ = in.Close()
+		_ = out.Close()
+		if cerr == nil {
+			_ = os.Chmod(outPath, 0o444)
+		}
+	}
+	return nil
+}
+
+func removeReadOnlyDir(dir string) {
+	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil {
+			_ = os.Chmod(p, 0o755)
+		}
+		return nil
+	})
+	_ = os.RemoveAll(dir)
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 )
@@ -101,15 +102,15 @@ func layoutFor(goos, scope, home string, getenv func(string) string) (Layout, er
 func fillXDG(l *Layout, home string, getenv func(string) string) {
 	cfg := getenv("XDG_CONFIG_HOME")
 	if cfg == "" {
-		cfg = filepath.Join(home, ".config")
+		cfg = path.Join(home, ".config")
 	}
 	data := getenv("XDG_DATA_HOME")
 	if data == "" {
-		data = filepath.Join(home, ".local", "share")
+		data = path.Join(home, ".local", "share")
 	}
-	l.BinDir = filepath.Join(home, ".local", "bin")
-	l.ConfigDir = filepath.Join(cfg, "buugoo")
-	l.DataDir = filepath.Join(data, "buugoo")
+	l.BinDir = path.Join(home, ".local", "bin")
+	l.ConfigDir = path.Join(cfg, "buugoo")
+	l.DataDir = path.Join(data, "buugoo")
 }
 
 // Manifest 是安装脚本写入的安装清单，update / uninstall 依据它决定操作对象。

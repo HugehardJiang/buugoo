@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -106,11 +105,18 @@ func TestPythonHandler(t *testing.T) {
 	}
 }
 
-func TestLocalRunner(t *testing.T) {
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("没有 python3")
+func localTestPython(t *testing.T) string {
+	t.Helper()
+	l := NewLocal(config.PythonConfig{Python: "python3"}, nil)
+	if !l.Available() {
+		t.Skip("没有可用的本机 Python")
 	}
-	l := NewLocal(config.PythonConfig{Python: "python3", Timeout: 3 * time.Second, MemoryMB: 256, LibDir: t.TempDir()}, nil)
+	return l.python
+}
+
+func TestLocalRunner(t *testing.T) {
+	py := localTestPython(t)
+	l := NewLocal(config.PythonConfig{Python: py, Timeout: 3 * time.Second, MemoryMB: 256, LibDir: t.TempDir()}, nil)
 	ctx := context.Background()
 	res, err := l.Run(ctx, "import os\nprint(sum(range(101)), os.getcwd().startswith(os.environ['HOME']))", RunEnv{})
 	if err != nil || res.Stdout != "5050 True\n" || res.ExitCode != 0 {
@@ -234,10 +240,8 @@ png = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 2, 
 `
 
 func TestLocalRunnerImages(t *testing.T) {
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("没有 python3")
-	}
-	l := NewLocal(config.PythonConfig{Python: "python3", Timeout: 5 * time.Second, MemoryMB: 256, LibDir: t.TempDir()}, nil)
+	py := localTestPython(t)
+	l := NewLocal(config.PythonConfig{Python: py, Timeout: 5 * time.Second, MemoryMB: 256, LibDir: t.TempDir()}, nil)
 	ctx := context.Background()
 	res, err := l.Run(ctx, tinyPNG+"open('chart.png','wb').write(png)\nimport os\nos.makedirs('out', exist_ok=True)\nopen('out/b.png','wb').write(png)\nopen('notes.txt','w').write('x')\nprint('ok')", RunEnv{})
 	if err != nil || res.Stdout != "ok\n" || len(res.Images) != 2 || res.Images[0].Name != "chart.png" || res.Images[1].Name != "b.png" {
@@ -418,11 +422,9 @@ func testWorkspaceRunner(t *testing.T, r Runner, ws *DirWorkspace) {
 }
 
 func TestLocalWorkspace(t *testing.T) {
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("没有 python3")
-	}
+	py := localTestPython(t)
 	ws := newTestWorkspace(t, 1<<20)
-	testWorkspaceRunner(t, NewLocal(config.PythonConfig{Python: "python3", Timeout: 5 * time.Second, MemoryMB: 256, LibDir: t.TempDir()}, nil), ws)
+	testWorkspaceRunner(t, NewLocal(config.PythonConfig{Python: py, Timeout: 5 * time.Second, MemoryMB: 256, LibDir: t.TempDir()}, nil), ws)
 }
 
 func TestDockerWorkspace(t *testing.T) {
