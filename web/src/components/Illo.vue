@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 介绍主页的插画：几何色块 + 手绘感的墨线（圆头、略带弧度），颜色来自设计系统的插画色板，
 // 只在小地方点一点暖陶土色。每张都是独立的 SVG，按 name 选。
-defineProps<{ name: 'hero' | 'memory' | 'emotion' | 'remind' | 'memo' | 'channels' | 'cta' }>()
+defineProps<{ name: 'hero' | 'memory' | 'emotion' | 'remind' | 'memo' | 'channels' | 'arena' | 'cta' }>()
 </script>
 
 <template>
@@ -135,6 +135,51 @@ defineProps<{ name: 'hero' | 'memory' | 'emotion' | 'remind' | 'memo' | 'channel
     <path d="M190 224 C210 270 250 280 268 250" class="ink dash" />
     <circle cx="190" cy="224" r="7" class="f-clay ink" />
     <path d="M350 70 v16 M342 78 h16" class="ink" />
+  </svg>
+
+  <!-- 盲测竞技场：并排匿名 A/B 对话对比卡片 + 帕累托前沿曲线与散点 -->
+  <svg v-else-if="name === 'arena'" class="illo" viewBox="0 0 400 320" aria-hidden="true">
+    <circle cx="200" cy="158" r="126" class="f-cream" />
+    <circle cx="72" cy="72" r="6" class="f-sage" />
+    <path d="M342 54 v16 M334 62 h16" class="ink sparkle" />
+
+    <!-- 左卡片：匿名模型 A -->
+    <g transform="rotate(-3 118 116)">
+      <rect x="46" y="48" width="144" height="136" rx="14" class="f-white ink" />
+      <circle cx="70" cy="70" r="9" class="f-mist" />
+      <path d="M88 70 h48" class="ink thin" />
+      <path d="M46 90 h144" class="ink thin" />
+      <rect x="64" y="106" width="96" height="18" rx="9" class="f-mist" />
+      <path d="M64 140 h104 M64 156 h74" class="ink thin" />
+    </g>
+
+    <!-- 右卡片：匿名模型 B（获选） -->
+    <g transform="rotate(3 282 110)">
+      <rect x="210" y="42" width="144" height="136" rx="14" class="f-white ink" />
+      <circle cx="234" cy="64" r="9" class="f-sage" />
+      <path d="M252 64 h48" class="ink thin" />
+      <path d="M210 84 h144" class="ink thin" />
+      <rect x="228" y="100" width="92" height="18" rx="9" class="f-lavender" />
+      <rect x="228" y="128" width="106" height="16" rx="8" class="f-sage" />
+      <path d="M228 158 h68" class="ink thin" />
+      <circle cx="342" cy="48" r="15" class="f-sage ink" />
+      <path d="M335 48 l5 5 l10 -10" class="ink thin" />
+    </g>
+
+    <!-- 双盲分隔圆章 -->
+    <circle cx="200" cy="114" r="14" class="f-sand ink" />
+    <path d="M194 114 h12 M200 108 v12" class="ink thin" />
+
+    <!-- 下方坐标轴与帕累托前沿曲线 -->
+    <path d="M68 214 v70 h264" class="ink" />
+    <path d="M86 276 Q176 266 296 226" class="ink dash" />
+    <path d="M88 268 C142 264 196 244 298 216" class="ink" />
+    <circle cx="116" cy="264" r="6" class="f-mist ink" />
+    <circle cx="154" cy="248" r="6" class="f-lavender ink" />
+    <circle cx="192" cy="262" r="5" class="f-sand ink" />
+    <circle cx="222" cy="238" r="6.5" class="f-sage ink" />
+    <circle cx="264" cy="252" r="5" class="f-mist ink" />
+    <circle cx="298" cy="216" r="8" class="f-clay ink" />
   </svg>
 
   <!-- 结尾：月亮下飞着的小鸟（深色底上用） -->

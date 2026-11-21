@@ -62,6 +62,27 @@ const steps = computed(() => [
   { n: '3', title: '开始聊天', text: `随便说点什么。想在微信里聊，就在「聊天软件」里扫码连上。` },
 ])
 
+const arenaColumns = [
+  {
+    num: '01',
+    title: '网感与接梗',
+    desc: '用真实中文梗与群聊语境，区分自然接茬和「客服老干部」。',
+    href: 'https://arena.buugoo.com/',
+  },
+  {
+    num: '02',
+    title: '说人话',
+    desc: '检验 AI 能不能把复杂问题讲直白通透，告别套话和官腔。',
+    href: 'https://arena.buugoo.com/?col=plain',
+  },
+]
+
+const arenaPoints = [
+  '零系统提示词干扰，直接看模型原生表达',
+  '真人匿名双盲投票，独立 K=32 Elo 积分与帕累托前沿排榜',
+  '不用注册就能围观实时榜单、参与投票或投稿出题',
+]
+
 // 滚动到时淡入。
 const root = ref<HTMLElement | null>(null)
 let observer: IntersectionObserver | undefined
@@ -103,6 +124,7 @@ function scrollTo(id: string) {
         <nav class="nav__links" aria-label="页面导航">
           <button type="button" @click="scrollTo('features')">能做什么</button>
           <button type="button" @click="scrollTo('start')">怎么开始</button>
+          <button type="button" @click="scrollTo('ecosystem')">旗下产品</button>
         </nav>
         <div class="nav__actions">
           <RouterLink to="/login" class="btn btn-outline">登录</RouterLink>
@@ -178,6 +200,76 @@ function scrollTo(id: string) {
         </ol>
       </section>
 
+      <section id="ecosystem" class="ecosystem wrap reveal">
+        <div class="ecosystem__head">
+          <p class="eyebrow">除了聊天，我们还做了</p>
+          <h2>另一块地方，用来测测 AI 像不像人</h2>
+          <p class="ecosystem__intro">
+            打磨{{ name }}的对话手感时，我们发现常见跑分测不出谁接得住梗、谁能好好说话，于是把这套真人双盲评测开放了出来。
+          </p>
+        </div>
+
+        <article class="arena-card">
+          <div class="arena-card__art">
+            <Illo name="arena" />
+          </div>
+          <div class="arena-card__body">
+            <div class="arena-card__meta">
+              <span class="arena-card__name">BuugooArena</span>
+              <span class="arena-card__domain">arena.buugoo.com</span>
+              <span class="badge-pill">免登录 · 免费开放</span>
+            </div>
+            <h3>布谷大模型盲测竞技场</h3>
+            <p class="arena-card__desc">
+              不加系统提示词包装，把同一个真实中文问题直接抛给两个匿名模型，由真人投票判断谁更像活人、谁在说人话，再用独立 K=32 Elo 积分与帕累托前沿曲线实时排榜。
+            </p>
+
+            <div class="arena-cols">
+              <a
+                v-for="col in arenaColumns"
+                :key="col.href"
+                :href="col.href"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="arena-col"
+              >
+                <div class="arena-col__top">
+                  <span class="arena-col__num">{{ col.num }}</span>
+                  <strong>{{ col.title }}</strong>
+                  <Icon name="chevron" :size="15" class="arena-col__arrow" />
+                </div>
+                <p>{{ col.desc }}</p>
+              </a>
+            </div>
+
+            <ul class="arena-points">
+              <li v-for="point in arenaPoints" :key="point">
+                <Icon name="check" :size="15" /> {{ point }}
+              </li>
+            </ul>
+
+            <div class="arena-actions">
+              <a
+                href="https://arena.buugoo.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn btn-primary btn-lg"
+              >
+                看看实时总榜
+              </a>
+              <a
+                href="https://arena.buugoo.com/arena"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn btn-outline btn-lg"
+              >
+                去盲测一局
+              </a>
+            </div>
+          </div>
+        </article>
+      </section>
+
       <section class="final wrap reveal">
         <div class="final__card">
           <div class="final__text">
@@ -191,8 +283,18 @@ function scrollTo(id: string) {
     </main>
 
     <footer class="foot wrap">
-      <span class="brand brand--small"><img src="/logo.png" alt="" width="22" height="22" /> {{ name }}</span>
-      <span class="caption">和{{ name }}聊的内容只属于你自己：记忆和心情可以在设置里翻开查看，也可以随时删除。</span>
+      <div class="foot__left">
+        <span class="brand brand--small"><img src="/logo.png" alt="" width="22" height="22" /> {{ name }}</span>
+        <span class="caption">和{{ name }}聊的内容只属于你自己：记忆和心情可以在设置里翻开查看，也可以随时删除。</span>
+      </div>
+      <a
+        href="https://arena.buugoo.com"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="foot__link caption"
+      >
+        旗下评测站：BuugooArena <Icon name="chevron" :size="13" />
+      </a>
     </footer>
   </div>
 </template>
@@ -264,6 +366,32 @@ h2 { margin: 0 0 16px; text-wrap: balance; font-family: var(--font-display); fon
 .steps h3 { margin: 20px 0 8px; font-size: 21px; font-weight: 500; }
 .steps li p { margin: 0; color: var(--color-text-secondary); font-size: 15px; line-height: 1.7; }
 
+/* 旗下产品 */
+.ecosystem { padding-top: 96px; padding-bottom: 64px; border-top: 1px solid var(--color-divider); scroll-margin-top: 72px; }
+.ecosystem__head { max-width: 720px; margin: 0 auto 44px; text-align: center; }
+.ecosystem__intro { margin: 0; color: var(--color-text-secondary); font-size: 17px; line-height: 1.75; }
+.arena-card { display: grid; grid-template-columns: minmax(0, .92fr) minmax(0, 1.15fr); gap: 48px; align-items: center; padding: 48px; border-radius: var(--radius-card); background: var(--color-card); }
+.arena-card__art { width: 100%; max-width: 400px; margin: 0 auto; }
+.arena-card__body { min-width: 0; }
+.arena-card__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; }
+.arena-card__name { font-family: var(--font-display); font-size: 20px; font-weight: 500; color: var(--color-ink); letter-spacing: -.01em; }
+.arena-card__domain { font-family: var(--font-mono); font-size: 13px; color: var(--color-muted); }
+.arena-card__body h3 { margin: 0 0 12px; font-family: var(--font-display); font-size: clamp(24px, 2.4vw, 32px); font-weight: 500; line-height: 1.25; letter-spacing: -.01em; }
+.arena-card__desc { margin: 0 0 22px; color: var(--color-text-secondary); font-size: 15px; line-height: 1.78; }
+.arena-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 22px; }
+.arena-col { display: block; padding: 16px 18px; border: 1px solid var(--color-divider); border-radius: var(--radius-lg); background: var(--color-canvas); text-decoration: none; transition: border-color var(--motion-fast) var(--ease-editorial), background-color var(--motion-fast) var(--ease-editorial), transform var(--motion-fast) var(--ease-editorial); }
+.arena-col:hover { border-color: var(--color-hairline-strong); background: var(--color-surface); transform: translateY(-1px); }
+.arena-col__top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.arena-col__num { font-family: var(--font-mono); font-size: 12px; color: var(--color-accent); font-weight: 600; }
+.arena-col__top strong { font-size: 15px; font-weight: 600; color: var(--color-ink); }
+.arena-col__arrow { margin-left: auto; flex-shrink: 0; color: var(--color-muted); transition: transform var(--motion-fast) var(--ease-editorial), color var(--motion-fast) var(--ease-editorial); }
+.arena-col:hover .arena-col__arrow { color: var(--color-ink); transform: translateX(2px); }
+.arena-col p { margin: 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; }
+.arena-points { display: grid; gap: 9px; margin: 0 0 26px; padding: 0; list-style: none; }
+.arena-points li { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; line-height: 1.55; color: var(--color-ink); }
+.arena-points li :deep(svg) { margin-top: 3px; flex-shrink: 0; color: var(--color-accent); }
+.arena-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+
 /* 结尾 */
 .final { padding-top: 40px; padding-bottom: 72px; }
 .final__card { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: center; gap: 32px; padding: 64px 72px; border-radius: var(--radius-card); background: var(--color-surface-dark); color: var(--color-on-dark); overflow: hidden; }
@@ -274,6 +402,9 @@ h2 { margin: 0 0 16px; text-wrap: balance; font-family: var(--font-display); fon
 .final__art { max-width: 340px; justify-self: end; width: 100%; }
 
 .foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-top: 28px; padding-bottom: 40px; border-top: 1px solid var(--color-divider); }
+.foot__left { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-width: 0; }
+.foot__link { display: inline-flex; align-items: center; gap: 3px; color: var(--color-text-secondary); white-space: nowrap; transition: color var(--motion-fast) var(--ease-editorial); }
+.foot__link:hover { color: var(--color-ink); }
 .brand--small { gap: 7px; font-family: var(--font-display); font-size: 16px; }
 
 /* 滚动淡入 */
@@ -282,6 +413,8 @@ h2 { margin: 0 0 16px; text-wrap: balance; font-family: var(--font-display); fon
 @media (prefers-reduced-motion: reduce) {
   .reveal { opacity: 1; transform: none; transition: none; }
   .demo-section.is-in .bubble, .demo-section.is-in .demo__tool { animation: none; }
+  .arena-col, .arena-col__arrow, .foot__link { transition: none; }
+  .arena-col:hover, .arena-col:hover .arena-col__arrow { transform: none; }
 }
 
 @media (max-width: 900px) {
@@ -298,13 +431,19 @@ h2 { margin: 0 0 16px; text-wrap: balance; font-family: var(--font-display); fon
   .demo-section { padding-top: 56px; padding-bottom: 56px; }
   .steps { padding-top: 56px; padding-bottom: 56px; }
   .steps ol { grid-template-columns: minmax(0, 1fr); }
+  .ecosystem { padding-top: 56px; padding-bottom: 36px; }
+  .ecosystem__head { margin-bottom: 28px; text-align: left; }
+  .arena-card { grid-template-columns: minmax(0, 1fr); gap: 28px; padding: 28px 22px; }
+  .arena-card__art { max-width: 320px; }
+  .arena-cols { grid-template-columns: minmax(0, 1fr); }
   .final__card { grid-template-columns: minmax(0, 1fr); padding: 40px 28px; }
   .final__art { justify-self: center; max-width: 260px; }
   .br-wide { display: none; }
 }
 @media (max-width: 480px) {
   .lede { font-size: 16px; }
-  .cta .btn { flex: 1; justify-content: center; }
+  .cta .btn, .arena-actions .btn { flex: 1; justify-content: center; }
+  .arena-card { padding: 22px 16px; }
   .nav__actions .btn { padding: 0 12px; }
 }
 </style>
