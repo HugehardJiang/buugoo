@@ -5,7 +5,12 @@
 ## 分支与发布约定
 
 - 远端默认分支为 `claude/upbeat-ptolemy-tmpxut`；未经用户明确要求，不要主动执行 `git push` 或触发发布工作流。
-- 发布版本通过 GitHub Actions 的 `release.yml` 完成。
+- 一旦用户要求「推送到 GitHub / 发版 / 上线」，则由助手**全程负责到底**：
+  1. 提交并推送代码到 `claude/upbeat-ptolemy-tmpxut`；
+  2. 通过 GitHub API 定时跟进该提交的 `CI` 工作流（使用 `schedule` 定时器轮询，严禁 shell `sleep`），确认全部任务变绿（若失败则立刻排查修复）；
+  3. 按语义化版本号规则确定新版本号（修 bug 为 `Z + 1`，新功能或页面改动为 `Y + 1` 且 `Z` 归零），在 CI 全绿的提交上打附注 tag `vX.Y.Z` 并推送到远端触发 `release.yml`；
+  4. 继续定时跟进 `Release` 工作流直至全部成功，并核验 GitHub Release 页面上的发布产物（如 `checksums.txt`、`buugoo_*_linux_amd64.tar.gz`、`install.sh`）齐全；
+  5. 全部就绪后主动告知用户现在可以在服务器执行一键更新（`sudo buugoo update` / 宝塔 / Docker）。
 
 ## 中文与文案规范
 
