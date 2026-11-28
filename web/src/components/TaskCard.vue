@@ -135,29 +135,29 @@ const statusText: Record<string, string> = {
 
 <style scoped>
 .tcard {
-  display: grid; gap: 11px; max-width: min(600px, 100%); margin: 8px 0 6px; padding: 15px 17px;
-  border: 1px solid rgba(20, 20, 19, .08); border-radius: 20px; background: var(--color-card);
-  transition: border-color .2s ease, box-shadow .2s ease;
+  display: grid; gap: 11px; max-width: min(600px, 100%); margin: 8px 0 6px; padding: 16px 18px;
+  border: 0; border-radius: 20px; background: var(--md-surface-container-low);
+  transition: box-shadow .2s var(--md-ease);
 }
-.tcard.is-pending { border-color: rgba(91, 122, 74, .42); box-shadow: 0 0 0 3px rgba(91, 122, 74, .09); }
+.tcard.is-pending { box-shadow: 0 0 0 2px rgba(91, 122, 74, .34); }
 .tcard__head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .tcard__icon {
-  display: grid; place-items: center; width: 30px; height: 30px; border-radius: 10px;
-  background: var(--color-accent-tint); color: var(--color-accent-active); flex-shrink: 0;
+  display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px;
+  background: var(--md-primary-container); color: var(--md-on-primary-container); flex-shrink: 0;
 }
 .tcard__title {
   flex: 1; min-width: 0; color: var(--color-ink); font-size: 14.5px; font-weight: 500;
   letter-spacing: -.01em; overflow-wrap: anywhere;
 }
 .tcard__status {
-  flex-shrink: 0; display: inline-flex; align-items: center; height: 24px; padding: 0 10px;
-  border-radius: 9999px; background: rgba(20, 20, 19, .06); color: var(--color-text-secondary);
+  flex-shrink: 0; display: inline-flex; align-items: center; height: 24px; padding: 0 11px;
+  border-radius: 9999px; background: var(--md-surface-container); color: var(--color-text-secondary);
   font-size: 11.5px; font-weight: 500;
 }
 .is-pending .tcard__status,
 .is-running .tcard__status,
-.is-queued .tcard__status { background: var(--color-accent-tint); color: var(--color-accent-active); }
-.is-done .tcard__status { background: var(--color-success-tint); color: var(--color-success); }
+.is-queued .tcard__status { background: var(--md-primary-container); color: var(--md-on-primary-container); }
+.is-done .tcard__status { background: var(--md-primary-container); color: var(--md-on-primary-container); }
 .is-failed .tcard__status { background: var(--color-danger-tint); color: var(--color-danger); }
 .tcard__goal {
   margin: 0; color: var(--color-text-secondary); font-size: 13.5px; line-height: 1.65;
@@ -165,8 +165,8 @@ const statusText: Record<string, string> = {
 }
 .tcard__row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .tcard__select {
-  width: auto; min-height: 32px; padding: 3px 12px; border: 1px solid rgba(20, 20, 19, .12);
-  border-radius: 9999px; background: var(--color-surface); font-size: 13px;
+  width: auto; min-height: 34px; padding: 4px 14px; border: 1px solid var(--md-outline-variant);
+  border-radius: 9999px; background: var(--md-surface-container-lowest); font-size: 13px;
 }
 .tcard__actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
 .tcard__actions .btn { border-radius: 9999px; padding: 0 14px; }

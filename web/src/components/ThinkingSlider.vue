@@ -140,13 +140,13 @@ function onKey(e: KeyboardEvent) {
 }
 .ts__rail:focus-visible .ts__thumb { box-shadow: 0 0 0 4px rgba(91, 122, 74, .22), 0 2px 6px rgba(20, 20, 19, .24); }
 .ts__track {
-  position: absolute; top: 50%; left: calc(-1 * var(--r)); right: calc(-1 * var(--r)); height: 4px; margin-top: -2px;
-  border-radius: 9999px; background: rgba(20, 20, 19, .1);
+  position: absolute; top: 50%; left: calc(-1 * var(--r)); right: calc(-1 * var(--r)); height: 5px; margin-top: -2.5px;
+  border-radius: 9999px; background: var(--md-surface-container-high);
 }
 /* 填充条从轨道最左端开始，宽度要补上左边留出的半径。 */
 .ts__fill {
-  position: absolute; top: 50%; left: calc(-1 * var(--r)); height: 4px; margin-top: -2px; border-radius: 9999px;
-  background: linear-gradient(90deg, var(--color-ink), var(--color-accent));
+  position: absolute; top: 50%; left: calc(-1 * var(--r)); height: 5px; margin-top: -2.5px; border-radius: 9999px;
+  background: var(--color-accent);
   transition: width .36s var(--spring), opacity .2s ease;
 }
 .ts.is-off .ts__fill { background: var(--color-ink); opacity: .28; }

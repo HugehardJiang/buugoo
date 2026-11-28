@@ -64,42 +64,42 @@ function inlineInput(ev: ToolEvent) {
 .steps {
   display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; max-width: min(680px, 100%); min-width: 0;
   margin: 0 0 12px; padding: 6px; list-style: none;
-  border: 1px solid rgba(20, 20, 19, .07); border-radius: 18px; background: var(--color-card);
+  border: 0; border-radius: 20px; background: var(--md-surface-container-low);
 }
-.step { min-width: 0; animation: step-in 260ms var(--ease-editorial) both; }
+.step { min-width: 0; animation: step-in 260ms var(--md-ease) both; }
 .step__head {
-  display: flex; width: 100%; align-items: center; gap: 9px; min-height: 36px; padding: 5px 10px 5px 7px;
-  border-radius: 12px; color: var(--color-text-secondary); font-size: 13px; text-align: left;
-  transition: background-color .16s var(--ease-editorial), color .16s ease;
+  display: flex; width: 100%; align-items: center; gap: 9px; min-height: 38px; padding: 6px 12px 6px 8px;
+  border-radius: 14px; color: var(--color-text-secondary); font-size: 13px; text-align: left;
+  transition: background-color .16s var(--md-ease), color .16s ease;
 }
-.step__head:hover { background: rgba(20, 20, 19, .045); color: var(--color-ink); }
+.step__head:hover { background: var(--md-state-hover); color: var(--color-ink); }
 .step__icon {
-  display: inline-flex; width: 26px; height: 26px; flex: 0 0 26px; align-items: center; justify-content: center;
-  border-radius: 50%; background: rgba(20, 20, 19, .055); color: var(--color-text-secondary);
+  display: inline-flex; width: 28px; height: 28px; flex: 0 0 28px; align-items: center; justify-content: center;
+  border-radius: 50%; background: var(--md-surface-container); color: var(--color-text-secondary);
   transition: background-color 240ms ease, color 240ms ease;
 }
-.is-running .step__icon { background: rgba(91, 122, 74, .14); color: var(--color-accent-active); animation: pulse 1.2s infinite ease-in-out; }
-.is-done .step__icon { background: var(--color-accent-tint); color: var(--color-accent-active); }
+.is-running .step__icon { background: var(--md-primary-container); color: var(--md-on-primary-container); animation: pulse 1.2s infinite ease-in-out; }
+.is-done .step__icon { background: var(--md-primary-container); color: var(--md-on-primary-container); }
 .is-error .step__icon { background: var(--color-danger-tint); color: var(--color-danger); }
 @keyframes pulse { 50% { opacity: .45; } }
 .step__label { flex-shrink: 0; color: var(--color-ink); font-weight: 500; letter-spacing: -.01em; }
 .step__input { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-secondary); }
 .step__status {
-  flex-shrink: 0; margin-left: auto; display: inline-flex; align-items: center; min-height: 22px; padding: 0 9px;
-  border-radius: 9999px; background: rgba(20, 20, 19, .05); color: var(--color-text-secondary);
+  flex-shrink: 0; margin-left: auto; display: inline-flex; align-items: center; min-height: 24px; padding: 0 10px;
+  border-radius: 9999px; background: var(--md-surface-container); color: var(--color-text-secondary);
   font-size: 11.5px; font-weight: 500; line-height: 1;
 }
 .step__status:empty { display: none; }
-.is-running .step__status { background: rgba(91, 122, 74, .12); color: var(--color-accent-active); }
-.is-done .step__status { background: rgba(220, 230, 211, .75); color: var(--color-accent-active); }
+.is-running .step__status { background: var(--md-primary-container); color: var(--md-on-primary-container); }
+.is-done .step__status { background: var(--md-primary-container); color: var(--md-on-primary-container); }
 .is-error .step__status { background: var(--color-danger-tint); color: var(--color-danger); }
 @keyframes step-in { from { opacity: 0; transform: translateY(4px); } }
-.chev { flex-shrink: 0; color: var(--color-muted); transition: transform var(--motion-fast) var(--ease-editorial); }
+.chev { flex-shrink: 0; color: var(--color-muted); transition: transform var(--motion-fast) var(--md-ease); }
 .chev.is-open { transform: rotate(90deg); }
-.step__body { margin: 4px 8px 8px 38px; }
+.step__body { margin: 4px 8px 8px 40px; }
 .step__body pre {
-  margin: 0 0 6px; padding: 10px 13px; overflow-x: auto;
-  border: 1px solid rgba(20, 20, 19, .06); border-radius: 12px; background: var(--color-canvas);
+  margin: 0 0 6px; padding: 12px 14px; overflow-x: auto;
+  border: 0; border-radius: 14px; background: var(--md-surface-container-lowest);
   color: var(--color-text-secondary); font-family: var(--font-mono); font-size: 12px; line-height: 1.62;
   white-space: pre-wrap; word-break: break-word;
 }
