@@ -579,7 +579,7 @@ const missionLines = computed(() => {
     .filter(Boolean)
 })
 
-// 焦点竖卡与能力书架横向轮播控制
+// 焦点竖卡与能力书架横向轮播控制（位于 v-for 内，使用函数式 ref 避免 Vue 3 绑定为数组）
 const showcaseTrack = ref<HTMLElement | null>(null)
 const showcaseCanPrev = ref(false)
 const showcaseCanNext = ref(true)
@@ -587,6 +587,14 @@ const showcaseCanNext = ref(true)
 const capTrack = ref<HTMLElement | null>(null)
 const capCanPrev = ref(false)
 const capCanNext = ref(true)
+
+function setShowcaseTrack(el: unknown) {
+  showcaseTrack.value = el instanceof HTMLElement ? el : null
+}
+
+function setCapTrack(el: unknown) {
+  capTrack.value = el instanceof HTMLElement ? el : null
+}
 
 function syncTrackButtons(el: HTMLElement | null, prevRef: { value: boolean }, nextRef: { value: boolean }) {
   if (!el) return
@@ -1139,7 +1147,7 @@ onBeforeUnmount(() => {
         >
           <div class="dm-showcase__viewport">
             <div
-              ref="showcaseTrack"
+              :ref="setShowcaseTrack"
               class="dm-showcase__track"
               @scroll.passive="onShowcaseScroll"
             >
@@ -1401,7 +1409,7 @@ onBeforeUnmount(() => {
 
           <div class="dm-shelf__viewport">
             <div
-              ref="capTrack"
+              :ref="setCapTrack"
               class="dm-shelf__track"
               @scroll.passive="onCapScroll"
             >
@@ -2667,6 +2675,7 @@ onBeforeUnmount(() => {
   overflow-x: auto;
   scroll-snap-type: x proximity;
   padding: 4px max(72px, calc((100vw - 1440px) / 2 + 72px)) 4px;
+  scroll-padding-left: max(72px, calc((100vw - 1440px) / 2 + 72px));
   scrollbar-width: none;
 }
 
@@ -3100,6 +3109,7 @@ onBeforeUnmount(() => {
   overflow-x: auto;
   scroll-snap-type: x proximity;
   padding: 14px max(72px, calc((100vw - 1440px) / 2 + 72px)) 8px;
+  scroll-padding-left: max(72px, calc((100vw - 1440px) / 2 + 72px));
   scrollbar-width: none;
 }
 
@@ -3208,6 +3218,9 @@ onBeforeUnmount(() => {
 }
 
 .dm-cap-more {
+  padding: 0;
+  border: 0;
+  background: transparent;
   font-size: 14px;
   font-weight: 500;
   color: var(--color-text-secondary);
@@ -3799,14 +3812,14 @@ onBeforeUnmount(() => {
 }
 
 .dm-footer__mission {
-  grid-column: span 3;
+  grid-column: span 4;
 }
 
 .dm-footer__cols {
-  grid-column: span 9;
+  grid-column: span 8;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 40px;
+  gap: 32px;
 }
 
 .dm-footer__statement {
@@ -3842,8 +3855,12 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   font-size: 14px;
   color: var(--color-text-secondary);
+  text-align: left;
   text-decoration: none;
   transition: color 0.18s ease;
 }
@@ -3898,6 +3915,16 @@ onBeforeUnmount(() => {
   color: var(--color-text-secondary);
 }
 
+.dm-footer__bottom-links a,
+.dm-footer__bottom-links button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  text-decoration: none;
+}
+
 .dm-footer__bottom-links a:hover,
 .dm-footer__bottom-links button:hover {
   color: var(--color-ink);
@@ -3928,6 +3955,7 @@ onBeforeUnmount(() => {
   .dm-shelf__track {
     padding-left: 40px;
     padding-right: 40px;
+    scroll-padding-left: 40px;
   }
   .dm-news-grid {
     gap: 40px;
@@ -3970,10 +3998,12 @@ onBeforeUnmount(() => {
   .dm-showcase__track {
     padding-left: 20px;
     padding-right: 20px;
+    scroll-padding-left: 20px;
   }
   .dm-shelf__track {
     padding-left: 20px;
     padding-right: 20px;
+    scroll-padding-left: 20px;
   }
   .dm-news-grid {
     grid-template-columns: 1fr;
