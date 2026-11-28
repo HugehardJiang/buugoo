@@ -344,7 +344,8 @@ function planLabel(t: string) {
 <style scoped>
 .panel {
   border-radius: 24px;
-  border: 1px solid rgba(20, 20, 19, .05);
+  border: 0;
+  background: var(--md-surface-container-low);
 }
 .oc-icon {
   margin-right: 6px;
@@ -373,9 +374,9 @@ h2 {
   line-height: 1.7;
 }
 .warn {
-  border: 1px solid rgba(181, 120, 40, .26);
-  border-radius: 14px;
-  background: rgba(181, 120, 40, .08);
+  border: 0;
+  border-radius: 16px;
+  background: rgba(181, 120, 40, .10);
   color: var(--color-ink);
   font-size: 13px;
   line-height: 1.7;
@@ -415,9 +416,9 @@ h2 {
 .table-wrap {
   overflow-x: auto;
   margin-bottom: 10px;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 16px;
-  background: var(--color-canvas);
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-surface-container-lowest);
 }
 .table {
   width: 100%;
@@ -425,18 +426,18 @@ h2 {
   font-size: 13.5px;
 }
 .table thead th {
-  padding: 11px 14px;
-  border-bottom: 1px solid rgba(20, 20, 19, .08);
-  background: rgba(20, 20, 19, .025);
-  color: var(--color-muted);
+  padding: 12px 14px;
+  border-bottom: 0;
+  background: var(--md-surface-container);
+  color: var(--color-text-secondary);
   font-size: 12.5px;
-  font-weight: 500;
+  font-weight: 600;
   text-align: left;
   white-space: nowrap;
 }
 .table td {
   padding: 11px 14px;
-  border-bottom: 1px solid rgba(20, 20, 19, .07);
+  border-bottom: 1px solid rgba(20, 20, 19, .06);
   vertical-align: top;
 }
 .table tbody tr:last-child td {
@@ -448,13 +449,13 @@ h2 {
 }
 .table tbody tr {
   cursor: pointer;
-  transition: background-color var(--motion-fast) var(--ease-editorial);
+  transition: background-color var(--motion-fast) var(--md-ease);
 }
 .table tbody tr:hover {
-  background: rgba(20, 20, 19, .03);
+  background: var(--md-state-hover);
 }
 .table tr.is-picked {
-  background: rgba(91, 122, 74, .09);
+  background: var(--md-primary-container);
 }
 .num {
   font-variant-numeric: tabular-nums;
@@ -492,9 +493,9 @@ h2 {
 .sync {
   margin: 16px 0 6px;
   padding: 14px 18px;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 16px;
-  background: var(--color-canvas);
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-surface-container-lowest);
 }
 .sync__head {
   display: flex;

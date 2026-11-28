@@ -319,7 +319,8 @@ function filterBatch(b: string) {
 <style scoped>
 .panel {
   border-radius: 24px;
-  border: 1px solid rgba(20, 20, 19, .05);
+  border: 0;
+  background: var(--md-surface-container-low);
 }
 .head {
   display: flex;
@@ -353,15 +354,37 @@ function filterBatch(b: string) {
 }
 .filters .text-input {
   width: auto;
-  min-height: 38px;
-  padding: 6px 12px;
-  border-radius: 12px;
+  min-height: 40px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--md-surface-container-lowest);
+}
+.filters .text-input:hover {
+  border: 0;
+  box-shadow: var(--md-elev-1);
+}
+.filters .text-input:focus {
+  border: 0;
+  box-shadow: var(--md-elev-1), 0 0 0 2px rgba(91, 122, 74, .22);
 }
 .filters input {
   flex: 1 1 200px;
   min-width: 160px;
-  padding: 6px 14px;
+  padding: 6px 16px;
+  border: 0;
   border-radius: 9999px;
+  background: var(--md-surface-container-high);
+}
+.filters input:hover {
+  border: 0;
+  background: var(--md-surface-container-highest);
+  box-shadow: none;
+}
+.filters input:focus {
+  border: 0;
+  background: var(--md-surface-container-lowest);
+  box-shadow: var(--md-elev-1), 0 0 0 2px rgba(91, 122, 74, .22);
 }
 .bulk {
   display: flex;
@@ -370,9 +393,10 @@ function filterBatch(b: string) {
   gap: 8px;
   margin-bottom: 12px;
   padding: 10px 14px;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 14px;
-  background: var(--color-canvas);
+  border: 0;
+  border-radius: 16px;
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
 }
 .skel {
   height: 120px;
@@ -383,9 +407,9 @@ function filterBatch(b: string) {
 }
 .table-wrap {
   overflow-x: auto;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 16px;
-  background: var(--color-canvas);
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-surface-container-lowest);
 }
 .table {
   width: 100%;
@@ -394,18 +418,18 @@ function filterBatch(b: string) {
   font-variant-numeric: tabular-nums;
 }
 .table thead th {
-  padding: 11px 14px;
-  border-bottom: 1px solid rgba(20, 20, 19, .08);
-  background: rgba(20, 20, 19, .025);
-  color: var(--color-muted);
+  padding: 12px 14px;
+  border-bottom: 0;
+  background: var(--md-surface-container);
+  color: var(--color-text-secondary);
   font-size: 12.5px;
-  font-weight: 500;
+  font-weight: 600;
   text-align: left;
   white-space: nowrap;
 }
 .table td {
   padding: 11px 14px;
-  border-bottom: 1px solid rgba(20, 20, 19, .07);
+  border-bottom: 1px solid rgba(20, 20, 19, .06);
   vertical-align: top;
 }
 .table tbody tr:last-child td {
@@ -439,7 +463,7 @@ function filterBatch(b: string) {
   color: var(--color-success);
 }
 .status.is-used {
-  background: var(--color-canvas-soft);
+  background: var(--md-surface-container);
   color: var(--color-muted);
 }
 .status.is-disabled {

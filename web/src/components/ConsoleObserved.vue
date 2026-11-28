@@ -51,7 +51,8 @@ async function load() {
 <style scoped>
 .panel {
   border-radius: 24px;
-  border: 1px solid rgba(20, 20, 19, .05);
+  border: 0;
+  background: var(--md-surface-container-low);
 }
 .head {
   display: flex;
@@ -80,10 +81,10 @@ async function load() {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px 10px;
-  padding: 14px 16px;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 16px;
-  background: var(--color-canvas);
+  padding: 14px 18px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-surface-container-lowest);
 }
 .obs__who {
   color: var(--color-ink);

@@ -427,7 +427,8 @@ function sourceLabel(s: Skill) {
 }
 .ext .panel {
   border-radius: 24px;
-  border: 1px solid rgba(20, 20, 19, .05);
+  border: 0;
+  background: var(--md-surface-container-low);
 }
 .ext h2 {
   margin: 0 0 10px;
@@ -487,16 +488,16 @@ function sourceLabel(s: Skill) {
 .candidates {
   margin-top: 14px;
   padding: 12px 16px;
-  border: 1px dashed rgba(20, 20, 19, .18);
-  border-radius: 16px;
-  background: var(--color-canvas);
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-surface-container);
 }
 .candidate {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 10px 0;
-  border-top: 1px solid rgba(20, 20, 19, .07);
+  border-top: 1px solid rgba(20, 20, 19, .06);
 }
 .candidate:first-of-type {
   border-top: 0;
@@ -518,13 +519,13 @@ function sourceLabel(s: Skill) {
   justify-content: space-between;
   gap: 16px;
   padding: 16px 18px;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 16px;
-  background: var(--color-canvas);
-  transition: border-color var(--motion-fast) var(--ease-editorial);
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-surface-container-lowest);
+  transition: box-shadow var(--motion-fast) var(--md-ease);
 }
 .item:hover {
-  border-color: rgba(20, 20, 19, .15);
+  box-shadow: var(--md-elev-1);
 }
 .item.is-off .item__main {
   opacity: .55;
@@ -607,9 +608,9 @@ function sourceLabel(s: Skill) {
   max-height: 60vh;
   overflow: auto;
   padding: 14px 16px;
-  border: 1px solid rgba(20, 20, 19, .07);
-  border-radius: 14px;
-  background: var(--color-card);
+  border: 0;
+  border-radius: 16px;
+  background: var(--md-surface-container-low);
   font-size: 13px;
   line-height: 1.65;
   white-space: pre-wrap;

@@ -98,7 +98,8 @@ async function save() {
 <style scoped>
 .panel {
   border-radius: 24px;
-  border: 1px solid rgba(20, 20, 19, .05);
+  border: 0;
+  background: var(--md-surface-container-low);
 }
 h2 {
   margin: 0 0 12px;
@@ -132,9 +133,9 @@ h2 {
   font-weight: 500;
 }
 .table {
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 16px;
-  background: var(--color-canvas);
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-surface-container-lowest);
   overflow: hidden;
 }
 .tr {
@@ -143,7 +144,7 @@ h2 {
   align-items: center;
   gap: 14px;
   padding: 12px 16px;
-  border-top: 1px solid rgba(20, 20, 19, .07);
+  border-top: 1px solid rgba(20, 20, 19, .06);
 }
 .tr:first-child {
   border-top: 0;

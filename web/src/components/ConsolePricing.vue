@@ -278,7 +278,8 @@ function fillDeepSeek() {
 <style scoped>
 .panel {
   border-radius: 24px;
-  border: 1px solid rgba(20, 20, 19, .05);
+  border: 0;
+  background: var(--md-surface-container-low);
 }
 .head {
   display: flex;
@@ -323,19 +324,22 @@ h3 {
   display: flex;
   gap: 10px;
   align-items: flex-start;
-  padding: 14px 16px;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 16px;
-  background: var(--color-canvas);
+  padding: 16px 18px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-surface-container-lowest);
   cursor: pointer;
-  transition: border-color var(--motion-fast) var(--ease-editorial), background-color var(--motion-fast) var(--ease-editorial);
+  transition: background-color var(--motion-fast) var(--md-ease), box-shadow var(--motion-fast) var(--md-ease);
 }
 .mode:hover {
-  border-color: rgba(20, 20, 19, .18);
+  box-shadow: var(--md-elev-1);
 }
 .mode.is-active {
-  border-color: var(--color-accent);
-  background: rgba(91, 122, 74, .06);
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+}
+.mode.is-active strong {
+  color: var(--md-on-primary-container);
 }
 .mode input {
   margin-top: 3px;
@@ -355,9 +359,9 @@ h3 {
   gap: 14px;
   margin-top: 10px;
   padding: 16px 18px;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 16px;
-  background: var(--color-canvas);
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-surface-container-lowest);
 }
 .peak__row {
   display: grid;
@@ -372,23 +376,23 @@ h3 {
   gap: 6px;
 }
 .days button {
-  padding: 6px 12px;
-  border: 1px solid rgba(20, 20, 19, .12);
+  padding: 6px 14px;
+  border: 0;
   border-radius: 9999px;
-  background: var(--color-surface);
+  background: var(--md-surface-container);
   color: var(--color-text-secondary);
   font-size: 13px;
   cursor: pointer;
-  transition: border-color var(--motion-fast) var(--ease-editorial), background-color var(--motion-fast) var(--ease-editorial), color var(--motion-fast) var(--ease-editorial);
+  transition: background-color var(--motion-fast) var(--md-ease), color var(--motion-fast) var(--md-ease);
 }
 .days button:hover {
-  border-color: rgba(20, 20, 19, .24);
+  background: var(--md-surface-container-high);
   color: var(--color-ink);
 }
 .days button.is-active {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  color: #fff;
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  font-weight: 600;
 }
 .textarea.small {
   min-height: 76px;
@@ -399,9 +403,9 @@ h3 {
 }
 .table-wrap {
   overflow-x: auto;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 16px;
-  background: var(--color-canvas);
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-surface-container-lowest);
 }
 .table {
   width: 100%;
@@ -409,18 +413,18 @@ h3 {
   font-size: 14px;
 }
 .table thead th {
-  padding: 10px 14px;
-  border-bottom: 1px solid rgba(20, 20, 19, .08);
-  background: rgba(20, 20, 19, .025);
-  color: var(--color-muted);
-  font-weight: 500;
+  padding: 11px 14px;
+  border-bottom: 0;
+  background: var(--md-surface-container);
+  color: var(--color-text-secondary);
+  font-weight: 600;
   text-align: left;
   white-space: nowrap;
   font-size: 12.5px;
 }
 .table td {
   padding: 8px 14px;
-  border-bottom: 1px solid rgba(20, 20, 19, .07);
+  border-bottom: 1px solid rgba(20, 20, 19, .06);
   vertical-align: middle;
 }
 .table tbody tr:last-child td {

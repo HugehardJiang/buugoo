@@ -272,7 +272,8 @@ async function confirmRemove() {
 <style scoped>
 .panel {
   border-radius: 24px;
-  border: 1px solid rgba(20, 20, 19, .05);
+  border: 0;
+  background: var(--md-surface-container-low);
 }
 .with-unit {
   display: flex;
@@ -321,13 +322,13 @@ async function confirmRemove() {
   justify-content: space-between;
   gap: 16px;
   padding: 16px 18px;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 16px;
-  background: var(--color-canvas);
-  transition: border-color var(--motion-fast) var(--ease-editorial);
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-surface-container-lowest);
+  transition: box-shadow var(--motion-fast) var(--md-ease);
 }
 .plan:hover {
-  border-color: rgba(20, 20, 19, .15);
+  box-shadow: var(--md-elev-1);
 }
 .plan.is-hidden .plan__main {
   opacity: .55;

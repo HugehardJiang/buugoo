@@ -210,20 +210,22 @@ const hasSaved = computed(() => f.value.saved !== undefined && f.value.saved !==
   line-height: 1.5;
 }
 .sf__meta code {
-  padding: 1px 6px;
-  border-radius: 6px;
-  background: rgba(20, 20, 19, .05);
+  padding: 2px 7px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--md-surface-container);
   font-size: 11.5px;
 }
 .sf__pending {
-  border-color: rgba(160, 112, 28, .4);
+  border: 0;
+  background: rgba(160, 112, 28, .12);
   color: var(--color-warning);
 }
 .sf__control {
   min-width: 0;
 }
 .sf__control .text-input {
-  border-radius: 12px;
+  border-radius: 14px;
 }
 .with-unit {
   display: flex;
@@ -252,35 +254,6 @@ const hasSaved = computed(() => f.value.saved !== undefined && f.value.saved !==
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-.switch {
-  position: relative;
-  flex-shrink: 0;
-  width: 44px;
-  height: 26px;
-  border-radius: 9999px;
-  background: var(--color-hairline-strong);
-  transition: background-color 220ms var(--ease-editorial);
-}
-.switch:disabled {
-  opacity: .5;
-}
-.switch.is-on {
-  background: var(--color-accent);
-}
-.switch__knob {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(20, 20, 19, .24);
-  transition: transform 260ms var(--ease-editorial);
-}
-.switch.is-on .switch__knob {
-  transform: translateX(18px);
-}
 @media (max-width: 720px) {
   .sf {
     grid-template-columns: minmax(0, 1fr);
@@ -288,12 +261,6 @@ const hasSaved = computed(() => f.value.saved !== undefined && f.value.saved !==
   }
   .sf.is-bool {
     grid-template-columns: minmax(0, 1fr) auto;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .switch,
-  .switch__knob {
-    transition: none;
   }
 }
 </style>

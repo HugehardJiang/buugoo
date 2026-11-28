@@ -131,7 +131,8 @@ onBeforeUnmount(() => clearInterval(timer))
 <style scoped>
 .panel {
   border-radius: 24px;
-  border: 1px solid rgba(20, 20, 19, .05);
+  border: 0;
+  background: var(--md-surface-container-low);
 }
 h2 {
   margin: 0 0 10px;
@@ -147,9 +148,9 @@ h2 {
 .ch {
   margin-top: 12px;
   padding: 16px 18px;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 16px;
-  background: var(--color-canvas);
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-surface-container-lowest);
 }
 .ch__head {
   display: flex;
@@ -226,9 +227,9 @@ h2 {
   min-width: 0;
   overflow-x: auto;
   padding: 8px 12px;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 10px;
-  background: var(--color-card);
+  border: 0;
+  border-radius: 12px;
+  background: var(--md-surface-container);
   white-space: nowrap;
 }
 .ch > .caption {

@@ -76,7 +76,8 @@ async function copy() {
 <style scoped>
 .panel {
   border-radius: 24px;
-  border: 1px solid rgba(20, 20, 19, .05);
+  border: 0;
+  background: var(--md-surface-container-low);
 }
 .head {
   display: flex;
@@ -107,9 +108,9 @@ async function copy() {
   gap: 6px 20px;
   margin: 0 0 16px;
   padding: 16px 18px;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 16px;
-  background: var(--color-canvas);
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-surface-container-lowest);
   font-size: 13px;
 }
 .info dt {
@@ -124,16 +125,16 @@ async function copy() {
   margin: 10px 0 0;
   padding: 0;
   list-style: none;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 16px;
-  background: var(--color-canvas);
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-surface-container-lowest);
   overflow: hidden;
   font-family: var(--font-mono);
   font-size: 12.5px;
 }
 .log li {
   padding: 9px 14px;
-  border-top: 1px solid rgba(20, 20, 19, .07);
+  border-top: 1px solid rgba(20, 20, 19, .06);
   line-height: 1.65;
   overflow-wrap: anywhere;
 }

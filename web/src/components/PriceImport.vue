@@ -319,9 +319,9 @@ function apply() {
 .table-wrap {
   max-height: 42vh;
   overflow: auto;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 16px;
-  background: var(--color-surface);
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-surface-container-lowest);
 }
 .table {
   width: 100%;
@@ -332,16 +332,16 @@ function apply() {
   position: sticky;
   top: 0;
   padding: 10px 12px;
-  border-bottom: 1px solid rgba(20, 20, 19, .08);
-  background: var(--color-card);
-  color: var(--color-muted);
-  font-weight: 500;
+  border-bottom: 0;
+  background: var(--md-surface-container);
+  color: var(--color-text-secondary);
+  font-weight: 600;
   text-align: left;
   white-space: nowrap;
 }
 .table td {
   padding: 9px 12px;
-  border-bottom: 1px solid rgba(20, 20, 19, .07);
+  border-bottom: 1px solid rgba(20, 20, 19, .06);
 }
 .table tbody tr:last-child td {
   border-bottom: 0;

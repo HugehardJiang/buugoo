@@ -133,7 +133,8 @@ async function remove() {
 <style scoped>
 .panel {
   border-radius: 24px;
-  border: 1px solid rgba(20, 20, 19, .05);
+  border: 0;
+  background: var(--md-surface-container-low);
 }
 .head {
   display: flex;
@@ -162,10 +163,10 @@ async function remove() {
   align-items: center;
   gap: 10px;
   margin-top: 10px;
-  padding: 14px 16px;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 16px;
-  background: var(--color-canvas);
+  padding: 14px 18px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-surface-container-lowest);
   flex-wrap: wrap;
 }
 .row__text {
@@ -194,9 +195,9 @@ async function remove() {
 .preview {
   min-height: 220px;
   padding: 14px 16px;
-  border: 1px solid rgba(20, 20, 19, .09);
-  border-radius: 14px;
-  background: var(--color-surface);
+  border: 0;
+  border-radius: 16px;
+  background: var(--md-surface-container-low);
   font-size: 14px;
   line-height: 1.75;
 }

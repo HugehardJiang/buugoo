@@ -266,7 +266,8 @@ function relogin() {
 <style scoped>
 .panel {
   border-radius: 24px;
-  border: 1px solid rgba(20, 20, 19, .05);
+  border: 0;
+  background: var(--md-surface-container-low);
 }
 h2 {
   margin: 0 0 14px;
@@ -323,9 +324,9 @@ h2 {
   gap: 6px 16px;
   max-width: 760px;
   padding: 18px 20px;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 16px;
-  background: var(--color-canvas);
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-surface-container-lowest);
 }
 .field--wide {
   grid-column: 1 / -1;
@@ -339,10 +340,10 @@ h2 {
 }
 .ok {
   margin-top: 12px;
-  border: 1px solid rgba(91, 122, 74, .24);
-  border-radius: 14px;
-  background: var(--color-accent-tint, rgba(91, 122, 74, .1));
-  color: var(--color-accent-active);
+  border: 0;
+  border-radius: 16px;
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
 }
 .result {
   display: grid;
@@ -368,9 +369,9 @@ h2 {
 .cmd {
   margin: 0;
   padding: 12px 14px;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 14px;
-  background: var(--color-canvas);
+  border: 0;
+  border-radius: 16px;
+  background: var(--md-surface-container-lowest);
   font-family: var(--font-mono);
   font-size: 13px;
   overflow-x: auto;
@@ -379,9 +380,9 @@ h2 {
   margin: 0;
   padding: 14px 16px;
   list-style: none;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 14px;
-  background: var(--color-canvas);
+  border: 0;
+  border-radius: 16px;
+  background: var(--md-surface-container-lowest);
   font-size: 13px;
   columns: 2;
   column-gap: 28px;

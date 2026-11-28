@@ -20,6 +20,7 @@ import ConsolePricing from '../components/ConsolePricing.vue'
 import ConsoleUsers from '../components/ConsoleUsers.vue'
 import Modal from '../components/Modal.vue'
 import SettingField, { type Field } from '../components/SettingField.vue'
+import TopBlur from '../components/TopBlur.vue'
 import { session } from '../session'
 import { toast } from '../toast'
 
@@ -311,6 +312,7 @@ onMounted(() => {
 <template>
   <main class="main">
     <header class="topbar">
+      <TopBlur />
       <div class="topbar__titles">
         <h1>管理后台</h1>
       </div>
@@ -507,7 +509,7 @@ onMounted(() => {
 
 <style scoped>
 .console-page {
-  padding: 20px 32px 64px;
+  padding: 80px 32px 64px;
 }
 .console-wrap {
   width: 100%;
@@ -518,12 +520,10 @@ onMounted(() => {
   max-width: 440px;
   margin: 8vh auto 0;
   padding: 36px 32px 32px;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 24px;
-  background: rgba(255, 255, 255, .86);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
-  box-shadow: 0 12px 40px rgba(20, 20, 19, .06);
+  border: 0;
+  border-radius: 28px;
+  background: var(--md-surface-container-lowest);
+  box-shadow: var(--md-elev-3);
 }
 .login h2 {
   margin: 0 0 8px;
@@ -543,7 +543,7 @@ onMounted(() => {
 }
 .console-alert {
   border-radius: 16px;
-  border: 1px solid rgba(20, 20, 19, .07);
+  border: 0;
 }
 .console {
   display: grid;
@@ -556,19 +556,29 @@ onMounted(() => {
 }
 .toc {
   position: sticky;
-  top: 16px;
+  top: 76px;
   display: grid;
   gap: 3px;
   padding-bottom: 24px;
 }
 .toc__search {
-  min-height: 38px;
+  min-height: 40px;
   margin-bottom: 10px;
-  padding: 0 14px;
+  padding: 0 16px;
   border-radius: 9999px;
-  border: 1px solid rgba(20, 20, 19, .1);
-  background: var(--color-surface);
+  border: 0;
+  background: var(--md-surface-container-high);
   font-size: 13px;
+  transition: background-color var(--motion-fast) var(--md-ease), box-shadow var(--motion-fast) var(--md-ease);
+}
+.toc__search:hover {
+  border: 0;
+  background: var(--md-surface-container-highest);
+}
+.toc__search:focus {
+  border: 0;
+  background: var(--md-surface-container-lowest);
+  box-shadow: var(--md-elev-1), 0 0 0 2px rgba(91, 122, 74, .22);
 }
 .toc__title {
   margin: 14px 12px 4px;
@@ -584,13 +594,15 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 36px;
-  padding: 0 12px;
-  border-radius: 12px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 9999px;
   color: var(--color-text-secondary);
   font-size: 13.5px;
   text-align: left;
-  transition: background-color var(--motion-fast) var(--ease-editorial), color var(--motion-fast) var(--ease-editorial), box-shadow var(--motion-fast) var(--ease-editorial);
+  box-shadow: none;
+  transition: background-color var(--motion-fast) var(--md-ease), color var(--motion-fast) var(--md-ease);
 }
 .toc__item span:first-child {
   flex: 1;
@@ -600,14 +612,14 @@ onMounted(() => {
   white-space: nowrap;
 }
 .toc__item:hover {
-  background: rgba(20, 20, 19, .045);
+  background: var(--md-state-hover);
   color: var(--color-ink);
 }
 .toc__item.is-active {
-  background: var(--color-surface);
-  color: var(--color-ink);
-  font-weight: 500;
-  box-shadow: 0 1px 3px rgba(20, 20, 19, .07), 0 0 0 1px rgba(20, 20, 19, .06);
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  font-weight: 600;
+  box-shadow: none;
 }
 .toc__badge {
   display: inline-flex;
@@ -649,7 +661,8 @@ onMounted(() => {
 .section {
   margin-bottom: 16px;
   border-radius: 24px;
-  border: 1px solid rgba(20, 20, 19, .05);
+  border: 0;
+  background: var(--md-surface-container-low);
 }
 .section__title {
   margin: 0 0 6px;
@@ -670,14 +683,14 @@ onMounted(() => {
   margin-top: 10px;
   padding: 6px 14px;
   border-radius: 9999px;
-  background: rgba(91, 122, 74, .09);
-  color: var(--color-accent-active);
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
   font-size: 13px;
   font-weight: 500;
-  transition: background-color var(--motion-fast) var(--ease-editorial);
+  transition: background-color var(--motion-fast) var(--md-ease);
 }
 .adv-toggle:hover {
-  background: rgba(91, 122, 74, .16);
+  background: #cfe0c1;
 }
 .foot {
   margin: 12px 0 0;
@@ -686,7 +699,8 @@ onMounted(() => {
 }
 .persona-panel {
   border-radius: 24px;
-  border: 1px solid rgba(20, 20, 19, .05);
+  border: 0;
+  background: var(--md-surface-container-low);
 }
 .persona-panel h2 {
   font-size: 20px;
@@ -700,7 +714,7 @@ onMounted(() => {
 }
 .persona-editor {
   min-height: 540px;
-  border-radius: 14px;
+  border-radius: 16px;
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.68;
@@ -735,8 +749,8 @@ onMounted(() => {
 .cmd code {
   padding: 7px 12px;
   border-radius: 10px;
-  background: var(--color-canvas);
-  border: 1px solid rgba(20, 20, 19, .08);
+  background: var(--md-surface-container-lowest);
+  border: 0;
   font-size: 13px;
 }
 .savebar {
@@ -750,12 +764,12 @@ onMounted(() => {
   align-items: center;
   gap: 10px;
   padding: 10px 12px 10px 20px;
-  border: 1px solid rgba(20, 20, 19, .1);
+  border: 0;
   border-radius: 9999px;
-  background: rgba(255, 255, 255, .86);
+  background: rgba(255, 255, 255, .9);
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
-  box-shadow: 0 10px 32px rgba(20, 20, 19, .12);
+  box-shadow: var(--md-elev-3);
 }
 .savebar__dot {
   width: 8px;
@@ -778,7 +792,7 @@ onMounted(() => {
 }
 @media (max-width: 900px) {
   .console-page {
-    padding: 16px 20px 48px;
+    padding: 80px 20px 48px;
   }
   .console {
     grid-template-columns: minmax(0, 1fr);
@@ -799,7 +813,7 @@ onMounted(() => {
   }
   .toc__search {
     flex: 0 0 156px;
-    min-height: 34px;
+    min-height: 36px;
     margin: 0;
   }
   .toc__title {
@@ -807,31 +821,32 @@ onMounted(() => {
   }
   .toc__item {
     flex: 0 0 auto;
-    min-height: 34px;
+    min-height: 36px;
     padding: 0 14px;
-    border: 1px solid rgba(20, 20, 19, .09);
+    border: 0;
     border-radius: 9999px;
-    background: var(--color-canvas);
+    background: var(--md-surface-container-low);
     white-space: nowrap;
   }
-  .toc__item.is-active {
-    border-color: var(--color-ink);
-    background: var(--color-ink);
-    color: #fff;
-    box-shadow: none;
+  .toc__item:hover {
+    background: var(--md-surface-container);
+    color: var(--color-ink);
   }
-  .toc__item.is-active .toc__badge {
-    background: rgba(255, 255, 255, .24);
+  .toc__item.is-active {
+    background: var(--md-primary-container);
+    color: var(--md-on-primary-container);
+    font-weight: 600;
+    box-shadow: none;
   }
 }
 @media (max-width: 767px) {
   .console-page {
-    padding: 16px var(--mobile-gutter) 36px;
+    padding: 74px var(--mobile-gutter) 40px;
   }
   .login {
     margin-top: 4vh;
     padding: 26px 20px 24px;
-    border-radius: 20px;
+    border-radius: 24px;
   }
   .section,
   .persona-panel {
@@ -840,7 +855,7 @@ onMounted(() => {
   .savebar {
     width: 100%;
     justify-content: space-between;
-    border-radius: 20px;
+    border-radius: 24px;
     padding: 10px 14px;
     flex-wrap: wrap;
   }
@@ -849,6 +864,7 @@ onMounted(() => {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .toc__search,
   .toc__item,
   .adv-toggle {
     transition: none;

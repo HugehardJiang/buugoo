@@ -337,7 +337,8 @@ function costTotal(items: { amount: number }[]) {
 <style scoped>
 .panel {
   border-radius: 24px;
-  border: 1px solid rgba(20, 20, 19, .05);
+  border: 0;
+  background: var(--md-surface-container-low);
 }
 .neg {
   color: var(--color-danger);
@@ -363,9 +364,20 @@ h2 {
 .filters .text-input {
   flex: 1 1 220px;
   min-width: 180px;
-  min-height: 38px;
-  padding: 0 14px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
   border-radius: 9999px;
+  background: var(--md-surface-container-high);
+}
+.filters .text-input:hover {
+  border: 0;
+  background: var(--md-surface-container-highest);
+}
+.filters .text-input:focus {
+  border: 0;
+  background: var(--md-surface-container-lowest);
+  box-shadow: var(--md-elev-1), 0 0 0 2px rgba(91, 122, 74, .22);
 }
 .skel {
   height: 160px;
@@ -373,9 +385,9 @@ h2 {
 }
 .table-wrap {
   overflow-x: auto;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 16px;
-  background: var(--color-canvas);
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-surface-container-lowest);
 }
 .table {
   width: 100%;
@@ -384,18 +396,18 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 .table thead th {
-  padding: 11px 14px;
-  border-bottom: 1px solid rgba(20, 20, 19, .08);
-  background: rgba(20, 20, 19, .025);
-  color: var(--color-muted);
+  padding: 12px 14px;
+  border-bottom: 0;
+  background: var(--md-surface-container);
+  color: var(--color-text-secondary);
   font-size: 12.5px;
-  font-weight: 500;
+  font-weight: 600;
   text-align: left;
   white-space: nowrap;
 }
 .table td {
   padding: 12px 14px;
-  border-bottom: 1px solid rgba(20, 20, 19, .07);
+  border-bottom: 1px solid rgba(20, 20, 19, .06);
   vertical-align: top;
 }
 .table tbody tr:last-child td {
@@ -403,11 +415,11 @@ h2 {
 }
 .row {
   cursor: pointer;
-  transition: background-color var(--motion-fast) var(--ease-editorial);
+  transition: background-color var(--motion-fast) var(--md-ease);
 }
 .row:hover,
 .row:focus-visible {
-  background: rgba(20, 20, 19, .035);
+  background: var(--md-state-hover);
   outline: none;
 }
 .name {
@@ -416,7 +428,7 @@ h2 {
   font-weight: 500;
 }
 .badge-pill--off {
-  border-color: rgba(181, 51, 51, .2);
+  border: 0;
   background: var(--color-danger-tint);
   color: var(--color-danger);
 }
@@ -434,10 +446,10 @@ h2 {
 }
 .box {
   margin-bottom: 14px;
-  padding: 16px 18px;
-  border: 1px solid rgba(20, 20, 19, .08);
-  border-radius: 16px;
-  background: var(--color-card);
+  padding: 18px 20px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--md-surface-container-low);
 }
 .box h3 {
   margin: 0 0 10px;
