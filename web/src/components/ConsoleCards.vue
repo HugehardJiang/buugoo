@@ -317,28 +317,154 @@ function filterBatch(b: string) {
 </template>
 
 <style scoped>
-.head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.head h2 { margin: 0; }
-.head__btns { display: flex; gap: 8px; }
-.intro { margin: 8px 0 12px; font-size: 14px; line-height: 1.7; }
-.filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.filters .text-input { width: auto; min-height: 34px; padding-top: 0; padding-bottom: 0; }
-.filters input { flex: 1; min-width: 160px; }
-.bulk { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding: 8px 12px; border-radius: var(--radius-md); background: var(--color-canvas-soft); }
-.skel { height: 120px; border-radius: var(--radius-md); }
-.empty { margin: 12px 0 0; }
-.table-wrap { overflow-x: auto; }
-.table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.table th { padding: 8px; border-bottom: 1px solid var(--color-divider); color: var(--color-muted); font-weight: 500; text-align: left; white-space: nowrap; }
-.table td { padding: 9px 8px; border-bottom: 1px solid var(--color-divider); vertical-align: top; }
-.nowrap { white-space: nowrap; }
-.mono { font-family: var(--font-mono); font-size: 12px; }
-.link { padding: 0; color: var(--color-accent-active); text-decoration: underline; text-underline-offset: 2px; }
-.status { white-space: nowrap; }
-.status.is-unused { color: var(--color-success); }
-.status.is-used { color: var(--color-muted); }
-.status.is-disabled { color: var(--color-danger); }
-.pager { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 12px; }
-.warn { margin-bottom: 10px; }
-.codes { width: 100%; min-height: 260px; white-space: pre; }
+.panel {
+  border-radius: 24px;
+  border: 1px solid rgba(20, 20, 19, .05);
+}
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+}
+.head h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -.02em;
+}
+.head__btns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.intro {
+  margin: 8px 0 16px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.filters .text-input {
+  width: auto;
+  min-height: 38px;
+  padding: 6px 12px;
+  border-radius: 12px;
+}
+.filters input {
+  flex: 1 1 200px;
+  min-width: 160px;
+  padding: 6px 14px;
+  border-radius: 9999px;
+}
+.bulk {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid rgba(20, 20, 19, .08);
+  border-radius: 14px;
+  background: var(--color-canvas);
+}
+.skel {
+  height: 120px;
+  border-radius: 16px;
+}
+.empty {
+  margin: 12px 0 0;
+}
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid rgba(20, 20, 19, .08);
+  border-radius: 16px;
+  background: var(--color-canvas);
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+.table thead th {
+  padding: 11px 14px;
+  border-bottom: 1px solid rgba(20, 20, 19, .08);
+  background: rgba(20, 20, 19, .025);
+  color: var(--color-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+.table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid rgba(20, 20, 19, .07);
+  vertical-align: top;
+}
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.nowrap {
+  white-space: nowrap;
+}
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.link {
+  padding: 0;
+  color: var(--color-accent-active);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.status {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.status.is-unused {
+  background: var(--color-success-tint);
+  color: var(--color-success);
+}
+.status.is-used {
+  background: var(--color-canvas-soft);
+  color: var(--color-muted);
+}
+.status.is-disabled {
+  background: var(--color-danger-tint);
+  color: var(--color-danger);
+}
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+.warn {
+  margin-bottom: 10px;
+}
+.codes {
+  width: 100%;
+  min-height: 260px;
+  border-radius: 14px;
+  white-space: pre;
+}
+@media (max-width: 767px) {
+  .panel {
+    border-radius: 20px;
+  }
+}
 </style>

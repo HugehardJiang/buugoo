@@ -317,8 +317,8 @@ onMounted(() => {
       <button v-if="data" class="btn btn-ghost" @click="logout">退出管理后台</button>
     </header>
 
-    <div class="page">
-      <div class="page__inner">
+    <div class="page console-page">
+      <div class="page__inner page__inner--wide console-wrap">
         <section v-if="!data" class="panel panel--inset login">
           <h2>输入管理员密码</h2>
           <p class="muted">管理员密码在服务器的配置文件 <code>admin.password</code> 中设置，默认是 1228。</p>
@@ -328,20 +328,20 @@ onMounted(() => {
               <input id="admin-pw" v-model="password" class="text-input" type="password" autocomplete="current-password" required />
             </div>
             <p v-if="error" class="form-flash form-flash--error">{{ error }}</p>
-            <button class="btn btn-primary" :disabled="loggingIn">{{ loggingIn ? '正在验证' : '进入管理后台' }}</button>
+            <button class="btn btn-primary btn-lg login__submit" :disabled="loggingIn">{{ loggingIn ? '正在验证' : '进入管理后台' }}</button>
           </form>
         </section>
 
         <template v-else>
-          <p v-if="data.default_password" class="form-flash form-flash--error">
+          <p v-if="data.default_password" class="form-flash form-flash--error console-alert">
             管理员密码还是默认的 1228，任何能打开这个网站的人都能修改系统设置。请在服务器上编辑
             <code>{{ data.config_path || '配置文件' }}</code> 中的 <code>admin.password</code>，然后重启服务。
           </p>
-          <div v-if="data.pending" class="form-flash restart">
+          <div v-if="data.pending" class="form-flash restart console-alert">
             <p><strong>{{ data.pending }} 项修改尚未生效。</strong>请在服务器上执行下面的命令重启服务：</p>
             <div class="cmd">
               <code>{{ data.restart_hint }}</code>
-              <button class="btn" @click="copy(data.restart_hint)">复制</button>
+              <button class="btn btn-sm btn-outline" @click="copy(data.restart_hint)">复制</button>
             </div>
           </div>
           <div class="console">
@@ -384,7 +384,7 @@ onMounted(() => {
 
             <div class="console__body">
           <template v-if="!searching && tab === 'persona'">
-            <section class="panel panel--inset">
+            <section class="panel panel--inset persona-panel">
               <h2>人格档案</h2>
               <p class="muted intro">
                 决定{{ persona?.name ?? '布谷' }}是谁、怎么说话、在乎什么。保存后<strong>立即生效</strong>，不需要重启；
@@ -410,7 +410,7 @@ onMounted(() => {
           <ConsoleExtensions v-else-if="!searching && tab === 'extensions'" :call="call" :token="token" />
 
           <template v-else-if="!searching && ['users', 'plans', 'pricing', 'cards', 'notices', 'cms-home', 'cms-posts', 'api'].includes(tab)">
-            <p v-if="data.default_password" class="form-flash form-flash--error">
+            <p v-if="data.default_password" class="form-flash form-flash--error console-alert">
               管理员密码还是默认的 1228，为了安全，用户管理、会员、卡密、通知、官网首页、文章管理和 API 接入暂时不能用。请先在服务器上改掉配置文件里的 <code>admin.password</code> 并重启服务。
             </p>
             <ConsoleUsers v-else-if="tab === 'users'" :call="call" />
@@ -441,37 +441,39 @@ onMounted(() => {
               </header>
               <section v-for="sec in g.sections" :key="sec.key" class="panel panel--inset section">
                 <h3 class="section__title">{{ sec.label }}</h3>
-                <SettingField
-                  v-for="f in sec.common"
-                  :key="f.key"
-                  :field="f"
-                  :value="shown(f)"
-                  :dirty="f.key in draft"
-                  @edit="(v) => edit(f, v)"
-                  @discard="discard(f)"
-                />
-                <template v-if="sec.advanced.length">
-                  <template v-if="searching || showAdvanced[sec.key] || !sec.common.length">
-                    <SettingField
-                      v-for="f in sec.advanced"
-                      :key="f.key"
-                      :field="f"
-                      :value="shown(f)"
-                      :dirty="f.key in draft"
-                      @edit="(v) => edit(f, v)"
-                      @discard="discard(f)"
-                    />
+                <div class="section__fields">
+                  <SettingField
+                    v-for="f in sec.common"
+                    :key="f.key"
+                    :field="f"
+                    :value="shown(f)"
+                    :dirty="f.key in draft"
+                    @edit="(v) => edit(f, v)"
+                    @discard="discard(f)"
+                  />
+                  <template v-if="sec.advanced.length">
+                    <template v-if="searching || showAdvanced[sec.key] || !sec.common.length">
+                      <SettingField
+                        v-for="f in sec.advanced"
+                        :key="f.key"
+                        :field="f"
+                        :value="shown(f)"
+                        :dirty="f.key in draft"
+                        @edit="(v) => edit(f, v)"
+                        @discard="discard(f)"
+                      />
+                    </template>
                   </template>
-                  <button
-                    v-if="!searching && sec.common.length"
-                    type="button"
-                    class="adv-toggle"
-                    :aria-expanded="!!showAdvanced[sec.key]"
-                    @click="showAdvanced[sec.key] = !showAdvanced[sec.key]"
-                  >
-                    {{ showAdvanced[sec.key] ? '收起高级设置' : `高级设置（${sec.advanced.length}）` }}
-                  </button>
-                </template>
+                </div>
+                <button
+                  v-if="sec.advanced.length && !searching && sec.common.length"
+                  type="button"
+                  class="adv-toggle"
+                  :aria-expanded="!!showAdvanced[sec.key]"
+                  @click="showAdvanced[sec.key] = !showAdvanced[sec.key]"
+                >
+                  {{ showAdvanced[sec.key] ? '收起高级设置' : `展开高级设置（${sec.advanced.length} 项）` }}
+                </button>
               </section>
             </section>
             <p class="muted foot">
@@ -489,10 +491,13 @@ onMounted(() => {
             </div>
           </Modal>
 
-          <div v-if="dirty" class="savebar">
-            <span>{{ dirty }} 项修改未保存</span>
-            <button class="btn btn-ghost" @click="load">放弃</button>
-            <button class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? '正在保存' : '保存' }}</button>
+          <div v-if="dirty" class="savebar" role="status" aria-live="polite">
+            <span class="savebar__dot" aria-hidden="true" />
+            <span class="savebar__text">{{ dirty }} 项修改未保存</span>
+            <div class="savebar__actions">
+              <button class="btn btn-sm btn-ghost" @click="load">放弃</button>
+              <button class="btn btn-sm btn-primary" :disabled="saving" @click="save">{{ saving ? '正在保存' : '保存修改' }}</button>
+            </div>
           </div>
         </template>
       </div>
@@ -501,50 +506,352 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.login { max-width: 460px; margin: 6vh auto 0; }
-.console { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 28px; align-items: start; }
-.toc { position: sticky; top: 16px; display: grid; gap: 2px; }
-.toc__search { margin-bottom: 10px; }
-.toc__title { margin: 12px 10px 4px; color: var(--color-muted); font-size: 12px; letter-spacing: .04em; }
-.toc__title:first-of-type { margin-top: 0; }
+.console-page {
+  padding: 20px 32px 64px;
+}
+.console-wrap {
+  width: 100%;
+  max-width: 1520px;
+  margin: 0 auto;
+}
+.login {
+  max-width: 440px;
+  margin: 8vh auto 0;
+  padding: 36px 32px 32px;
+  border: 1px solid rgba(20, 20, 19, .08);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, .86);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 12px 40px rgba(20, 20, 19, .06);
+}
+.login h2 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -.02em;
+}
+.login p {
+  margin: 0 0 20px;
+  font-size: 14px;
+  line-height: 1.65;
+}
+.login__submit {
+  width: 100%;
+  margin-top: 4px;
+  border-radius: 9999px;
+}
+.console-alert {
+  border-radius: 16px;
+  border: 1px solid rgba(20, 20, 19, .07);
+}
+.console {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
+}
+.console__body {
+  min-width: 0;
+}
+.toc {
+  position: sticky;
+  top: 16px;
+  display: grid;
+  gap: 3px;
+  padding-bottom: 24px;
+}
+.toc__search {
+  min-height: 38px;
+  margin-bottom: 10px;
+  padding: 0 14px;
+  border-radius: 9999px;
+  border: 1px solid rgba(20, 20, 19, .1);
+  background: var(--color-surface);
+  font-size: 13px;
+}
+.toc__title {
+  margin: 14px 12px 4px;
+  color: var(--color-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .06em;
+}
+.toc__title:first-of-type {
+  margin-top: 2px;
+}
 .toc__item {
-  display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 10px; border-radius: var(--radius-md);
-  color: var(--color-text-secondary); font-size: 14px; text-align: left; transition: background-color .15s ease, color .15s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 12px;
+  color: var(--color-text-secondary);
+  font-size: 13.5px;
+  text-align: left;
+  transition: background-color var(--motion-fast) var(--ease-editorial), color var(--motion-fast) var(--ease-editorial), box-shadow var(--motion-fast) var(--ease-editorial);
 }
-.toc__item span:first-child { flex: 1; }
-.toc__item:hover { background: var(--color-hover-wash); color: var(--color-ink); }
-.toc__item.is-active { background: var(--color-surface); color: var(--color-ink); font-weight: 500; box-shadow: 0 1px 3px rgba(20, 20, 19, .08), 0 0 0 1px rgba(20, 20, 19, .04); }
-.toc__badge { min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--color-warning); color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
-.toc__badge--dirty { background: var(--color-accent); }
-.group + .group { margin-top: 28px; }
-.group__head { margin-bottom: 12px; }
-.group__head h2 { margin: 0; }
-.group__head p { margin: 4px 0 0; font-size: 14px; }
-.section { margin-bottom: 16px; }
-.section__title { margin: 0 0 4px; color: var(--color-ink); font-size: 15px; font-weight: 600; }
-.adv-toggle { margin-top: 6px; padding: 6px 0; color: var(--color-accent-active); font-size: 13px; }
-.foot { margin: 8px 0 0; font-size: 13px; line-height: 1.7; }
-@media (max-width: 900px) {
-  .console { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-  .toc { position: static; display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
-  .toc__search { flex: 0 0 160px; margin: 0; }
-  .toc__title { display: none; }
-  .toc__item { flex: 0 0 auto; white-space: nowrap; border: 1px solid var(--color-divider); }
+.toc__item span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.guide { margin: 0 0 12px; padding-left: 18px; line-height: 1.7; }
+.toc__item:hover {
+  background: rgba(20, 20, 19, .045);
+  color: var(--color-ink);
+}
+.toc__item.is-active {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-weight: 500;
+  box-shadow: 0 1px 3px rgba(20, 20, 19, .07), 0 0 0 1px rgba(20, 20, 19, .06);
+}
+.toc__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 9999px;
+  background: var(--color-warning);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+.toc__badge--dirty {
+  background: var(--color-accent);
+}
+.group + .group {
+  margin-top: 28px;
+}
+.group__head {
+  margin-bottom: 14px;
+}
+.group__head h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -.02em;
+  line-height: 1.3;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+.group__head p {
+  margin: 6px 0 0;
+  font-size: 14px;
+  line-height: 1.65;
+}
+.section {
+  margin-bottom: 16px;
+  border-radius: 24px;
+  border: 1px solid rgba(20, 20, 19, .05);
+}
+.section__title {
+  margin: 0 0 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(20, 20, 19, .08);
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+}
+.section__fields {
+  display: grid;
+}
+.adv-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 6px 14px;
+  border-radius: 9999px;
+  background: rgba(91, 122, 74, .09);
+  color: var(--color-accent-active);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background-color var(--motion-fast) var(--ease-editorial);
+}
+.adv-toggle:hover {
+  background: rgba(91, 122, 74, .16);
+}
+.foot {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.persona-panel {
+  border-radius: 24px;
+  border: 1px solid rgba(20, 20, 19, .05);
+}
+.persona-panel h2 {
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -.02em;
+}
+.guide {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  line-height: 1.75;
+}
 .persona-editor {
-  min-height: 520px; font-family: var(--font-mono); font-size: 13px; line-height: 1.65; tab-size: 2; white-space: pre; overflow-x: auto;
+  min-height: 540px;
+  border-radius: 14px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.68;
+  tab-size: 2;
+  white-space: pre;
+  overflow-x: auto;
 }
-.persona-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
-.spacer { flex: 1; }
-.login p { margin: 0 0 16px; }
-.intro { margin: 0 0 16px; font-size: 14px; line-height: 1.7; }
-.restart p { margin: 0 0 8px; }
-.cmd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.cmd code { padding: 6px 10px; border-radius: var(--radius-sm); background: var(--color-canvas-soft); font-size: 13px; }
+.persona-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+.spacer {
+  flex: 1;
+}
+.intro {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.restart p {
+  margin: 0 0 8px;
+}
+.cmd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cmd code {
+  padding: 7px 12px;
+  border-radius: 10px;
+  background: var(--color-canvas);
+  border: 1px solid rgba(20, 20, 19, .08);
+  font-size: 13px;
+}
 .savebar {
-  position: sticky; bottom: 16px; display: flex; align-items: center; gap: 8px; margin-top: 20px; padding: 12px 16px;
-  border: 1px solid var(--color-divider); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-float);
+  position: sticky;
+  bottom: 20px;
+  z-index: 20;
+  width: fit-content;
+  max-width: 100%;
+  margin: 24px auto 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 10px 20px;
+  border: 1px solid rgba(20, 20, 19, .1);
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, .86);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 10px 32px rgba(20, 20, 19, .12);
 }
-.savebar span { flex: 1; font-size: 14px; }
+.savebar__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  flex: 0 0 8px;
+}
+.savebar__text {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+.savebar__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+}
+@media (max-width: 900px) {
+  .console-page {
+    padding: 16px 20px 48px;
+  }
+  .console {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+  .toc {
+    position: static;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 2px 2px 6px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .toc::-webkit-scrollbar {
+    display: none;
+  }
+  .toc__search {
+    flex: 0 0 156px;
+    min-height: 34px;
+    margin: 0;
+  }
+  .toc__title {
+    display: none;
+  }
+  .toc__item {
+    flex: 0 0 auto;
+    min-height: 34px;
+    padding: 0 14px;
+    border: 1px solid rgba(20, 20, 19, .09);
+    border-radius: 9999px;
+    background: var(--color-canvas);
+    white-space: nowrap;
+  }
+  .toc__item.is-active {
+    border-color: var(--color-ink);
+    background: var(--color-ink);
+    color: #fff;
+    box-shadow: none;
+  }
+  .toc__item.is-active .toc__badge {
+    background: rgba(255, 255, 255, .24);
+  }
+}
+@media (max-width: 767px) {
+  .console-page {
+    padding: 16px var(--mobile-gutter) 36px;
+  }
+  .login {
+    margin-top: 4vh;
+    padding: 26px 20px 24px;
+    border-radius: 20px;
+  }
+  .section,
+  .persona-panel {
+    border-radius: 20px;
+  }
+  .savebar {
+    width: 100%;
+    justify-content: space-between;
+    border-radius: 20px;
+    padding: 10px 14px;
+    flex-wrap: wrap;
+  }
+  .savebar__actions {
+    margin-left: auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toc__item,
+  .adv-toggle {
+    transition: none;
+  }
+}
 </style>

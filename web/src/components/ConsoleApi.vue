@@ -96,22 +96,97 @@ async function save() {
 </template>
 
 <style scoped>
-.intro { margin: 0 0 10px; }
-.skel { height: 120px; border-radius: var(--radius-md); }
-.inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.text-input.num { width: 96px; }
-.label { margin: 18px 0 6px; color: var(--color-ink); font-size: 13px; font-weight: 500; }
-.table { border: 1px solid var(--color-divider); border-radius: var(--radius-md); overflow: hidden; }
-.tr { display: grid; grid-template-columns: minmax(0, 1fr) auto 90px; align-items: center; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--color-divider); }
-.tr:first-child { border-top: 0; }
-.td { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.name { display: grid; gap: 1px; }
-.title { color: var(--color-ink); font-size: 14px; overflow-wrap: anywhere; }
-.eff { justify-content: flex-end; }
-.empty { margin: 0; padding: 12px; }
-.actions { display: flex; justify-content: flex-end; margin-top: 14px; }
+.panel {
+  border-radius: 24px;
+  border: 1px solid rgba(20, 20, 19, .05);
+}
+h2 {
+  margin: 0 0 12px;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -.02em;
+}
+.intro {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.skel {
+  height: 120px;
+  border-radius: 16px;
+}
+.inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.text-input.num {
+  width: 108px;
+  min-height: 36px;
+}
+.label {
+  margin: 20px 0 8px;
+  color: var(--color-ink);
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.table {
+  border: 1px solid rgba(20, 20, 19, .08);
+  border-radius: 16px;
+  background: var(--color-canvas);
+  overflow: hidden;
+}
+.tr {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 108px;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-top: 1px solid rgba(20, 20, 19, .07);
+}
+.tr:first-child {
+  border-top: 0;
+}
+.td {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.name {
+  display: grid;
+  gap: 2px;
+}
+.title {
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.eff {
+  justify-content: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+.empty {
+  margin: 0;
+  padding: 16px;
+}
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
 @media (max-width: 600px) {
-  .tr { grid-template-columns: minmax(0, 1fr) auto; }
-  .eff { display: none; }
+  .panel {
+    border-radius: 20px;
+  }
+  .tr {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 10px 12px;
+  }
+  .eff {
+    display: none;
+  }
 }
 </style>

@@ -131,17 +131,87 @@ async function remove() {
 </template>
 
 <style scoped>
-.head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.head h2 { margin: 0; }
-.intro { margin: 8px 0 12px; }
-.skel { height: 60px; border-radius: var(--radius-md); }
-.row { display: flex; align-items: center; gap: 8px; padding: 12px 0; border-top: 1px solid var(--color-divider); }
-.row__text { flex: 1; min-width: 0; }
-.row__text p { margin: 0; }
-.row__title { color: var(--color-ink); font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
-.label-row { display: flex; align-items: center; justify-content: space-between; }
-.textarea.content { min-height: 200px; }
-.preview { min-height: 200px; padding: 10px 12px; border: 1px solid var(--color-divider); border-radius: var(--radius-md); font-size: 14px; line-height: 1.7; }
-.sec-row { display: flex; align-items: center; gap: 10px; }
-.text-input.sec { width: 90px; }
+.panel {
+  border-radius: 24px;
+  border: 1px solid rgba(20, 20, 19, .05);
+}
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.head h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -.02em;
+}
+.intro {
+  margin: 8px 0 18px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.skel {
+  height: 64px;
+  border-radius: 16px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 14px 16px;
+  border: 1px solid rgba(20, 20, 19, .08);
+  border-radius: 16px;
+  background: var(--color-canvas);
+  flex-wrap: wrap;
+}
+.row__text {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.row__text p {
+  margin: 0;
+}
+.row__title {
+  margin-bottom: 3px;
+  color: var(--color-ink);
+  font-size: 14.5px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.textarea.content {
+  min-height: 220px;
+  border-radius: 14px;
+}
+.preview {
+  min-height: 220px;
+  padding: 14px 16px;
+  border: 1px solid rgba(20, 20, 19, .09);
+  border-radius: 14px;
+  background: var(--color-surface);
+  font-size: 14px;
+  line-height: 1.75;
+}
+.sec-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.text-input.sec {
+  width: 96px;
+}
+@media (max-width: 767px) {
+  .panel {
+    border-radius: 20px;
+  }
+}
 </style>

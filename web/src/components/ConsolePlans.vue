@@ -270,28 +270,146 @@ async function confirmRemove() {
 </template>
 
 <style scoped>
-.with-unit { display: flex; align-items: center; gap: 8px; }
-.with-unit .text-input { flex: 1; min-width: 0; }
-.with-unit .caption { white-space: nowrap; }
-.head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.head h2 { margin: 0; }
-.intro { margin: 8px 0 12px; font-size: 14px; line-height: 1.7; }
-.skel { height: 80px; border-radius: var(--radius-md); }
-.plans { margin: 0; padding: 0; list-style: none; }
-.plan { display: flex; align-items: flex-start; gap: 12px; padding: 14px 0; border-top: 1px solid var(--color-divider); }
-.plan.is-hidden .plan__main { opacity: .55; }
-.plan__main { flex: 1; min-width: 0; }
-.plan__main p { margin: 0 0 3px; }
-.plan__name { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--color-ink); font-size: 15px; font-weight: 500; }
-.price { color: var(--color-accent-active); font-size: 14px; }
-.desc { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.plan__ctl { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 6px 10px; }
-.plan__ctl .check-row { margin: 0; white-space: nowrap; }
-.preview { margin: -6px 0 14px; }
-.quota-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 6px 0 8px; }
-.hint { margin: 0 0 14px; }
-@media (max-width: 560px) { .quota-grid { grid-template-columns: minmax(0, 1fr); } }
-.textarea.small { min-height: 70px; }
-@media (max-width: 640px) { .plan { flex-direction: column; } .plan__ctl { justify-content: flex-start; } }
-.check-row.sub { margin-left: 24px; }
+.panel {
+  border-radius: 24px;
+  border: 1px solid rgba(20, 20, 19, .05);
+}
+.with-unit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.with-unit .text-input {
+  flex: 1;
+  min-width: 0;
+}
+.with-unit .caption {
+  white-space: nowrap;
+}
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.head h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -.02em;
+}
+.intro {
+  margin: 8px 0 18px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.skel {
+  height: 80px;
+  border-radius: 16px;
+}
+.plans {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.plan {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border: 1px solid rgba(20, 20, 19, .08);
+  border-radius: 16px;
+  background: var(--color-canvas);
+  transition: border-color var(--motion-fast) var(--ease-editorial);
+}
+.plan:hover {
+  border-color: rgba(20, 20, 19, .15);
+}
+.plan.is-hidden .plan__main {
+  opacity: .55;
+}
+.plan__main {
+  flex: 1;
+  min-width: 0;
+}
+.plan__main p {
+  margin: 0 0 4px;
+}
+.plan__name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 500;
+}
+.price {
+  color: var(--color-accent-active);
+  font-size: 14px;
+  font-weight: 500;
+}
+.desc {
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.plan__ctl {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 12px;
+  flex-shrink: 0;
+}
+.plan__ctl .check-row {
+  margin: 0;
+  white-space: nowrap;
+}
+.preview {
+  margin: -6px 0 14px;
+}
+.quota-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 6px 0 8px;
+}
+.hint {
+  margin: 0 0 14px;
+}
+.textarea.small {
+  min-height: 76px;
+}
+.check-row.sub {
+  margin-left: 24px;
+}
+@media (max-width: 640px) {
+  .panel {
+    border-radius: 20px;
+  }
+  .plan {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .plan__ctl {
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 560px) {
+  .quota-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .plan {
+    transition: none;
+  }
+}
 </style>

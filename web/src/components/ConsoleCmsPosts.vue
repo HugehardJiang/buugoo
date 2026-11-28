@@ -716,15 +716,22 @@ async function seedPosts() {
 </template>
 
 <style scoped>
+.panel {
+  border-radius: 24px;
+  border: 1px solid rgba(20, 20, 19, .05);
+}
 .head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 12px 16px;
   flex-wrap: wrap;
 }
 .head h2 {
   margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -.02em;
 }
 .head__btns {
   display: flex;
@@ -733,34 +740,40 @@ async function seedPosts() {
   flex-wrap: wrap;
 }
 .intro {
-  margin: 8px 0 14px;
+  margin: 8px 0 18px;
   font-size: 14px;
   line-height: 1.65;
 }
 .filters {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
+  gap: 10px;
+  margin-bottom: 16px;
   flex-wrap: wrap;
 }
 .filter-select {
   width: auto;
-  min-width: 120px;
-  min-height: 36px;
-  padding: 6px 10px;
+  min-width: 132px;
+  min-height: 38px;
+  padding: 6px 12px;
+  border-radius: 12px;
 }
 .filter-search {
-  flex: 1 1 180px;
-  min-height: 36px;
-  padding: 6px 10px;
+  flex: 1 1 220px;
+  min-height: 38px;
+  padding: 6px 14px;
+  border-radius: 9999px;
 }
 .skel {
   height: 76px;
-  border-radius: var(--radius-md);
+  border-radius: 16px;
 }
 .empty {
   margin: 12px 0 4px;
+}
+.post-list {
+  display: grid;
+  gap: 2px;
 }
 .post-list.is-loading {
   opacity: .65;
@@ -770,9 +783,17 @@ async function seedPosts() {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 14px;
-  padding: 14px 0;
-  border-top: 1px solid var(--color-divider);
+  gap: 18px;
+  padding: 16px 12px;
+  border-top: 1px solid rgba(20, 20, 19, .08);
+  border-radius: 14px;
+  transition: background-color var(--motion-fast) var(--ease-editorial);
+}
+.post-row:first-child {
+  border-top-color: rgba(20, 20, 19, .08);
+}
+.post-row:hover {
+  background: rgba(20, 20, 19, .028);
 }
 .post-row__main {
   flex: 1;
@@ -781,14 +802,15 @@ async function seedPosts() {
 .post-row__title-line {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 .post-row__title {
   margin: 0;
   color: var(--color-ink);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
+  letter-spacing: -.01em;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
@@ -796,8 +818,8 @@ async function seedPosts() {
   display: inline-flex;
   align-items: center;
   height: 22px;
-  padding: 0 8px;
-  border-radius: var(--radius-pill);
+  padding: 0 9px;
+  border-radius: 9999px;
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
@@ -828,21 +850,22 @@ async function seedPosts() {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px;
-  margin: 4px 0 0;
+  gap: 5px;
+  margin: 5px 0 0;
 }
 .sep {
   color: var(--color-tertiary);
 }
 .slug-code {
-  padding: 1px 5px;
-  border-radius: var(--radius-xs);
+  padding: 1px 7px;
+  border-radius: 9999px;
   background: var(--color-canvas-soft);
   color: var(--color-text-secondary);
   overflow-wrap: anywhere;
 }
 .post-row__summary {
   margin: 6px 0 0;
+  max-width: 78ch;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -881,17 +904,17 @@ async function seedPosts() {
   margin-top: 2px;
 }
 .preset-cat {
-  min-height: 26px;
-  padding: 0 10px;
-  border: 1px solid var(--color-hairline-strong);
-  border-radius: var(--radius-pill);
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid rgba(20, 20, 19, .12);
+  border-radius: 9999px;
   background: var(--color-surface);
   color: var(--color-text-secondary);
   font-size: 12px;
-  transition: background-color .15s ease, color .15s ease, border-color .15s ease;
+  transition: background-color var(--motion-fast) var(--ease-editorial), color var(--motion-fast) var(--ease-editorial), border-color var(--motion-fast) var(--ease-editorial);
 }
 .preset-cat:hover {
-  border-color: var(--color-muted);
+  border-color: rgba(20, 20, 19, .26);
   color: var(--color-ink);
 }
 .preset-cat.is-active {
@@ -902,7 +925,7 @@ async function seedPosts() {
 .meta-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 14px;
   align-items: start;
 }
 .flags-row {
@@ -921,16 +944,16 @@ async function seedPosts() {
   align-items: center;
   gap: 6px;
   min-height: 34px;
-  padding: 0 10px;
-  border: 1px solid var(--color-hairline-strong);
-  border-radius: var(--radius-md);
+  padding: 0 12px;
+  border: 1px solid rgba(20, 20, 19, .12);
+  border-radius: 9999px;
   background: var(--color-surface);
   color: var(--color-text-secondary);
   font-size: 13px;
-  transition: border-color .15s ease, color .15s ease, box-shadow .15s ease;
+  transition: border-color var(--motion-fast) var(--ease-editorial), color var(--motion-fast) var(--ease-editorial), box-shadow var(--motion-fast) var(--ease-editorial);
 }
 .theme-option:hover {
-  border-color: var(--color-muted);
+  border-color: rgba(20, 20, 19, .26);
   color: var(--color-ink);
 }
 .theme-option.is-active {
@@ -956,30 +979,31 @@ async function seedPosts() {
   flex-wrap: wrap;
 }
 .editor-switch {
-  min-width: 180px;
+  min-width: 196px;
 }
 .editor-body {
   display: grid;
-  gap: 12px;
+  gap: 16px;
 }
 .editor-body--split {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: stretch;
 }
 .md-textarea {
-  min-height: 320px;
+  min-height: 400px;
+  border-radius: 14px;
   font-family: var(--font-mono);
   font-size: 13px;
-  line-height: 1.65;
+  line-height: 1.68;
   tab-size: 2;
 }
 .md-preview {
-  min-height: 320px;
-  max-height: 480px;
+  min-height: 400px;
+  max-height: 540px;
   overflow-y: auto;
-  padding: 12px 14px;
-  border: 1px solid var(--color-divider);
-  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  border: 1px solid rgba(20, 20, 19, .09);
+  border-radius: 14px;
   background: var(--color-surface);
   font-size: 14px;
   line-height: 1.75;
@@ -1004,12 +1028,15 @@ async function seedPosts() {
 }
 .md-preview :deep(img) {
   max-width: 100%;
-  border-radius: var(--radius-md);
+  border-radius: 12px;
 }
 
 @media (max-width: 767px) {
+  .panel {
+    border-radius: 20px;
+  }
   .filter-select {
-    flex: 1 1 calc(50% - 4px);
+    flex: 1 1 calc(50% - 5px);
   }
   .filter-search {
     flex: 1 1 100%;
@@ -1017,6 +1044,7 @@ async function seedPosts() {
   .post-row {
     flex-direction: column;
     gap: 10px;
+    padding: 14px 4px;
   }
   .post-row__actions {
     width: 100%;
@@ -1029,7 +1057,16 @@ async function seedPosts() {
   }
   .md-textarea,
   .md-preview {
-    min-height: 220px;
+    min-height: 240px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .post-list.is-loading,
+  .post-row,
+  .preset-cat,
+  .theme-option {
+    transition: none;
   }
 }
 </style>

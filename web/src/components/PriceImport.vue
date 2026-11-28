@@ -269,20 +269,108 @@ function apply() {
 </template>
 
 <style scoped>
-.steps { display: grid; gap: 14px; margin: 0 0 14px; padding-left: 20px; }
-.steps li { font-size: 14px; line-height: 1.6; }
-.step-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
-.prompt { width: 100%; height: 110px; font-size: 12px; color: var(--color-text-secondary); }
-.paste { width: 100%; height: 120px; margin-top: 6px; font-size: 12px; }
-.mono { font-family: var(--font-mono); }
-.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
-.opts .field { margin: 0; }
-.hint { margin: 8px 0 12px; line-height: 1.7; }
-.table-wrap { max-height: 40vh; overflow: auto; }
-.table td.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
-tr.is-off td { opacity: .5; }
-tr.is-off td:nth-child(3) { opacity: 1; }
-.map { min-width: 180px; max-width: 280px; min-height: 30px; padding: 2px 6px; font-size: 12px; }
-.map.is-unset { border-color: var(--color-warning, #c98a1b); }
-.map-note { margin-top: 10px; line-height: 1.7; }
+.steps {
+  display: grid;
+  gap: 14px;
+  margin: 0 0 16px;
+  padding-left: 20px;
+}
+.steps li {
+  font-size: 14px;
+  line-height: 1.65;
+}
+.step-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.prompt {
+  width: 100%;
+  height: 116px;
+  border-radius: 14px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.paste {
+  width: 100%;
+  height: 124px;
+  margin-top: 6px;
+  border-radius: 14px;
+  font-size: 12px;
+}
+.mono {
+  font-family: var(--font-mono);
+}
+.opts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+.opts .field {
+  margin: 0;
+}
+.hint {
+  margin: 10px 0 14px;
+  line-height: 1.7;
+}
+.table-wrap {
+  max-height: 42vh;
+  overflow: auto;
+  border: 1px solid rgba(20, 20, 19, .08);
+  border-radius: 16px;
+  background: var(--color-surface);
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.table thead th {
+  position: sticky;
+  top: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(20, 20, 19, .08);
+  background: var(--color-card);
+  color: var(--color-muted);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+.table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid rgba(20, 20, 19, .07);
+}
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.table td.num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+tr.is-off td {
+  opacity: .5;
+}
+tr.is-off td:nth-child(3) {
+  opacity: 1;
+}
+.map {
+  min-width: 180px;
+  max-width: 280px;
+  min-height: 32px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+.map.is-unset {
+  border-color: var(--color-warning, #c98a1b);
+}
+.map-note {
+  margin-top: 12px;
+  border-radius: 14px;
+  line-height: 1.7;
+}
 </style>

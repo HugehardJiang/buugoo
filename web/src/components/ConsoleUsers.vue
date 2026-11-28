@@ -335,31 +335,170 @@ function costTotal(items: { amount: number }[]) {
 </template>
 
 <style scoped>
-.neg { color: var(--color-danger); }
-.with-unit { display: flex; align-items: center; gap: 6px; }
-h2 { margin: 0 0 12px; }
-.filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.filters .text-input { flex: 1; min-width: 180px; min-height: 36px; }
-.skel { height: 160px; border-radius: var(--radius-md); }
-.table-wrap { overflow-x: auto; }
-.table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.table th { padding: 8px; border-bottom: 1px solid var(--color-divider); color: var(--color-muted); font-weight: 500; text-align: left; white-space: nowrap; }
-.table td { padding: 9px 8px; border-bottom: 1px solid var(--color-divider); vertical-align: top; }
-.row { cursor: pointer; transition: background-color .15s ease; }
-.row:hover, .row:focus-visible { background: var(--color-hover-wash); outline: none; }
-.name { margin-right: 6px; color: var(--color-ink); font-weight: 500; }
-.badge-pill--off { background: var(--color-danger-tint); color: var(--color-danger); }
-.pager { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 12px; }
-.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.box { margin-bottom: 12px; padding: 14px 16px; border: 1px solid var(--color-divider); border-radius: var(--radius-lg); }
-.box h3 { margin: 0 0 8px; font-size: 14px; }
-.box h3 + .inline { margin-bottom: 14px; }
-.box p { margin: 0 0 6px; font-size: 14px; }
-.inline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
-.inline .text-input { width: auto; flex: 1; min-width: 120px; min-height: 34px; }
-.inline .num { flex: 0 0 120px; }
-.grow { flex: 1; min-width: 160px; }
-.packs, .logs { margin: 6px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.8; }
-.spacer { flex: 1; }
-@media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.panel {
+  border-radius: 24px;
+  border: 1px solid rgba(20, 20, 19, .05);
+}
+.neg {
+  color: var(--color-danger);
+}
+.with-unit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+h2 {
+  margin: 0 0 16px;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -.02em;
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.filters .text-input {
+  flex: 1 1 220px;
+  min-width: 180px;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 9999px;
+}
+.skel {
+  height: 160px;
+  border-radius: 16px;
+}
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid rgba(20, 20, 19, .08);
+  border-radius: 16px;
+  background: var(--color-canvas);
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+.table thead th {
+  padding: 11px 14px;
+  border-bottom: 1px solid rgba(20, 20, 19, .08);
+  background: rgba(20, 20, 19, .025);
+  color: var(--color-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+.table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(20, 20, 19, .07);
+  vertical-align: top;
+}
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.row {
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-editorial);
+}
+.row:hover,
+.row:focus-visible {
+  background: rgba(20, 20, 19, .035);
+  outline: none;
+}
+.name {
+  margin-right: 6px;
+  color: var(--color-ink);
+  font-weight: 500;
+}
+.badge-pill--off {
+  border-color: rgba(181, 51, 51, .2);
+  background: var(--color-danger-tint);
+  color: var(--color-danger);
+}
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.box {
+  margin-bottom: 14px;
+  padding: 16px 18px;
+  border: 1px solid rgba(20, 20, 19, .08);
+  border-radius: 16px;
+  background: var(--color-card);
+}
+.box h3 {
+  margin: 0 0 10px;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.box h3 + .inline {
+  margin-bottom: 14px;
+}
+.box p {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+.inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.inline .text-input {
+  width: auto;
+  flex: 1;
+  min-width: 120px;
+  min-height: 36px;
+}
+.inline .num {
+  flex: 0 0 120px;
+}
+.grow {
+  flex: 1;
+  min-width: 160px;
+}
+.packs,
+.logs {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.link {
+  margin-left: 6px;
+  padding: 0;
+  color: var(--color-accent-active);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.spacer {
+  flex: 1;
+}
+@media (max-width: 760px) {
+  .panel {
+    border-radius: 20px;
+  }
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .row {
+    transition: none;
+  }
+}
 </style>

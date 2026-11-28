@@ -129,23 +129,131 @@ onBeforeUnmount(() => clearInterval(timer))
 </template>
 
 <style scoped>
-.intro { margin: 0 0 16px; }
-.ch { padding: 16px 0; border-top: 1px solid var(--color-divider); }
-.ch__head { display: flex; align-items: center; gap: 8px; }
-.ch__name { color: var(--color-ink); font-size: 15px; font-weight: 600; }
-.ch__detail { margin: 6px 0 0 16px; }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-hairline-strong); transition: background-color .3s ease; }
-.dot.is-on { background: var(--color-success); box-shadow: 0 0 0 3px var(--color-success-tint); }
-.err { color: var(--color-danger); }
-.accounts { display: grid; margin: 10px 0 0 16px; padding: 0; list-style: none; }
-.account { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--color-divider); }
-.account__main { flex: 1; min-width: 0; }
-.account__who { margin: 0 0 2px; color: var(--color-ink); font-size: 14px; }
-.account .caption { margin: 0; }
-.btn-sm { min-height: 28px; padding: 0 10px; }
-.steps { margin: 10px 0 10px 16px; padding-left: 18px; line-height: 1.8; }
-.cmd { display: flex; align-items: center; gap: 8px; margin: 0 0 8px 16px; }
-.cmd code { flex: 1; min-width: 0; overflow-x: auto; padding: 8px 10px; border-radius: var(--radius-md); background: var(--color-canvas-soft); white-space: nowrap; }
-.ch > .caption { margin: 8px 0 0 16px; }
-.link { color: var(--color-accent-active); text-decoration: underline; text-underline-offset: 3px; }
+.panel {
+  border-radius: 24px;
+  border: 1px solid rgba(20, 20, 19, .05);
+}
+h2 {
+  margin: 0 0 10px;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -.02em;
+}
+.intro {
+  margin: 0 0 18px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.ch {
+  margin-top: 12px;
+  padding: 16px 18px;
+  border: 1px solid rgba(20, 20, 19, .08);
+  border-radius: 16px;
+  background: var(--color-canvas);
+}
+.ch__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ch__name {
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+.ch__detail {
+  margin: 8px 0 0 16px;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-hairline-strong);
+  transition: background-color .3s ease;
+}
+.dot.is-on {
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px var(--color-success-tint);
+}
+.err {
+  color: var(--color-danger);
+}
+.accounts {
+  display: grid;
+  margin: 12px 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+.account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(20, 20, 19, .07);
+}
+.account__main {
+  flex: 1;
+  min-width: 0;
+}
+.account__who {
+  margin: 0 0 2px;
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 500;
+}
+.account .caption {
+  margin: 0;
+}
+.btn-sm {
+  min-height: 30px;
+  padding: 0 12px;
+}
+.steps {
+  margin: 10px 0 12px 16px;
+  padding-left: 18px;
+  line-height: 1.8;
+}
+.cmd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px 16px;
+  flex-wrap: wrap;
+}
+.cmd code {
+  flex: 1 1 200px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 8px 12px;
+  border: 1px solid rgba(20, 20, 19, .08);
+  border-radius: 10px;
+  background: var(--color-card);
+  white-space: nowrap;
+}
+.ch > .caption {
+  margin: 8px 0 0 16px;
+}
+.link {
+  color: var(--color-accent-active);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@media (max-width: 767px) {
+  .panel {
+    border-radius: 20px;
+  }
+  .ch__detail,
+  .accounts,
+  .steps,
+  .cmd,
+  .ch > .caption {
+    margin-left: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot {
+    transition: none;
+  }
+}
 </style>

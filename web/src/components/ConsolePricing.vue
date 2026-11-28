@@ -276,33 +276,185 @@ function fillDeepSeek() {
 </template>
 
 <style scoped>
-.head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.head h2 { margin: 0; }
-.head__btns { display: flex; gap: 8px; }
-.intro { margin: 8px 0 12px; font-size: 14px; line-height: 1.7; }
-.skel { height: 160px; border-radius: var(--radius-md); }
-h3 { margin: 18px 0 8px; font-size: 15px; }
-.modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.mode { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--color-divider); border-radius: var(--radius-md); cursor: pointer; }
-.mode.is-active { border-color: var(--color-accent); background: var(--color-canvas-soft); }
-.mode input { margin-top: 3px; }
-.mode strong { display: block; margin-bottom: 4px; font-size: 14px; font-weight: 500; color: var(--color-ink); }
-.mode .caption { line-height: 1.6; }
-.peak { display: grid; gap: 12px; margin-top: 10px; padding: 14px; border: 1px solid var(--color-divider); border-radius: var(--radius-md); }
-.peak__row { display: grid; gap: 6px; }
-.peak p { margin: 0; }
-.days { display: flex; flex-wrap: wrap; gap: 6px; }
-.days button { padding: 5px 10px; border: 1px solid var(--color-divider); border-radius: 999px; background: none; font-size: 13px; cursor: pointer; }
-.days button.is-active { border-color: var(--color-accent); background: var(--color-accent); color: #fff; }
-.textarea.small { min-height: 70px; }
-.mono { font-family: var(--font-mono); font-size: 13px; }
-.table-wrap { overflow-x: auto; }
-.table { width: 100%; border-collapse: collapse; font-size: 14px; }
-.table th { padding: 8px; border-bottom: 1px solid var(--color-divider); color: var(--color-muted); font-weight: 500; text-align: left; white-space: nowrap; font-size: 13px; }
-.table td { padding: 6px 8px; border-bottom: 1px solid var(--color-divider); vertical-align: middle; }
-.table tr.is-sub td { padding-top: 2px; }
-.when { white-space: nowrap; }
-.num { width: 110px; }
-.unit { margin: 4px 0 0; }
-@media (max-width: 640px) { .modes { grid-template-columns: minmax(0, 1fr); } }
+.panel {
+  border-radius: 24px;
+  border: 1px solid rgba(20, 20, 19, .05);
+}
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+}
+.head h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -.02em;
+}
+.head__btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.intro {
+  margin: 8px 0 16px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.skel {
+  height: 160px;
+  border-radius: 16px;
+}
+h3 {
+  margin: 22px 0 10px;
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+}
+.modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.mode {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border: 1px solid rgba(20, 20, 19, .08);
+  border-radius: 16px;
+  background: var(--color-canvas);
+  cursor: pointer;
+  transition: border-color var(--motion-fast) var(--ease-editorial), background-color var(--motion-fast) var(--ease-editorial);
+}
+.mode:hover {
+  border-color: rgba(20, 20, 19, .18);
+}
+.mode.is-active {
+  border-color: var(--color-accent);
+  background: rgba(91, 122, 74, .06);
+}
+.mode input {
+  margin-top: 3px;
+}
+.mode strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-ink);
+}
+.mode .caption {
+  line-height: 1.6;
+}
+.peak {
+  display: grid;
+  gap: 14px;
+  margin-top: 10px;
+  padding: 16px 18px;
+  border: 1px solid rgba(20, 20, 19, .08);
+  border-radius: 16px;
+  background: var(--color-canvas);
+}
+.peak__row {
+  display: grid;
+  gap: 6px;
+}
+.peak p {
+  margin: 0;
+}
+.days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.days button {
+  padding: 6px 12px;
+  border: 1px solid rgba(20, 20, 19, .12);
+  border-radius: 9999px;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color var(--motion-fast) var(--ease-editorial), background-color var(--motion-fast) var(--ease-editorial), color var(--motion-fast) var(--ease-editorial);
+}
+.days button:hover {
+  border-color: rgba(20, 20, 19, .24);
+  color: var(--color-ink);
+}
+.days button.is-active {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+}
+.textarea.small {
+  min-height: 76px;
+}
+.mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid rgba(20, 20, 19, .08);
+  border-radius: 16px;
+  background: var(--color-canvas);
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.table thead th {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(20, 20, 19, .08);
+  background: rgba(20, 20, 19, .025);
+  color: var(--color-muted);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+.table td {
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(20, 20, 19, .07);
+  vertical-align: middle;
+}
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.table tr.is-sub td {
+  padding-top: 3px;
+}
+.when {
+  white-space: nowrap;
+}
+.num {
+  width: 136px;
+  min-height: 36px;
+  padding: 6px 10px;
+}
+.unit {
+  margin: 6px 0 0;
+}
+@media (max-width: 640px) {
+  .panel {
+    border-radius: 20px;
+  }
+  .modes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .num {
+    width: 104px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mode,
+  .days button {
+    transition: none;
+  }
+}
 </style>
