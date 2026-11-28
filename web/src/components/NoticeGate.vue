@@ -117,10 +117,10 @@ onBeforeUnmount(() => {
 <style scoped>
 /* 盖在所有东西上面（包括别的弹窗和临时登录的提示条）。 */
 .notice-backdrop { z-index: 200; }
-.notice { max-width: 560px; }
+.notice { max-width: 560px; border: 0; border-radius: 28px; }
 .notice__kicker {
-  display: inline-flex; align-items: center; height: 24px; margin: 0 0 10px; padding: 0 10px; border-radius: 9999px;
-  background: var(--color-accent-tint); color: var(--color-accent-active); font-size: 12px; font-weight: 500; letter-spacing: .04em;
+  display: inline-flex; align-items: center; height: 24px; margin: 0 0 10px; padding: 0 11px; border-radius: 9999px;
+  background: var(--md-primary-container); color: var(--md-on-primary-container); font-size: 12px; font-weight: 600; letter-spacing: .04em;
 }
 .notice__body { max-height: 52vh; overflow-y: auto; font-size: 15px; line-height: 1.75; overflow-wrap: anywhere; }
 .notice__body :deep(p) { margin: 0 0 10px; }
@@ -128,12 +128,18 @@ onBeforeUnmount(() => {
 .notice__body :deep(a) { color: var(--color-accent-active); text-decoration: underline; text-underline-offset: 3px; }
 .notice__actions {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
-  margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--color-hairline-subtle);
+  margin-top: 24px; padding-top: 0; border-top: 0;
 }
-.notice__btn { position: relative; overflow: hidden; min-width: 136px; min-height: 38px; padding: 0 20px; font-variant-numeric: tabular-nums; }
+.notice__btn {
+  position: relative; overflow: hidden; min-width: 140px; min-height: 42px; padding: 0 22px;
+  border-radius: 9999px; font-variant-numeric: tabular-nums;
+}
 /* 倒计时进度：从满到空。 */
 .notice__bar {
   position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255, 255, 255, .55);
   transform-origin: left; transition: transform 1s linear;
+}
+@media (max-width: 767px) {
+  .notice { border-radius: 28px 28px 0 0; }
 }
 </style>

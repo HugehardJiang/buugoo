@@ -45,8 +45,8 @@ async function save() {
       <div v-if="lightbox.open" class="lightbox" role="dialog" aria-modal="true" :aria-label="lightbox.filename" @click.self="closeLightbox">
         <div class="lightbox__bar">
           <span class="lightbox__name">{{ lightbox.filename }}</span>
-          <button type="button" class="lightbox__btn" aria-label="下载" title="下载" @click="save"><Icon name="download" :size="18" /></button>
-          <button type="button" class="lightbox__btn" aria-label="关闭" title="关闭" @click="closeLightbox"><Icon name="x" :size="18" /></button>
+          <button type="button" class="icon-btn lightbox__btn" aria-label="下载" title="下载" @click="save"><Icon name="download" :size="18" /></button>
+          <button type="button" class="icon-btn lightbox__btn" aria-label="关闭" title="关闭" @click="closeLightbox"><Icon name="x" :size="18" /></button>
         </div>
         <img v-if="url" :src="url" :alt="lightbox.filename" class="lightbox__img" @click="closeLightbox" />
         <p v-else-if="failed" class="lightbox__msg">图片打不开了</p>
@@ -68,13 +68,14 @@ async function save() {
 }
 .lightbox__name { flex: 1; min-width: 0; overflow: hidden; color: var(--color-on-dark-soft); font-size: 13.5px; text-overflow: ellipsis; white-space: nowrap; }
 .lightbox__btn {
-  display: inline-flex; width: 38px; height: 38px; align-items: center; justify-content: center; border-radius: 9999px;
-  border: 1px solid rgba(250, 249, 245, .14); background: rgba(250, 249, 245, .08);
-  color: var(--color-on-dark); transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease;
+  width: 40px; height: 40px; flex: 0 0 40px; border: 0; border-radius: 9999px;
+  background: rgba(250, 249, 245, .10); color: var(--color-on-dark);
+  transition: background-color var(--motion-fast) var(--md-ease), color var(--motion-fast) var(--md-ease), transform var(--motion-fast) var(--md-ease);
 }
-.lightbox__btn:hover { background: rgba(250, 249, 245, .18); border-color: rgba(250, 249, 245, .28); }
+.lightbox__btn:hover { background: rgba(250, 249, 245, .20); color: #fff; }
+.lightbox__btn:active { background: rgba(250, 249, 245, .28); transform: scale(.94); }
 .lightbox__img {
-  max-width: 100%; max-height: 100%; border-radius: 16px; background: #fff; object-fit: contain;
+  max-width: 100%; max-height: 100%; border-radius: 24px; background: #fff; object-fit: contain;
   box-shadow: 0 24px 64px rgba(0, 0, 0, .38);
 }
 .lightbox__msg { color: var(--color-on-dark-soft); font-size: 14px; }
@@ -84,8 +85,11 @@ async function save() {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .lightbox-enter-active, .lightbox-leave-active { transition: opacity 200ms ease; }
-.lightbox-enter-active .lightbox__img { transition: transform 280ms var(--ease-editorial); }
+.lightbox-enter-active .lightbox__img { transition: transform 280ms var(--md-ease); }
 .lightbox-enter-from, .lightbox-leave-to { opacity: 0; }
 .lightbox-enter-from .lightbox__img { transform: scale(.96); }
-@media (max-width: 767px) { .lightbox { padding: 60px 10px 16px; } }
+@media (max-width: 767px) {
+  .lightbox { padding: 60px 10px 16px; }
+  .lightbox__img { border-radius: 16px; }
+}
 </style>

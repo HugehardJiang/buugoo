@@ -745,14 +745,16 @@ onBeforeUnmount(() => {
   height: 26px;
   padding: 0 12px;
   border-radius: 9999px;
-  background: rgba(20, 20, 19, 0.06);
+  background: var(--md-surface-container);
   color: var(--color-ink);
   font-size: 12.5px;
   font-weight: 500;
   text-decoration: none;
+  transition: background-color 0.18s var(--md-ease), color 0.18s var(--md-ease);
 }
 .post-cat:hover {
-  background: rgba(20, 20, 19, 0.11);
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
 }
 
 .article-head h1 {
@@ -785,13 +787,14 @@ onBeforeUnmount(() => {
   height: 28px;
   padding: 0 12px;
   border-radius: 9999px;
-  background: var(--color-card);
+  background: var(--md-surface-container-low);
   color: var(--color-text-secondary);
   font-size: 13px;
   text-decoration: none;
+  transition: background-color 0.18s var(--md-ease), color 0.18s var(--md-ease);
 }
 .tag-chip:hover {
-  background: var(--color-card-strong);
+  background: var(--md-surface-container);
   color: var(--color-ink);
 }
 
@@ -799,9 +802,9 @@ onBeforeUnmount(() => {
   margin: 0 0 44px;
   width: 100%;
   aspect-ratio: 16 / 9;
-  border-radius: var(--radius-card);
+  border-radius: 24px;
   overflow: hidden;
-  background: var(--color-card);
+  background: var(--md-surface-container-low);
 }
 .article-cover img {
   width: 100%;
@@ -1025,21 +1028,23 @@ onBeforeUnmount(() => {
   display: flex;
   flex: 1;
   flex-direction: column;
-  border-radius: var(--radius-card);
-  border: 1px solid rgba(20, 20, 19, 0.05);
-  background: var(--color-card);
+  border: 0;
+  border-radius: 24px;
+  background: var(--md-surface-container-low);
   overflow: hidden;
   text-decoration: none;
   color: inherit;
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.25s var(--md-ease), background-color 0.22s var(--md-ease), box-shadow 0.25s var(--md-ease);
 }
 .related-card:hover {
   transform: translateY(-2px);
+  background: var(--md-surface-container-lowest);
+  box-shadow: var(--md-elev-2);
 }
 .related-card__cover {
   aspect-ratio: 16 / 10;
   overflow: hidden;
-  background: var(--color-card-strong);
+  background: var(--md-surface-container);
 }
 .related-card__cover img {
   width: 100%;
@@ -1135,9 +1140,9 @@ onBeforeUnmount(() => {
   max-width: 680px;
   margin: 32px auto;
   padding: 56px 32px;
-  border-radius: var(--radius-card);
-  border: 1px solid rgba(20, 20, 19, 0.05);
-  background: var(--color-card);
+  border: 0;
+  border-radius: 24px;
+  background: var(--md-surface-container-low);
   text-align: center;
 }
 .state-panel h1 {

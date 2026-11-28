@@ -56,5 +56,5 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
 
 <style scoped>
 .modal__head-text { min-width: 0; }
-.modal__close { margin-top: -2px; border-radius: 9999px; }
+.modal__close { margin: -4px -4px 0 0; border: 0; border-radius: 9999px; }
 </style>

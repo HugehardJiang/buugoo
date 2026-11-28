@@ -272,12 +272,12 @@ async function submit() {
 .auth-card {
   width: 100%;
   padding: 32px 30px 30px;
-  border-radius: var(--radius-card);
-  border: 1px solid rgba(20, 20, 19, .08);
-  background: rgba(255, 255, 255, .82);
+  border: 0;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, .9);
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
-  box-shadow: 0 24px 60px rgba(20, 20, 19, .07);
+  box-shadow: var(--md-elev-3);
 }
 
 .tabs {
@@ -299,7 +299,7 @@ async function submit() {
   }
   .auth-card {
     padding: 24px 20px 22px;
-    border-radius: 22px;
+    border-radius: 28px;
   }
 }
 

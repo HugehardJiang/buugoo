@@ -777,14 +777,14 @@ onBeforeUnmount(() => {
   min-width: 0;
   height: 46px;
   padding: 0 16px;
+  border: 0;
   border-radius: 9999px;
-  background: var(--color-card);
-  border: 1px solid rgba(20, 20, 19, 0.09);
-  transition: border-color 0.2s ease, background-color 0.2s ease;
+  background: var(--md-surface-container-high);
+  transition: background-color 0.2s var(--md-ease), box-shadow 0.2s var(--md-ease);
 }
 .search-bar:focus-within {
-  background: var(--color-surface);
-  border-color: rgba(20, 20, 19, 0.28);
+  background: var(--md-surface-container-lowest);
+  box-shadow: var(--md-elev-1);
 }
 .search-bar__ico {
   color: var(--color-muted);
@@ -829,22 +829,29 @@ onBeforeUnmount(() => {
 .filter-pill {
   height: 36px;
   padding: 0 16px;
+  border: 1px solid var(--md-outline-variant);
   border-radius: 9999px;
   font-size: 14px;
   font-weight: 500;
   color: var(--color-text-secondary);
   background: transparent;
-  box-shadow: 0 0 0 1px rgba(20, 20, 19, 0.12);
-  transition: background-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+  transition: background-color 0.18s var(--md-ease), color 0.18s var(--md-ease), border-color 0.18s var(--md-ease);
 }
 .filter-pill:hover {
   color: var(--color-ink);
-  box-shadow: 0 0 0 1px rgba(20, 20, 19, 0.26);
+  background: var(--md-state-hover);
+  border-color: rgba(20, 20, 19, 0.24);
 }
 .filter-pill.is-active {
-  background: var(--color-ink);
-  color: var(--color-on-dark);
-  box-shadow: 0 0 0 1px var(--color-ink);
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  border-color: transparent;
+  font-weight: 600;
+}
+.filter-pill.is-active:hover {
+  background: #cfe0c1;
+  color: var(--md-on-primary-container);
+  border-color: transparent;
 }
 
 .filter-tags {
@@ -864,17 +871,17 @@ onBeforeUnmount(() => {
   border-radius: 9999px;
   font-size: 13px;
   color: var(--color-text-secondary);
-  background: var(--color-card);
-  transition: background-color 0.18s ease, color 0.18s ease;
+  background: var(--md-surface-container-low);
+  transition: background-color 0.18s var(--md-ease), color 0.18s var(--md-ease);
 }
 .tag-chip:hover {
   color: var(--color-ink);
-  background: var(--color-card-strong);
+  background: var(--md-surface-container);
 }
 .tag-chip.is-active {
-  background: var(--color-accent-tint);
-  color: var(--color-accent-active);
-  font-weight: 500;
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  font-weight: 600;
 }
 .filter-reset {
   margin-left: 6px;
@@ -907,16 +914,18 @@ onBeforeUnmount(() => {
   display: flex;
   flex: 1;
   flex-direction: column;
-  border-radius: var(--radius-card);
-  border: 1px solid rgba(20, 20, 19, 0.05);
-  background: var(--color-card);
+  border: 0;
+  border-radius: 24px;
+  background: var(--md-surface-container-low);
   overflow: hidden;
   text-decoration: none;
   color: inherit;
-  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.28s var(--md-ease), background-color 0.22s var(--md-ease), box-shadow 0.28s var(--md-ease);
 }
 .post-card:hover {
   transform: translateY(-2px);
+  background: var(--md-surface-container-lowest);
+  box-shadow: var(--md-elev-2);
 }
 
 .post-card--featured {
@@ -1152,9 +1161,9 @@ onBeforeUnmount(() => {
 .state-panel {
   margin-top: 20px;
   padding: 56px 32px;
-  border-radius: var(--radius-card);
-  border: 1px solid rgba(20, 20, 19, 0.05);
-  background: var(--color-card);
+  border: 0;
+  border-radius: 24px;
+  background: var(--md-surface-container-low);
   text-align: center;
 }
 .state-panel h2 {
