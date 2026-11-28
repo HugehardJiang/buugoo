@@ -477,10 +477,10 @@ onBeforeUnmount(() => {
 
 .wrap {
   width: 100%;
-  max-width: 1280px;
+  max-width: 1440px;
   margin: 0 auto;
-  padding-left: 48px;
-  padding-right: 48px;
+  padding-left: 72px;
+  padding-right: 72px;
 }
 
 /* ===== 常驻 5 层渐进渐变模糊顶栏 ===== */
@@ -566,7 +566,7 @@ onBeforeUnmount(() => {
   max-width: 1440px;
   height: 64px;
   margin: 0 auto;
-  padding: 0 48px;
+  padding: 0 72px;
 }
 .dm-header__left {
   display: flex;
@@ -580,8 +580,8 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.4);
-  border: 1px solid rgba(20, 20, 19, 0.09);
+  background: rgba(255, 255, 255, 0.42);
+  border: 1px solid rgba(20, 20, 19, 0.1);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
 }
@@ -593,10 +593,10 @@ onBeforeUnmount(() => {
   text-decoration: none;
 }
 .dm-brand strong {
-  font-family: var(--font-display);
-  font-size: 21px;
+  font-family: var(--font-sans);
+  font-size: 18px;
   font-weight: 500;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
 }
 .dm-nav {
   display: flex;
@@ -606,12 +606,12 @@ onBeforeUnmount(() => {
 .dm-nav__item {
   display: inline-flex;
   align-items: center;
-  height: 36px;
-  padding: 0 16px;
+  height: 34px;
+  padding: 0 14px;
   border-radius: 9999px;
   color: var(--color-ink);
-  font-size: 14.5px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 400;
   text-decoration: none;
   transition: background-color 0.2s ease, box-shadow 0.2s ease;
 }
@@ -742,11 +742,13 @@ onBeforeUnmount(() => {
 }
 .posts-hero h1 {
   margin: 16px 0 12px;
-  font-family: var(--font-display);
-  font-size: clamp(34px, 4.2vw, 54px);
+  font-family: var(--font-sans);
+  font-size: clamp(34px, 4.4vw, 56px);
   font-weight: 500;
   line-height: 1.1;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.03em;
+  word-break: normal;
+  overflow-wrap: anywhere;
 }
 .posts-hero__desc {
   margin: 0;
@@ -905,7 +907,8 @@ onBeforeUnmount(() => {
   display: flex;
   flex: 1;
   flex-direction: column;
-  border-radius: 22px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(20, 20, 19, 0.05);
   background: var(--color-card);
   overflow: hidden;
   text-decoration: none;
@@ -931,7 +934,8 @@ onBeforeUnmount(() => {
 }
 .post-card--featured h2 {
   font-size: clamp(26px, 2.6vw, 36px);
-  line-height: 1.2;
+  line-height: 1.18;
+  letter-spacing: -0.028em;
 }
 
 .post-card__cover {
@@ -986,12 +990,14 @@ onBeforeUnmount(() => {
 
 .post-card h2 {
   margin: 12px 0 10px;
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 21px;
   font-weight: 500;
   line-height: 1.3;
-  letter-spacing: -0.012em;
+  letter-spacing: -0.022em;
   color: var(--color-ink);
+  word-break: normal;
+  overflow-wrap: anywhere;
 }
 .post-card__summary {
   margin: 0 0 18px;
@@ -1146,15 +1152,17 @@ onBeforeUnmount(() => {
 .state-panel {
   margin-top: 20px;
   padding: 56px 32px;
-  border-radius: 24px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(20, 20, 19, 0.05);
   background: var(--color-card);
   text-align: center;
 }
 .state-panel h2 {
   margin: 0 0 10px;
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 26px;
   font-weight: 500;
+  letter-spacing: -0.024em;
 }
 .state-panel p {
   margin: 0 auto 24px;
@@ -1218,8 +1226,8 @@ onBeforeUnmount(() => {
 @media (max-width: 1024px) {
   .wrap,
   .dm-header__inner {
-    padding-left: 28px;
-    padding-right: 28px;
+    padding-left: 36px;
+    padding-right: 36px;
   }
   .posts-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1237,11 +1245,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 900px) {
-  .wrap,
-  .dm-header__inner {
-    padding-left: 20px;
-    padding-right: 20px;
-  }
   .dm-menu-btn {
     display: inline-flex;
   }
@@ -1254,6 +1257,14 @@ onBeforeUnmount(() => {
   }
   .search-bar {
     width: 100%;
+  }
+}
+
+@media (max-width: 768px) {
+  .wrap,
+  .dm-header__inner {
+    padding-left: 20px;
+    padding-right: 20px;
   }
 }
 

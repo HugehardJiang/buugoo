@@ -458,10 +458,10 @@ onBeforeUnmount(() => {
 
 .wrap {
   width: 100%;
-  max-width: 1200px;
+  max-width: 1440px;
   margin: 0 auto;
-  padding-left: 48px;
-  padding-right: 48px;
+  padding-left: 72px;
+  padding-right: 72px;
 }
 
 /* ===== 常驻 5 层渐进渐变模糊顶栏 ===== */
@@ -547,7 +547,7 @@ onBeforeUnmount(() => {
   max-width: 1440px;
   height: 64px;
   margin: 0 auto;
-  padding: 0 48px;
+  padding: 0 72px;
 }
 .dm-header__left {
   display: flex;
@@ -561,8 +561,8 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.4);
-  border: 1px solid rgba(20, 20, 19, 0.09);
+  background: rgba(255, 255, 255, 0.42);
+  border: 1px solid rgba(20, 20, 19, 0.1);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
 }
@@ -574,10 +574,10 @@ onBeforeUnmount(() => {
   text-decoration: none;
 }
 .dm-brand strong {
-  font-family: var(--font-display);
-  font-size: 21px;
+  font-family: var(--font-sans);
+  font-size: 18px;
   font-weight: 500;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
 }
 .dm-nav {
   display: flex;
@@ -587,12 +587,12 @@ onBeforeUnmount(() => {
 .dm-nav__item {
   display: inline-flex;
   align-items: center;
-  height: 36px;
-  padding: 0 16px;
+  height: 34px;
+  padding: 0 14px;
   border-radius: 9999px;
   color: var(--color-ink);
-  font-size: 14.5px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 400;
   text-decoration: none;
   transition: background-color 0.2s ease, box-shadow 0.2s ease;
 }
@@ -757,11 +757,11 @@ onBeforeUnmount(() => {
 
 .article-head h1 {
   margin: 18px 0 18px;
-  font-family: var(--font-display);
-  font-size: clamp(32px, 4.1vw, 52px);
+  font-family: var(--font-sans);
+  font-size: clamp(32px, 4.2vw, 52px);
   font-weight: 500;
   line-height: 1.14;
-  letter-spacing: -0.022em;
+  letter-spacing: -0.03em;
   word-break: normal;
   overflow-wrap: anywhere;
   text-wrap: wrap;
@@ -799,7 +799,7 @@ onBeforeUnmount(() => {
   margin: 0 0 44px;
   width: 100%;
   aspect-ratio: 16 / 9;
-  border-radius: 24px;
+  border-radius: var(--radius-card);
   overflow: hidden;
   background: var(--color-card);
 }
@@ -892,10 +892,10 @@ onBeforeUnmount(() => {
 .article-prose :deep(h2),
 .article-prose :deep(h3),
 .article-prose :deep(h4) {
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-weight: 500;
   color: var(--color-ink);
-  letter-spacing: -0.015em;
+  letter-spacing: -0.022em;
   line-height: 1.3;
   word-break: normal;
   overflow-wrap: anywhere;
@@ -1007,9 +1007,10 @@ onBeforeUnmount(() => {
 }
 .related-head h2 {
   margin: 0;
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 28px;
   font-weight: 500;
+  letter-spacing: -0.024em;
 }
 .related-grid {
   display: grid;
@@ -1024,7 +1025,8 @@ onBeforeUnmount(() => {
   display: flex;
   flex: 1;
   flex-direction: column;
-  border-radius: 20px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(20, 20, 19, 0.05);
   background: var(--color-card);
   overflow: hidden;
   text-decoration: none;
@@ -1057,10 +1059,13 @@ onBeforeUnmount(() => {
 }
 .related-card h3 {
   margin: 10px 0 14px;
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 18.5px;
   font-weight: 500;
+  letter-spacing: -0.02em;
   line-height: 1.35;
+  word-break: normal;
+  overflow-wrap: anywhere;
 }
 .read-more {
   margin-top: auto;
@@ -1130,15 +1135,17 @@ onBeforeUnmount(() => {
   max-width: 680px;
   margin: 32px auto;
   padding: 56px 32px;
-  border-radius: 24px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(20, 20, 19, 0.05);
   background: var(--color-card);
   text-align: center;
 }
 .state-panel h1 {
   margin: 0 0 12px;
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 28px;
   font-weight: 500;
+  letter-spacing: -0.024em;
 }
 .state-panel p {
   margin: 0 0 26px;
@@ -1195,12 +1202,15 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .wrap,
   .dm-header__inner {
-    padding-left: 20px;
-    padding-right: 20px;
+    padding-left: 36px;
+    padding-right: 36px;
   }
+}
+
+@media (max-width: 900px) {
   .dm-menu-btn {
     display: inline-flex;
   }
@@ -1220,6 +1230,14 @@ onBeforeUnmount(() => {
   }
   .related-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .wrap,
+  .dm-header__inner {
+    padding-left: 20px;
+    padding-right: 20px;
   }
 }
 </style>

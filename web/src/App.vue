@@ -159,7 +159,10 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
         >
           <Icon name="sidebar" :size="18" />
         </button>
-        <RouterLink v-if="!sidebarCollapsed || !wideScreen" to="/" class="side__brand">{{ name }}</RouterLink>
+        <RouterLink v-if="!sidebarCollapsed || !wideScreen" to="/" class="side__brand">
+          <img src="/logo.png" alt="" width="22" height="22" class="side__logo" />
+          <span>{{ name }}</span>
+        </RouterLink>
         <button v-if="!wideScreen" type="button" class="side__icon-btn side__close" aria-label="关闭导航" @click="navOpen = false"><Icon name="x" :size="18" /></button>
       </div>
       <nav class="side__nav">
@@ -268,33 +271,50 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
 </template>
 
 <style scoped>
-/* 桌面端侧栏（参考 claude.ai） */
+/* 桌面端侧栏（DeepMind 克制极简质感） */
 .side {
-  display: flex; width: 288px; flex: 0 0 288px; flex-direction: column; min-height: 0;
-  border-right: 1px solid var(--color-divider); background: var(--color-side);
-  transition: width .22s var(--ease-editorial), flex-basis .22s var(--ease-editorial);
+  display: flex; width: 284px; flex: 0 0 284px; flex-direction: column; min-height: 0;
+  border-right: 1px solid rgba(20, 20, 19, .07); background: var(--color-side);
+  transition: width .24s var(--ease-editorial), flex-basis .24s var(--ease-editorial);
 }
-.side.is-collapsed { width: 60px; flex-basis: 60px; }
-.side__head { display: flex; align-items: center; gap: 6px; height: 60px; padding: 0 13px; }
-.side__brand { color: var(--color-ink); font-family: var(--font-display); font-size: 22px; font-weight: 500; letter-spacing: -.01em; }
+.side.is-collapsed { width: 62px; flex-basis: 62px; }
+.side__head {
+  display: flex; align-items: center; gap: 8px; height: 60px; padding: 0 13px;
+  border-bottom: 1px solid rgba(20, 20, 19, .05);
+}
+.side__brand {
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0;
+  color: var(--color-ink); font-family: var(--font-sans); font-size: 17px; font-weight: 500; letter-spacing: -.02em;
+}
+.side__brand span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side__logo { width: 22px; height: 22px; flex: 0 0 22px; object-fit: contain; }
 .side__icon-btn {
-  display: inline-grid; flex-shrink: 0; place-items: center; width: 34px; height: 34px; border-radius: var(--radius-md);
-  color: var(--color-text-secondary); transition: background-color .15s ease, color .15s ease;
+  display: inline-grid; flex-shrink: 0; place-items: center; width: 34px; height: 34px; border-radius: 9999px;
+  color: var(--color-text-secondary); transition: background-color .16s ease, color .16s ease;
 }
 .side__icon-btn:hover, .side__icon-btn.is-active { background: var(--color-hover-wash); color: var(--color-ink); }
-.side__nav { display: grid; gap: 1px; padding: 2px 8px 8px; }
+.side__nav { display: grid; gap: 2px; padding: 10px 10px 8px; }
 .side__item {
-  display: flex; align-items: center; gap: 10px; width: 100%; height: 38px; padding: 0 10px; border-radius: var(--radius-md);
-  color: var(--color-ink); font-size: 15px; text-align: left; white-space: nowrap; overflow: hidden;
-  transition: background-color .15s ease;
+  display: flex; align-items: center; gap: 10px; width: 100%; height: 38px; padding: 0 11px; border-radius: 12px;
+  color: var(--color-ink); font-size: 14.5px; font-weight: 400; text-align: left; white-space: nowrap; overflow: hidden;
+  transition: background-color .16s var(--ease-editorial), box-shadow .16s var(--ease-editorial), color .16s ease;
 }
-.side__item:hover { background: var(--color-hover-wash); }
-.side__item.is-active { background: rgba(20, 20, 19, .075); }
+.side__item:hover { background: rgba(20, 20, 19, .045); }
+.side__item.is-active {
+  background: rgba(255, 255, 255, .82); font-weight: 500;
+  box-shadow: 0 1px 2px rgba(20, 20, 19, .04), 0 0 0 1px rgba(20, 20, 19, .06);
+}
 .side__ico { position: relative; display: inline-grid; flex: 0 0 20px; place-items: center; width: 20px; height: 20px; color: var(--color-text-secondary); }
 .side__item.is-active .side__ico, .side__item:hover .side__ico { color: var(--color-ink); }
-.side__ico--new { width: 22px; height: 22px; flex-basis: 22px; margin-left: -1px; border-radius: 50%; background: var(--color-ink); color: #fff !important; }
+.side__ico--new { width: 22px; height: 22px; flex-basis: 22px; margin-left: -1px; border-radius: 9999px; background: var(--color-ink); color: #fff !important; }
+.side.is-collapsed .side__nav { padding: 10px 11px 8px; }
+.side.is-collapsed .side__item { justify-content: center; padding: 0; }
+.side.is-collapsed .side__ico--new { margin-left: 0; }
 .side.is-collapsed .side__label { display: none; }
-.side__recents { display: flex; flex: 1; min-height: 0; flex-direction: column; padding: 10px 8px 0; }
+.side__recents {
+  display: flex; flex: 1; min-height: 0; flex-direction: column; padding: 10px 10px 0;
+  border-top: 1px solid rgba(20, 20, 19, .06);
+}
 .side__search-wrap {
   display: grid; grid-template-rows: 0fr; opacity: 0; transform: translateY(-4px);
   transition: grid-template-rows .26s var(--ease-editorial), opacity .2s ease, transform .26s var(--ease-editorial);
@@ -302,44 +322,70 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
 .side__search-wrap.is-open { grid-template-rows: 1fr; opacity: 1; transform: none; }
 .side__search-inner { min-height: 0; overflow: hidden; }
 .side__search {
-  display: flex; align-items: center; gap: 8px; height: 36px; margin: 2px 2px 8px; padding: 0 10px;
-  border: 1px solid var(--color-hairline-strong); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-muted);
+  display: flex; align-items: center; gap: 8px; height: 36px; margin: 2px 1px 10px; padding: 0 12px;
+  border: 1px solid rgba(20, 20, 19, .1); border-radius: 9999px; background: rgba(255, 255, 255, .86); color: var(--color-muted);
+  transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease;
 }
-.side__search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--color-ink); font-size: 14px; }
+.side__search:focus-within {
+  border-color: var(--color-accent); background: var(--color-surface); box-shadow: 0 0 0 3px rgba(91, 122, 74, .12);
+}
+.side__search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--color-ink); font-size: 13.5px; }
+.side__search input::placeholder { color: var(--color-tertiary); }
 .side__search input::-webkit-search-cancel-button { display: none; }
 .side__sec {
-  display: inline-flex; align-self: flex-start; align-items: center; gap: 4px; height: 28px; margin: 0 0 2px; padding: 0 10px;
-  border-radius: var(--radius-sm); color: var(--color-muted); font-size: 13px;
+  display: inline-flex; align-self: flex-start; align-items: center; gap: 5px; height: 28px; margin: 0 0 4px; padding: 0 11px;
+  border-radius: 9999px; color: var(--color-muted); font-size: 12.5px; font-weight: 500; letter-spacing: .01em;
+  transition: color .16s ease, background-color .16s ease;
 }
-.side__sec:hover { color: var(--color-text-secondary); }
-.side__caret { transform: rotate(90deg); transition: transform .2s ease; }
+.side__sec:hover { color: var(--color-ink); background: rgba(20, 20, 19, .04); }
+.side__caret { transform: rotate(90deg); transition: transform .2s var(--ease-editorial); }
 .side__caret.is-closed { transform: rotate(0deg); }
 .side__scroll { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 12px; }
-.side__group { margin-bottom: 10px; }
+.side__group { display: grid; gap: 2px; margin-bottom: 12px; }
 .side__conv {
-  display: block; width: 100%; height: 36px; padding: 0 10px; overflow: hidden; border-radius: var(--radius-md); color: var(--color-ink);
-  font-size: 14.5px; line-height: 36px; text-align: left; white-space: nowrap; text-overflow: ellipsis;
+  display: block; width: 100%; height: 36px; padding: 0 11px; overflow: hidden; border-radius: 12px; color: var(--color-ink);
+  font-size: 14px; line-height: 36px; text-align: left; white-space: nowrap; text-overflow: ellipsis;
+  transition: background-color .16s var(--ease-editorial), box-shadow .16s var(--ease-editorial);
 }
-.side__conv:hover { background: var(--color-hover-wash); }
-.side__conv.is-active { background: rgba(20, 20, 19, .075); }
-.side__tag { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px; background: var(--color-accent-tint); color: var(--color-accent-active); font-size: 11px; font-style: normal; line-height: 17px; vertical-align: 1px; }
+.side__conv:hover { background: rgba(20, 20, 19, .045); }
+.side__conv.is-active {
+  background: rgba(255, 255, 255, .82); font-weight: 500;
+  box-shadow: 0 1px 2px rgba(20, 20, 19, .04), 0 0 0 1px rgba(20, 20, 19, .06);
+}
+.side__tag {
+  display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 9999px;
+  background: var(--color-accent-tint); color: var(--color-accent-active); font-size: 11px; font-style: normal; line-height: 17px; vertical-align: 1px;
+}
 .side__mask { margin-right: 5px; vertical-align: -2px; color: var(--color-accent-active); }
 .side__tag--qq { background: #dbeafe; color: #1d4ed8; }
 .side__tag--telegram { background: #e0f2fe; color: #0369a1; }
-.side__empty { margin: 4px 10px; color: var(--color-muted); font-size: 13px; }
-.side__foot { display: flex; align-items: center; gap: 4px; padding: 10px 8px 12px; border-top: 1px solid var(--color-divider); }
+.side__empty { margin: 4px 11px; color: var(--color-muted); font-size: 13px; }
+.side__foot {
+  display: flex; align-items: center; gap: 6px; padding: 10px 10px 12px;
+  border-top: 1px solid rgba(20, 20, 19, .07);
+}
 .side.is-collapsed .side__foot { justify-content: center; }
-.side__me { display: flex; flex: 1; min-width: 0; align-items: center; gap: 10px; padding: 6px 8px; border-radius: var(--radius-md); }
-.side__me:hover, .side__me.is-active { background: var(--color-hover-wash); }
+.side__me {
+  display: flex; flex: 1; min-width: 0; align-items: center; gap: 10px; padding: 7px 9px; border-radius: 14px;
+  transition: background-color .16s var(--ease-editorial), box-shadow .16s var(--ease-editorial);
+}
+.side__me:hover { background: rgba(20, 20, 19, .045); }
+.side__me.is-active {
+  background: rgba(255, 255, 255, .82);
+  box-shadow: 0 1px 2px rgba(20, 20, 19, .04), 0 0 0 1px rgba(20, 20, 19, .06);
+}
 .side.is-collapsed .side__me { flex: 0 0 auto; padding: 6px; }
-.side__me-text { display: grid; min-width: 0; line-height: 1.25; }
-.side__me-text strong { overflow: hidden; color: var(--color-ink); font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.side__me-text { display: grid; min-width: 0; line-height: 1.28; }
+.side__me-text strong { overflow: hidden; color: var(--color-ink); font-size: 13.5px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .side__me-text small { overflow: hidden; color: var(--color-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 /* 手机和窄屏：侧栏是抽屉，左上角一个按钮打开 */
 .nav-toggle {
-  position: fixed; top: 12px; left: 10px; z-index: 20; display: inline-grid; place-items: center; width: 38px; height: 38px;
-  border-radius: var(--radius-md); color: var(--color-ink);
+  position: fixed; top: 11px; left: 10px; z-index: 20; display: inline-grid; place-items: center; width: 38px; height: 38px;
+  border-radius: 9999px; border: 1px solid rgba(20, 20, 19, .09); background: rgba(250, 249, 245, .84);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); color: var(--color-ink);
+  transition: background-color .16s ease, border-color .16s ease;
 }
+.nav-toggle:hover { background: rgba(255, 255, 255, .92); border-color: rgba(20, 20, 19, .18); }
 .nav-toggle:active { background: var(--color-hover-wash); }
 .side.is-drawer {
   position: fixed; top: 0; bottom: 0; left: 0; z-index: 40; width: min(300px, 84vw); flex: none;
@@ -348,10 +394,13 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
   transform: translateX(-102%); transition: transform .28s var(--ease-editorial), box-shadow .28s ease;
 }
 /* 阴影只在打开时有：收起时抽屉只往左移出一点点，阴影会漏在屏幕左边一道灰。 */
-.side.is-drawer.is-open { transform: none; box-shadow: 0 12px 40px rgba(20, 20, 19, .18); }
+.side.is-drawer.is-open { transform: none; box-shadow: 0 18px 48px rgba(20, 20, 19, .18); }
 .side__close { margin-left: auto; }
-.side.is-drawer .side__item, .side.is-drawer .side__conv { height: 42px; line-height: 42px; font-size: 16px; }
-.side-backdrop { position: fixed; inset: 0; z-index: 39; background: var(--color-backdrop); }
+.side.is-drawer .side__item, .side.is-drawer .side__conv { height: 42px; line-height: 42px; font-size: 15.5px; }
+.side-backdrop {
+  position: fixed; inset: 0; z-index: 39; background: var(--color-backdrop);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
 .imp-bar {
   position: fixed; top: 0; left: 0; right: 0; z-index: 70; display: flex; align-items: center; justify-content: center; gap: 12px;
   height: 32px; padding: 0 12px; background: #f3e3c3; color: #6b4a12; font-size: 13px; white-space: nowrap; overflow: hidden;

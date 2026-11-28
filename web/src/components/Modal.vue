@@ -35,7 +35,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
       <div v-if="open" class="modal-backdrop" @mousedown.self="emit('close')">
         <div ref="panel" class="modal" :class="{ 'modal--wide': wide }" role="dialog" aria-modal="true" :aria-label="title">
           <header class="modal__header">
-            <div>
+            <div class="modal__head-text">
               <h2 class="modal__title">{{ title }}</h2>
               <p v-if="subtitle" class="modal__subtitle">{{ subtitle }}</p>
             </div>
@@ -53,3 +53,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
     </Transition>
   </Teleport>
 </template>
+
+<style scoped>
+.modal__head-text { min-width: 0; }
+.modal__close { margin-top: -2px; border-radius: 9999px; }
+</style>
