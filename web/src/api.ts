@@ -737,6 +737,171 @@ export interface CmsPostDetail extends CmsPostSummary {
   content: string
 }
 
+export type CmsHomeSectionId = 'hero' | 'showcase' | 'news' | 'capabilities' | 'spotlight' | 'custom' | 'footer'
+export type CmsHomeHeroHeight = 'full' | 'compact'
+export type CmsHomeFontStyle = 'sans' | 'serif'
+export type CmsHomeShowcaseTheme = 'dark' | 'olive' | 'mist' | 'sand'
+export type CmsHomeCapabilityIcon = 'brain' | 'sparkle' | 'clock' | 'note' | 'message' | 'globe' | 'code' | 'mask' | 'star'
+export type CmsHomeStageType = 'chat-demo' | 'arena-preview' | 'image' | 'editorial'
+export type CmsHomeCustomTheme = 'light' | 'card' | 'dark'
+
+export interface CmsHomeLink {
+  label: string
+  url: string
+}
+
+export interface CmsHomeTheme {
+  canvas_color: string
+  accent_color: string
+  hero_glow_primary: string
+  hero_glow_secondary: string
+  hero_height: CmsHomeHeroHeight
+  header_blur: boolean
+  font_style: CmsHomeFontStyle
+  card_radius: number
+}
+
+export interface CmsHomeHeader {
+  brand_name: string
+  nav_links: CmsHomeLink[]
+  primary_cta_label: string
+  primary_cta_url: string
+  secondary_cta_label: string
+  secondary_cta_url: string
+}
+
+export interface CmsHomeSection {
+  id: CmsHomeSectionId
+  label: string
+  visible: boolean
+}
+
+export interface CmsHomeHero {
+  title: string
+  subtitle: string
+  primary_label: string
+  primary_url: string
+  secondary_label: string
+  secondary_url: string
+  bg_image_url: string
+  bg_overlay: number
+}
+
+export interface CmsHomeShowcaseCard {
+  id: string
+  title: string
+  subtitle: string
+  theme: CmsHomeShowcaseTheme
+  image_url: string
+  primary_label: string
+  primary_url: string
+  secondary_label: string
+  secondary_url: string
+}
+
+export interface CmsHomeShowcase {
+  cards: CmsHomeShowcaseCard[]
+}
+
+export interface CmsHomeNews {
+  title: string
+  view_all_label: string
+  view_all_url: string
+  category: string
+  limit: number
+}
+
+export interface CmsHomeCapabilityItem {
+  id: string
+  icon: CmsHomeCapabilityIcon
+  badge: string
+  title: string
+  description: string
+  links_heading: string
+  links: CmsHomeLink[]
+  learn_more_label: string
+  learn_more_url: string
+}
+
+export interface CmsHomeCapabilities {
+  title: string
+  subtitle: string
+  cta_label: string
+  cta_url: string
+  items: CmsHomeCapabilityItem[]
+}
+
+export interface CmsHomeSpotlightItem {
+  id: string
+  title: string
+  description: string
+  stage_type: CmsHomeStageType
+  image_url: string
+  stage_title: string
+  stage_body: string
+  stage_cta_label: string
+  stage_cta_url: string
+}
+
+export interface CmsHomeSpotlight {
+  title: string
+  subtitle: string
+  cta_label: string
+  cta_url: string
+  items: CmsHomeSpotlightItem[]
+}
+
+export interface CmsHomeCustomBlock {
+  id: string
+  eyebrow: string
+  title: string
+  subtitle: string
+  body_md: string
+  image_url: string
+  theme: CmsHomeCustomTheme
+  cta_label: string
+  cta_url: string
+  secondary_label: string
+  secondary_url: string
+}
+
+export interface CmsHomeFooterLink {
+  label: string
+  url: string
+  icon?: string
+}
+
+export interface CmsHomeFooterColumn {
+  title: string
+  links: CmsHomeFooterLink[]
+}
+
+export interface CmsHomeFooter {
+  show_cta_bar: boolean
+  cta_heading: string
+  cta_note: string
+  cta_placeholder: string
+  cta_button_label: string
+  cta_button_url: string
+  mission: string
+  columns: CmsHomeFooterColumn[]
+  bottom_note: string
+  bottom_links: CmsHomeLink[]
+}
+
+export interface CmsHomeConfig {
+  theme: CmsHomeTheme
+  header: CmsHomeHeader
+  sections: CmsHomeSection[]
+  hero: CmsHomeHero
+  showcase: CmsHomeShowcase
+  news: CmsHomeNews
+  capabilities: CmsHomeCapabilities
+  spotlight: CmsHomeSpotlight
+  custom_blocks: CmsHomeCustomBlock[]
+  footer: CmsHomeFooter
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -1043,6 +1208,7 @@ export const api = {
   usage: () => request<Usage>('GET', '/files/usage'),
   deleteFiles: (input: { ids: number[] } | { older_than_days: number }) =>
     request<{ deleted: number; usage: Usage }>('POST', '/files/delete', input),
+  cmsHome: () => request<{ config: CmsHomeConfig; is_default: boolean }>('GET', '/cms/home'),
   cmsPosts: (params: { category?: string; tag?: string; q?: string; featured?: boolean; limit?: number } = {}) => {
     const qs = new URLSearchParams()
     if (params.category) qs.set('category', params.category)
