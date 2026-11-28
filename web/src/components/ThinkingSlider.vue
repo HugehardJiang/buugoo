@@ -83,7 +83,7 @@ function onKey(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="ts" :class="{ 'is-dragging': drag != null, 'is-disabled': disabled }">
+  <div class="ts" :class="{ 'is-dragging': drag != null, 'is-disabled': disabled, 'is-off': shown === 0 }">
     <div
       ref="track"
       class="ts__rail"
@@ -134,52 +134,59 @@ function onKey(e: KeyboardEvent) {
 
 <style scoped>
 /* 两端各留出把手的半径，档位和文字都对准把手中心。 */
-.ts { --r: 9px; --spring: cubic-bezier(.22, 1, .36, 1); user-select: none; -webkit-user-select: none; }
+.ts { --r: 9px; --spring: cubic-bezier(.16, 1, .3, 1); user-select: none; -webkit-user-select: none; }
 .ts__rail {
-  position: relative; height: 26px; margin: 0 var(--r); cursor: pointer; touch-action: none; outline: none;
+  position: relative; height: 28px; margin: 0 var(--r); cursor: pointer; touch-action: none; outline: none;
 }
-.ts__rail:focus-visible .ts__thumb { box-shadow: 0 0 0 4px rgba(91, 122, 74, .22), 0 1px 4px rgba(20, 20, 19, .22); }
+.ts__rail:focus-visible .ts__thumb { box-shadow: 0 0 0 4px rgba(91, 122, 74, .22), 0 2px 6px rgba(20, 20, 19, .24); }
 .ts__track {
-  position: absolute; top: 50%; left: calc(-1 * var(--r)); right: calc(-1 * var(--r)); height: 6px; margin-top: -3px;
-  border-radius: 999px; background: var(--color-hairline-strong);
+  position: absolute; top: 50%; left: calc(-1 * var(--r)); right: calc(-1 * var(--r)); height: 4px; margin-top: -2px;
+  border-radius: 9999px; background: rgba(20, 20, 19, .1);
 }
 /* 填充条从轨道最左端开始，宽度要补上左边留出的半径。 */
 .ts__fill {
-  position: absolute; top: 50%; left: calc(-1 * var(--r)); height: 6px; margin-top: -3px; border-radius: 999px;
-  background: linear-gradient(90deg, rgba(91, 122, 74, .5), var(--color-accent));
-  transition: width .38s var(--spring);
+  position: absolute; top: 50%; left: calc(-1 * var(--r)); height: 4px; margin-top: -2px; border-radius: 9999px;
+  background: linear-gradient(90deg, var(--color-ink), var(--color-accent));
+  transition: width .36s var(--spring), opacity .2s ease;
 }
+.ts.is-off .ts__fill { background: var(--color-ink); opacity: .28; }
 .ts__dot {
-  position: absolute; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%;
-  background: var(--color-muted); opacity: .55; transition: background-color .2s ease, opacity .2s ease; pointer-events: none;
+  position: absolute; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%;
+  background: rgba(20, 20, 19, .2); transition: background-color .2s ease, transform .2s var(--spring); pointer-events: none;
 }
-.ts__dot.is-on { background: #fff; opacity: .9; }
+.ts__dot.is-on { background: var(--color-accent); }
+.ts.is-off .ts__dot.is-on { background: var(--color-ink); }
 .ts__thumb {
   position: absolute; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%;
-  background: var(--color-surface); border: 2px solid var(--color-accent);
-  box-shadow: 0 1px 4px rgba(20, 20, 19, .22);
-  transition: left .38s var(--spring), transform .18s ease, box-shadow .18s ease;
+  background: var(--color-accent); border: 2.5px solid var(--color-surface);
+  box-shadow: 0 1px 6px rgba(20, 20, 19, .22), 0 0 0 1px rgba(91, 122, 74, .28);
+  transition: left .36s var(--spring), transform .18s var(--spring), box-shadow .18s ease, background-color .2s ease;
   pointer-events: none;
 }
+.ts.is-off .ts__thumb {
+  background: var(--color-ink);
+  box-shadow: 0 1px 6px rgba(20, 20, 19, .22), 0 0 0 1px rgba(20, 20, 19, .14);
+}
 .ts__rail:hover .ts__thumb { transform: scale(1.08); }
-.is-dragging .ts__fill, .is-dragging .ts__thumb { transition-property: transform, box-shadow; }
-.is-dragging .ts__thumb { transform: scale(1.18); box-shadow: 0 0 0 6px rgba(91, 122, 74, .16), 0 2px 8px rgba(20, 20, 19, .24); }
-.is-disabled { opacity: .5; }
+.is-dragging .ts__fill, .is-dragging .ts__thumb { transition-property: transform, box-shadow, background-color; }
+.is-dragging .ts__thumb { transform: scale(1.16); box-shadow: 0 0 0 6px rgba(91, 122, 74, .18), 0 2px 8px rgba(20, 20, 19, .24); }
+.is-disabled { opacity: .48; }
 .is-disabled .ts__rail { cursor: default; }
 
-.ts__labels { position: relative; height: 24px; margin: 2px var(--r) 0; }
+.ts__labels { position: relative; height: 26px; margin: 2px var(--r) 0; }
 .ts__labels button {
-  position: absolute; top: 0; transform: translateX(-50%); padding: 3px 4px; border-radius: 6px;
-  color: var(--color-muted); font-size: 12px; white-space: nowrap; transition: color .2s ease, transform .2s var(--spring);
+  position: absolute; top: 0; transform: translateX(-50%); padding: 3px 7px; border-radius: 9999px;
+  color: var(--color-muted); font-size: 12px; font-weight: 500; white-space: nowrap;
+  transition: color .18s ease, background-color .18s ease, transform .2s var(--spring);
 }
-.ts__labels button:hover:not(:disabled) { color: var(--color-text-secondary); }
+.ts__labels button:hover:not(:disabled) { color: var(--color-ink); background: rgba(20, 20, 19, .04); }
 .ts__labels button.is-active { color: var(--color-ink); font-weight: 600; transform: translateX(-50%) translateY(-1px); }
-.ts__desc { margin: 2px 0 0; color: var(--color-muted); font-size: 11.5px; line-height: 1.5; text-align: center; }
-.ts-fade-enter-active, .ts-fade-leave-active { transition: opacity .16s ease, transform .16s ease; }
+.ts__desc { margin: 4px 0 0; color: var(--color-muted); font-size: 11.5px; line-height: 1.55; text-align: center; }
+.ts-fade-enter-active, .ts-fade-leave-active { transition: opacity .16s ease, transform .16s var(--spring); }
 .ts-fade-enter-from { opacity: 0; transform: translateY(3px); }
 .ts-fade-leave-to { opacity: 0; transform: translateY(-3px); }
 
 @media (prefers-reduced-motion: reduce) {
-  .ts__fill, .ts__thumb, .ts__labels button { transition: none; }
+  .ts__fill, .ts__thumb, .ts__dot, .ts__labels button, .ts-fade-enter-active, .ts-fade-leave-active { transition: none; }
 }
 </style>

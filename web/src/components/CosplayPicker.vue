@@ -78,7 +78,11 @@ function start() {
           @click="picked = c.id"
           @dblclick="picked = c.id; start()"
         >
-          <span class="card__name">{{ c.name }}<span v-if="c.public && !c.mine" class="card__tag">公共</span></span>
+          <span class="card__top">
+            <span class="card__avatar" aria-hidden="true">{{ (c.name || '角').slice(0, 1) }}</span>
+            <span class="card__name">{{ c.name }}</span>
+            <span v-if="c.public && !c.mine" class="card__tag">公共</span>
+          </span>
           <span v-if="c.description" class="card__desc">{{ c.description }}</span>
           <span class="card__meta">{{ wan(c.runes) }} 字 · 每轮约 {{ c.tokens.toLocaleString() }} token</span>
         </button>
@@ -106,33 +110,57 @@ function start() {
 </template>
 
 <style scoped>
-.skel { height: 160px; border-radius: var(--radius-md); }
-.empty { display: grid; justify-items: center; gap: 10px; padding: 18px 0 4px; text-align: center; color: var(--color-text-secondary); }
-.empty p { margin: 0; }
-.empty__icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 14px; background: var(--color-accent-tint); color: var(--color-accent-active); }
-.search { width: 100%; margin-bottom: 10px; }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; max-height: 40vh; overflow-y: auto; padding: 2px; }
-.card {
-  display: grid; align-content: start; gap: 4px; min-width: 0; padding: 10px 12px; border: 1px solid var(--color-hairline-strong);
-  border-radius: var(--radius-md); background: var(--color-surface); text-align: left; transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+.skel { height: 160px; border-radius: 16px; }
+.empty { display: grid; justify-items: center; gap: 12px; padding: 22px 0 6px; text-align: center; color: var(--color-text-secondary); }
+.empty p { margin: 0; max-width: 400px; line-height: 1.65; }
+.empty__icon {
+  display: grid; place-items: center; width: 52px; height: 52px; border-radius: 16px;
+  border: 1px solid rgba(91, 122, 74, .16); background: var(--color-accent-tint); color: var(--color-accent-active);
 }
-.card:hover { border-color: var(--color-muted); }
-.card.is-on { border-color: var(--color-accent); box-shadow: 0 0 0 3px rgba(91, 122, 74, .14); background: var(--color-accent-tint); }
-.card__name { color: var(--color-ink); font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
-.card__tag { margin-left: 6px; padding: 1px 6px; border-radius: var(--radius-pill); background: var(--color-canvas-soft); color: var(--color-text-secondary); font-size: 11px; font-weight: 400; }
-.card__desc { color: var(--color-text-secondary); font-size: 12.5px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.card__meta { color: var(--color-muted); font-size: 11.5px; }
-.label { margin: 16px 0 6px; color: var(--color-ink); font-size: 13px; font-weight: 500; }
-.mem { display: grid; gap: 6px; }
-.mem__opt { display: flex; gap: 10px; align-items: flex-start; padding: 9px 12px; border: 1px solid var(--color-divider); border-radius: var(--radius-md); cursor: pointer; transition: border-color .15s ease, background-color .15s ease; }
-.mem__opt:hover { border-color: var(--color-hairline-strong); }
-.mem__opt.is-on { border-color: var(--color-accent); background: var(--color-accent-tint); }
+.search {
+  width: 100%; margin-bottom: 12px; padding: 9px 16px; border: 1px solid rgba(20, 20, 19, .11);
+  border-radius: 9999px; background: var(--color-surface);
+}
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; max-height: 40vh; overflow-y: auto; padding: 3px; }
+.card {
+  display: grid; align-content: start; gap: 7px; min-width: 0; padding: 13px 15px;
+  border: 1px solid rgba(20, 20, 19, .07); border-radius: 16px; background: var(--color-card); text-align: left;
+  transition: transform .22s var(--ease-editorial), border-color .18s ease, box-shadow .22s var(--ease-editorial), background-color .18s ease;
+}
+.card:hover { transform: translateY(-1px); border-color: rgba(20, 20, 19, .18); background: var(--color-surface); box-shadow: 0 6px 18px rgba(20, 20, 19, .05); }
+.card.is-on { border-color: var(--color-accent); box-shadow: 0 0 0 3px rgba(91, 122, 74, .12); background: rgba(220, 230, 211, .45); }
+.card__top { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.card__avatar {
+  display: inline-grid; place-items: center; width: 28px; height: 28px; flex: 0 0 28px;
+  border-radius: 10px; background: rgba(20, 20, 19, .06); color: var(--color-ink);
+  font-size: 12.5px; font-weight: 600;
+}
+.card.is-on .card__avatar { background: var(--color-accent); color: #fff; }
+.card__name { flex: 1; min-width: 0; color: var(--color-ink); font-size: 14px; font-weight: 500; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.card__tag {
+  flex-shrink: 0; padding: 2px 8px; border: 1px solid rgba(20, 20, 19, .08); border-radius: 9999px;
+  background: var(--color-surface); color: var(--color-text-secondary); font-size: 11px; font-weight: 500;
+}
+.card__desc { color: var(--color-text-secondary); font-size: 12.5px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card__meta { color: var(--color-muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.label { margin: 18px 0 8px; color: var(--color-ink); font-size: 13px; font-weight: 500; letter-spacing: -.01em; }
+.mem { display: grid; gap: 8px; }
+.mem__opt {
+  display: flex; gap: 11px; align-items: flex-start; padding: 11px 14px;
+  border: 1px solid rgba(20, 20, 19, .08); border-radius: 14px; background: var(--color-card); cursor: pointer;
+  transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease;
+}
+.mem__opt:hover { border-color: rgba(20, 20, 19, .18); background: var(--color-surface); }
+.mem__opt.is-on { border-color: var(--color-accent); background: rgba(220, 230, 211, .45); box-shadow: 0 0 0 2px rgba(91, 122, 74, .1); }
 .mem__opt input { margin-top: 3px; flex-shrink: 0; accent-color: var(--color-accent); }
 .mem__opt > span { display: grid; gap: 2px; }
 .mem__opt strong { color: var(--color-ink); font-size: 13.5px; font-weight: 500; }
-.cost { margin: 10px 0 0; }
+.cost { margin: 12px 0 0; }
 .left { margin-right: auto; }
 @media (max-width: 600px) {
   .cards { grid-template-columns: minmax(0, 1fr); max-height: 34vh; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card, .mem__opt { transition: none; }
 }
 </style>

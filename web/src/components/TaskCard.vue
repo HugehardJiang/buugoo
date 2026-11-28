@@ -134,19 +134,46 @@ const statusText: Record<string, string> = {
 </template>
 
 <style scoped>
-.tcard { display: grid; gap: 8px; max-width: 560px; margin: 8px 0 4px; padding: 12px 14px; border: 1px solid var(--color-hairline-strong); border-radius: var(--radius-lg); background: var(--color-surface); }
-.tcard.is-pending { border-color: var(--color-accent); box-shadow: 0 0 0 3px rgba(91, 122, 74, .1); }
-.tcard__head { display: flex; align-items: center; gap: 8px; }
-.tcard__icon { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: var(--color-accent-tint); color: var(--color-accent-active); flex-shrink: 0; }
-.tcard__title { flex: 1; min-width: 0; color: var(--color-ink); font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
-.tcard__status { flex-shrink: 0; color: var(--color-muted); font-size: 12px; }
-.is-running .tcard__status, .is-queued .tcard__status { color: var(--color-accent-active); }
-.is-failed .tcard__status { color: var(--color-error, #b42318); }
-.tcard__goal { margin: 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; white-space: pre-wrap; max-height: 160px; overflow-y: auto; }
-.tcard__row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
-.tcard__select { width: auto; min-height: 30px; padding: 2px 8px; }
-.tcard__actions { display: flex; justify-content: flex-end; gap: 6px; }
-.tcard__bar { height: 4px; border-radius: 999px; background: var(--color-hairline-strong); overflow: hidden; }
-.tcard__bar span { display: block; height: 100%; background: var(--color-accent); transition: width .6s ease; }
-.caption { margin: 0; }
+.tcard {
+  display: grid; gap: 11px; max-width: min(600px, 100%); margin: 8px 0 6px; padding: 15px 17px;
+  border: 1px solid rgba(20, 20, 19, .08); border-radius: 20px; background: var(--color-card);
+  transition: border-color .2s ease, box-shadow .2s ease;
+}
+.tcard.is-pending { border-color: rgba(91, 122, 74, .42); box-shadow: 0 0 0 3px rgba(91, 122, 74, .09); }
+.tcard__head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.tcard__icon {
+  display: grid; place-items: center; width: 30px; height: 30px; border-radius: 10px;
+  background: var(--color-accent-tint); color: var(--color-accent-active); flex-shrink: 0;
+}
+.tcard__title {
+  flex: 1; min-width: 0; color: var(--color-ink); font-size: 14.5px; font-weight: 500;
+  letter-spacing: -.01em; overflow-wrap: anywhere;
+}
+.tcard__status {
+  flex-shrink: 0; display: inline-flex; align-items: center; height: 24px; padding: 0 10px;
+  border-radius: 9999px; background: rgba(20, 20, 19, .06); color: var(--color-text-secondary);
+  font-size: 11.5px; font-weight: 500;
+}
+.is-pending .tcard__status,
+.is-running .tcard__status,
+.is-queued .tcard__status { background: var(--color-accent-tint); color: var(--color-accent-active); }
+.is-done .tcard__status { background: var(--color-success-tint); color: var(--color-success); }
+.is-failed .tcard__status { background: var(--color-danger-tint); color: var(--color-danger); }
+.tcard__goal {
+  margin: 0; color: var(--color-text-secondary); font-size: 13.5px; line-height: 1.65;
+  white-space: pre-wrap; max-height: 160px; overflow-y: auto;
+}
+.tcard__row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.tcard__select {
+  width: auto; min-height: 32px; padding: 3px 12px; border: 1px solid rgba(20, 20, 19, .12);
+  border-radius: 9999px; background: var(--color-surface); font-size: 13px;
+}
+.tcard__actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.tcard__actions .btn { border-radius: 9999px; padding: 0 14px; }
+.tcard__bar { height: 5px; border-radius: 9999px; background: rgba(20, 20, 19, .08); overflow: hidden; }
+.tcard__bar span { display: block; height: 100%; border-radius: 9999px; background: var(--color-accent); transition: width .6s var(--ease-editorial); }
+.caption { margin: 0; line-height: 1.6; }
+@media (prefers-reduced-motion: reduce) {
+  .tcard, .tcard__bar span { transition: none; }
+}
 </style>
