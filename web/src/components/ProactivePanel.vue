@@ -261,39 +261,44 @@ async function remove(r: Reminder) {
 </template>
 
 <style scoped>
-.title { margin: 0 0 14px; }
-.row { display: flex; align-items: flex-start; gap: 16px; padding-bottom: 16px; }
+.panel { border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .06)); border-radius: var(--radius-xxl); }
+.title { margin: 0 0 16px; font-family: var(--font-sans); font-size: 20px; font-weight: 500; letter-spacing: -.02em; }
+.row { display: flex; align-items: flex-start; gap: 16px; padding-bottom: 18px; }
 .row__text { flex: 1; min-width: 0; }
-.row__title { margin: 0 0 4px; color: var(--color-ink); font-size: 14px; font-weight: 500; }
-.caption { margin: 0; }
+.row__title { margin: 0 0 4px; color: var(--color-ink); font-size: 14.5px; font-weight: 500; }
+.caption { margin: 0; line-height: 1.6; }
 .switch {
-  position: relative; flex-shrink: 0; width: 44px; height: 26px; margin-top: 2px; border-radius: 999px; background: var(--color-hairline-strong);
+  position: relative; flex-shrink: 0; width: 44px; height: 26px; margin-top: 2px; border-radius: var(--radius-pill); background: rgba(20, 20, 19, .16);
   transition: background-color 220ms var(--ease-editorial);
 }
 .switch.is-on { background: var(--color-accent); }
 .switch__knob {
   position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff;
-  box-shadow: 0 1px 3px rgba(20, 20, 19, .25); transition: transform 260ms var(--ease-editorial);
+  box-shadow: 0 1px 3px rgba(20, 20, 19, .22); transition: transform 260ms var(--ease-editorial);
 }
 .switch.is-on .switch__knob { transform: translateX(18px); }
-.reminders { padding-top: 16px; border-top: 1px solid var(--color-divider); }
-.new { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
-.reminder-list { display: grid; margin: 12px 0 0; padding: 0; list-style: none; }
-.reminder { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-top: 1px solid var(--color-divider); font-size: 14px; transition: opacity .2s ease; }
-.reminder.is-paused { opacity: .6; }
+.reminders { padding-top: 18px; border-top: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); }
+.new { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 6px; }
+.reminder-list { display: grid; margin: 14px 0 0; padding: 0; list-style: none; }
+.reminder {
+  display: flex; align-items: center; gap: 10px; padding: 12px 0;
+  border-top: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); font-size: 14px;
+  transition: opacity .2s ease;
+}
+.reminder.is-paused { opacity: .58; }
 .reminder__main { flex: 1; min-width: 0; }
-.reminder__text { margin: 0 0 3px; color: var(--color-ink); overflow-wrap: anywhere; }
-.reminder__text .badge-pill { margin-right: 4px; vertical-align: 1px; }
-.badge-pill--task { background: var(--color-accent-tint, rgba(91, 122, 74, .12)); color: var(--color-accent-active); }
+.reminder__text { margin: 0 0 4px; color: var(--color-ink); line-height: 1.55; overflow-wrap: anywhere; }
+.reminder__text .badge-pill { margin-right: 6px; vertical-align: 1px; }
+.badge-pill--task { border-color: transparent; background: var(--color-accent-tint); color: var(--color-accent-active); }
 .reminder__when { font-variant-numeric: tabular-nums; }
 .reminder__actions { display: flex; flex-shrink: 0; gap: 2px; }
-.btn-sm { min-height: 28px; padding: 0 10px; }
-.empty { margin-top: 10px; }
+.btn-sm { min-height: 30px; padding: 0 12px; }
+.empty { margin-top: 14px; }
 .inline { display: flex; gap: 8px; }
 .inline .text-input:first-child { width: 110px; }
 .inline select { flex: 1; }
 .mono { font-family: var(--font-mono); }
-.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 @media (max-width: 560px) {
   .reminder { flex-wrap: wrap; }
   .reminder__actions { width: 100%; justify-content: flex-end; }

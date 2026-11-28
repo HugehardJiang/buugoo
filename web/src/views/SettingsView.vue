@@ -281,56 +281,80 @@ function pick(id: string) {
 </template>
 
 <style scoped>
-/* 左边分类、右边内容（参考 claude.ai 的设置） */
-.settings-page { padding-top: 4px; padding-left: 24px; padding-right: 24px; }
-.settings { display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 28px; max-width: 1000px; margin: 0 auto; }
-.settings__nav { position: sticky; top: 0; align-self: start; display: grid; gap: 1px; min-width: 0; }
+/* 左侧分类导航、右侧内容区：宽屏舒展留白 + DeepMind 现代克制层级 */
+.settings-page { padding: 20px 32px 64px; }
+.settings { display: grid; grid-template-columns: 216px minmax(0, 1fr); gap: 36px; max-width: 1240px; margin: 0 auto; align-items: start; }
+.settings__nav { position: sticky; top: 0; align-self: start; display: grid; gap: 2px; min-width: 0; }
 .settings__search {
-  display: flex; align-items: center; gap: 8px; height: 34px; margin-bottom: 10px; padding: 0 10px;
-  border: 1px solid var(--color-divider); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-muted);
+  display: flex; align-items: center; gap: 8px; height: 36px; margin-bottom: 14px; padding: 0 13px;
+  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .1)); border-radius: var(--radius-pill);
+  background: var(--color-surface); color: var(--color-muted);
+  transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
 }
-.settings__search input { flex: 1; width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--color-ink); font-size: 14px; }
-.settings__group { margin: 10px 10px 4px; color: var(--color-muted); font-size: 12.5px; }
+.settings__search:focus-within { border-color: var(--color-accent); box-shadow: 0 0 0 3px rgba(91, 122, 74, .12); color: var(--color-ink); }
+.settings__search input { flex: 1; width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--color-ink); font-size: 13.5px; }
+.settings__search input::placeholder { color: var(--color-tertiary); }
+.settings__group { margin: 14px 12px 4px; color: var(--color-muted); font-size: 12px; font-weight: 500; letter-spacing: .04em; }
 .settings__group:first-of-type { margin-top: 0; }
 .settings__tab {
-  display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: var(--radius-md);
-  color: var(--color-ink); font-size: 14.5px; text-align: left; transition: background-color .15s ease;
+  position: relative; display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 12px; border-radius: var(--radius-lg);
+  color: var(--color-text-secondary); font-size: 14px; font-weight: 450; text-align: left;
+  transition: background-color var(--motion-fast) var(--ease-editorial), color var(--motion-fast) ease;
 }
-.settings__tab :deep(svg) { color: var(--color-text-secondary); }
-.settings__tab:hover { background: var(--color-hover-wash); }
-.settings__tab.is-active { background: rgba(20, 20, 19, .075); }
-.settings__none { margin: 4px 10px; }
-/* 右边的内容不用卡片底色：标题 + 细分隔线（和 claude.ai 一样） */
-.settings__content { min-width: 0; padding-bottom: 24px; }
-.settings__content :deep(.panel) { padding: 0; border-radius: 0; background: transparent; }
-.settings__content :deep(.panel + .panel) { margin-top: 36px; }
-.settings__content :deep(.panel > h2), .settings__content :deep(.panel > header h2), .settings__content :deep(.panel h2:first-child) {
-  margin-bottom: 4px; font-size: 18px; font-weight: 600;
+.settings__tab :deep(svg) { flex-shrink: 0; color: var(--color-muted); transition: color var(--motion-fast) ease; }
+.settings__tab:hover { background: var(--color-hover-wash); color: var(--color-ink); }
+.settings__tab:hover :deep(svg) { color: var(--color-ink); }
+.settings__tab.is-active { background: var(--color-card); color: var(--color-ink); font-weight: 500; box-shadow: inset 0 0 0 1px var(--color-hairline-subtle, rgba(20, 20, 19, .08)); }
+.settings__tab.is-active :deep(svg) { color: var(--color-accent); }
+.settings__none { margin: 6px 12px; }
+
+/* 右侧内容：直接铺在暖米画布上，现代无衬线标题 + 极细分割线 */
+.settings__content { min-width: 0; padding-bottom: 32px; }
+.settings__content :deep(.panel) { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.settings__content :deep(.panel + .panel) { margin-top: 36px; padding-top: 28px; border-top: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); }
+.settings__content :deep(.panel > h2),
+.settings__content :deep(.panel > header h2),
+.settings__content :deep(.panel > .head h2),
+.settings__content :deep(.panel > .panel-head h2),
+.settings__content :deep(.panel h2:first-child) {
+  margin-bottom: 6px; font-family: var(--font-sans); font-size: 21px; font-weight: 500; letter-spacing: -.02em; line-height: 1.3;
+  word-break: normal; overflow-wrap: anywhere;
 }
-/* 每一项开头的说明：小一号、行距紧一点，不占太多地方 */
-.settings__content :deep(.panel .intro), .settings__content :deep(.panel > p.muted) {
-  margin-bottom: 14px; color: var(--color-text-secondary); font-size: 14px; line-height: 1.6;
+.settings__content :deep(.panel .intro),
+.settings__content :deep(.panel > p.muted) {
+  margin-bottom: 18px; color: var(--color-text-secondary); font-size: 14px; line-height: 1.65;
 }
-.settings__content :deep(.panel .actions) { margin-top: 12px; }
-.settings__content :deep(.field) { margin-bottom: 12px; }
-@media (max-width: 767px) {
-  .settings { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-  .settings__nav { position: static; display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+.settings__content :deep(.panel .actions) { margin-top: 16px; }
+.settings__content :deep(.field) { margin-bottom: 14px; }
+
+@media (max-width: 860px) {
+  .settings-page { padding: 14px var(--mobile-gutter) 40px; }
+  .settings { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .settings__nav { position: static; display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 6px; scrollbar-width: none; }
+  .settings__nav::-webkit-scrollbar { display: none; }
   .settings__search, .settings__group { display: none; }
-  .settings__tab { flex-shrink: 0; height: 34px; padding: 0 12px; border: 1px solid var(--color-divider); border-radius: var(--radius-pill); font-size: 14px; white-space: nowrap; }
+  .settings__tab {
+    flex-shrink: 0; height: 34px; padding: 0 14px; border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .1));
+    border-radius: var(--radius-pill); background: var(--color-surface); font-size: 13.5px; white-space: nowrap;
+  }
+  .settings__tab.is-active { background: var(--color-ink); border-color: var(--color-ink); color: #fff; box-shadow: none; }
   .settings__tab :deep(svg) { display: none; }
 }
 .panel p { margin: 0; }
 .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
-.invite-form { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 0 12px; align-items: start; }
+.invite-form { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 0 14px; align-items: start; margin-top: 14px; }
 .invite-form .gen { grid-column: 1 / -1; justify-self: start; }
 @media (max-width: 767px) { .invite-form { grid-template-columns: 1fr 1fr; } .invite-form .note { grid-column: 1 / -1; } }
-.invites { margin-top: 20px; }
-.invite { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 0; border-top: 1px solid var(--color-divider); }
-.invite .code { font-size: 14px; letter-spacing: .06em; }
+.invites { margin-top: 22px; border-top: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); }
+.invite { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 14px 0; border-bottom: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); }
+.invite .code { padding: 3px 10px; border-radius: var(--radius-pill); background: var(--color-card); font-size: 13px; letter-spacing: .06em; }
 .spacer { flex: 1; }
-.version { text-align: center; margin-top: 20px; }
-.compact { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--color-divider); }
+.version { text-align: center; margin-top: 32px; letter-spacing: .06em; }
+.compact {
+  display: flex; align-items: center; gap: 14px; margin-top: 20px; padding-top: 18px;
+  border-top: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08));
+}
 .compact .caption { flex: 1; }
+@media (max-width: 560px) { .compact { flex-direction: column; align-items: flex-start; } }
 .peek-note { margin: 0; font-size: 14px; line-height: 1.65; }
 </style>

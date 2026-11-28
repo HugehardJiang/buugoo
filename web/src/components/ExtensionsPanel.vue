@@ -51,23 +51,25 @@ async function toggle(x: Extension) {
     <template v-else>
       <template v-for="group in [{ label: '技能', items: skills }, { label: '插件', items: plugins }]" :key="group.label">
         <p v-if="group.items.length" class="group">{{ group.label }}</p>
-        <div v-for="x in group.items" :key="`${x.kind}/${x.name}`" class="row">
-          <div class="row__text">
-            <p class="row__title">{{ x.name }}</p>
-            <p class="caption row__desc">{{ x.description }}</p>
+        <div v-if="group.items.length" class="ext-grid">
+          <div v-for="x in group.items" :key="`${x.kind}/${x.name}`" class="row" :class="{ 'is-off': !x.enabled }">
+            <div class="row__text">
+              <p class="row__title">{{ x.name }}</p>
+              <p class="caption row__desc">{{ x.description }}</p>
+            </div>
+            <button
+              type="button"
+              class="switch"
+              role="switch"
+              :aria-checked="x.enabled"
+              :aria-label="`${x.enabled ? '关闭' : '打开'} ${x.name}`"
+              :class="{ 'is-on': x.enabled }"
+              :disabled="saving === `${x.kind}/${x.name}`"
+              @click="toggle(x)"
+            >
+              <span class="switch__knob" />
+            </button>
           </div>
-          <button
-            type="button"
-            class="switch"
-            role="switch"
-            :aria-checked="x.enabled"
-            :aria-label="`${x.enabled ? '关闭' : '打开'} ${x.name}`"
-            :class="{ 'is-on': x.enabled }"
-            :disabled="saving === `${x.kind}/${x.name}`"
-            @click="toggle(x)"
-          >
-            <span class="switch__knob" />
-          </button>
         </div>
       </template>
     </template>
@@ -75,22 +77,32 @@ async function toggle(x: Extension) {
 </template>
 
 <style scoped>
-.intro { margin: 0 0 12px; }
-.skel { height: 56px; border-radius: var(--radius-md); }
-.group { margin: 14px 0 0; color: var(--color-muted); font-size: 12px; letter-spacing: .04em; }
-.row { display: flex; align-items: flex-start; gap: 16px; padding: 12px 0; border-top: 1px solid var(--color-divider); }
-.group + .row { border-top: 0; }
+.intro { margin: 0 0 16px; }
+.skel { height: 72px; border-radius: 18px; }
+.group { margin: 20px 0 10px; color: var(--color-muted); font-size: 12.5px; font-weight: 500; letter-spacing: .04em; }
+.ext-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.row {
+  display: flex; align-items: flex-start; gap: 14px; padding: 16px 18px;
+  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); border-radius: 18px; background: var(--color-surface);
+  transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) var(--ease-editorial), opacity var(--motion-fast) ease;
+}
+.row:hover { border-color: rgba(20, 20, 19, .16); box-shadow: var(--shadow-raised); }
+.row.is-off { opacity: .72; }
 .row__text { flex: 1; min-width: 0; }
-.row__title { margin: 0 0 2px; color: var(--color-ink); font-size: 14px; font-weight: 500; font-family: var(--font-mono); }
-.row__desc { margin: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.row__title { margin: 0 0 4px; color: var(--color-ink); font-size: 14px; font-weight: 500; font-family: var(--font-mono); overflow-wrap: anywhere; }
+.row__desc { margin: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.55; }
 .switch {
-  position: relative; flex-shrink: 0; width: 44px; height: 26px; margin-top: 2px; border-radius: 999px; background: var(--color-hairline-strong);
+  position: relative; flex-shrink: 0; width: 44px; height: 26px; margin-top: 2px; border-radius: var(--radius-pill); background: rgba(20, 20, 19, .16);
   transition: background-color 220ms var(--ease-editorial);
 }
 .switch.is-on { background: var(--color-accent); }
 .switch__knob {
   position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff;
-  box-shadow: 0 1px 3px rgba(20, 20, 19, .25); transition: transform 260ms var(--ease-editorial);
+  box-shadow: 0 1px 3px rgba(20, 20, 19, .22); transition: transform 260ms var(--ease-editorial);
 }
 .switch.is-on .switch__knob { transform: translateX(18px); }
+@media (max-width: 640px) {
+  .ext-grid { grid-template-columns: 1fr; }
+  .row { padding: 14px 16px; border-radius: 16px; }
+}
 </style>

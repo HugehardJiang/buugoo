@@ -169,10 +169,17 @@ onBeforeUnmount(() => clearTimeout(timer))
 
 <style scoped>
 .intro { margin: 0 0 14px; font-size: 14px; line-height: 1.65; }
-.source { margin: 0 0 16px; overflow-wrap: anywhere; }
-.reembed { display: grid; gap: 10px; margin-bottom: 20px; padding: var(--surface-inset-sm); border-radius: var(--radius-md); background: var(--color-canvas-soft); }
+.source {
+  display: inline-block; margin: 0 0 18px; padding: 6px 14px;
+  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); border-radius: var(--radius-pill);
+  background: var(--color-card); overflow-wrap: anywhere;
+}
+.reembed {
+  display: grid; gap: 12px; margin-bottom: 22px; padding: 18px 20px;
+  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); border-radius: 18px; background: var(--color-card);
+}
 .reembed p { margin: 0; }
-.reembed__text { font-size: 14px; line-height: 1.6; }
+.reembed__text { font-size: 14px; line-height: 1.65; }
 .reembed .btn { justify-self: start; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 </style>

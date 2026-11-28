@@ -244,14 +244,16 @@ async function remove() {
     <template v-else>
       <template v-for="group in [{ label: '我导入的', items: mine }, { label: '公共角色卡', items: shared }]" :key="group.label">
         <p v-if="group.items.length" class="group">{{ group.label }}</p>
-        <button v-for="c in group.items" :key="c.id" type="button" class="row" @click="openCard(c)">
-          <span class="row__icon"><Icon name="mask" :size="18" /></span>
-          <span class="row__text">
-            <span class="row__title">{{ c.name }}<span v-if="c.public" class="row__tag">公共</span></span>
-            <span v-if="c.description" class="caption row__desc">{{ c.description }}</span>
-          </span>
-          <span class="caption row__meta" :title="`${c.runes.toLocaleString()} 字，每轮大约 ${c.tokens.toLocaleString()} token`">{{ wan(c.runes) }} 字</span>
-        </button>
+        <div v-if="group.items.length" class="cards">
+          <button v-for="c in group.items" :key="c.id" type="button" class="row" @click="openCard(c)">
+            <span class="row__icon"><Icon name="mask" :size="18" /></span>
+            <span class="row__text">
+              <span class="row__title">{{ c.name }}<span v-if="c.public" class="row__tag">公共</span></span>
+              <span v-if="c.description" class="caption row__desc">{{ c.description }}</span>
+            </span>
+            <span class="caption row__meta" :title="`${c.runes.toLocaleString()} 字，每轮大约 ${c.tokens.toLocaleString()} token`">{{ wan(c.runes) }} 字</span>
+          </button>
+        </div>
       </template>
     </template>
 
@@ -368,52 +370,70 @@ async function remove() {
 .head h2 { margin: 0; }
 .intro { margin: 8px 0 12px; }
 .inline-icon { vertical-align: -2px; margin: 0 2px; }
-.skel { height: 56px; border-radius: var(--radius-md); }
+.skel { height: 72px; border-radius: 18px; }
 .empty code { font-size: 12px; }
-.group { margin: 14px 0 2px; color: var(--color-muted); font-size: 12px; letter-spacing: .04em; }
+.group { margin: 20px 0 10px; color: var(--color-muted); font-size: 12.5px; font-weight: 500; letter-spacing: .04em; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; }
 .row {
-  display: flex; align-items: center; gap: 12px; padding: 10px 8px; margin: 0 -8px; width: calc(100% + 16px);
-  border-radius: var(--radius-md); text-align: left; transition: background-color .15s ease;
+  display: flex; align-items: center; gap: 13px; padding: 14px 16px; width: 100%;
+  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); border-radius: 18px; background: var(--color-surface);
+  text-align: left;
+  transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) var(--ease-editorial), transform var(--motion-fast) var(--ease-editorial);
 }
-.row:hover { background: var(--color-hover-wash); }
-.row__icon { display: grid; place-items: center; flex-shrink: 0; width: 34px; height: 34px; border-radius: 10px; background: var(--color-accent-tint); color: var(--color-accent-active); }
-.row__text { display: grid; gap: 2px; flex: 1; min-width: 0; }
-.row__title { color: var(--color-ink); font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
-.row__tag { margin-left: 6px; padding: 1px 6px; border-radius: var(--radius-pill); background: var(--color-canvas-soft); color: var(--color-text-secondary); font-size: 11px; font-weight: 400; vertical-align: 1px; }
+.row:hover { border-color: rgba(20, 20, 19, .18); box-shadow: var(--shadow-float); transform: translateY(-2px); }
+.row:active { transform: scale(.99); }
+.row__icon {
+  display: grid; place-items: center; flex-shrink: 0; width: 38px; height: 38px; border-radius: 12px;
+  background: var(--color-accent-tint); color: var(--color-accent-active);
+}
+.row__text { display: grid; gap: 3px; flex: 1; min-width: 0; }
+.row__title { color: var(--color-ink); font-size: 14.5px; font-weight: 500; overflow-wrap: anywhere; }
+.row__tag {
+  margin-left: 6px; padding: 1px 8px; border-radius: var(--radius-pill);
+  background: var(--color-canvas-soft); color: var(--color-text-secondary); font-size: 11px; font-weight: 500; vertical-align: 1px;
+}
 .row__desc { margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.row__meta { flex-shrink: 0; white-space: nowrap; }
+.row__meta { flex-shrink: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
-.tabs { margin-bottom: 12px; }
+.tabs { margin-bottom: 14px; }
 .src { display: flex; gap: 8px; }
 .src .text-input { flex: 1; min-width: 0; }
 .hint { margin: 6px 0 0; }
-.src-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.src-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .src-actions .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mono { font-family: var(--font-mono); font-size: 13px; }
 .textarea.mono { min-height: 180px; }
-.textarea.prompt { min-height: 46vh; line-height: 1.6; }
+.textarea.prompt { min-height: 46vh; line-height: 1.65; }
 .pre { white-space: pre-line; }
-.found { margin: 14px 0 6px; }
-.cands { display: grid; gap: 2px; max-height: 46vh; overflow-y: auto; margin: 0 0 8px; padding: 0; list-style: none; }
-.cand { display: flex; gap: 10px; align-items: flex-start; padding: 8px 6px; border-radius: var(--radius-md); }
-.cand:hover { background: var(--color-hover-wash); }
+.found { margin: 14px 0 8px; }
+.cands { display: grid; gap: 6px; max-height: 46vh; overflow-y: auto; margin: 0 0 10px; padding: 0; list-style: none; }
+.cand {
+  display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px;
+  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); border-radius: 14px; background: var(--color-surface);
+  transition: border-color var(--motion-fast) ease;
+}
+.cand:hover { border-color: rgba(20, 20, 19, .16); }
 .cand input[type='checkbox'] { margin-top: 5px; flex-shrink: 0; }
 .cand.is-off .cand__body { opacity: .55; }
 .cand__body { flex: 1; min-width: 0; }
-.cand__name { width: 100%; padding: 1px 4px; margin-left: -4px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--color-ink); font: inherit; font-size: 14px; font-weight: 500; }
+.cand__name { width: 100%; padding: 2px 6px; margin-left: -6px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--color-ink); font: inherit; font-size: 14px; font-weight: 500; }
 .cand__name:hover { border-color: var(--color-hairline-strong); }
-.cand__name:focus { outline: none; border-color: var(--color-accent); background: var(--color-surface); }
+.cand__name:focus { outline: none; border-color: var(--color-accent); background: var(--color-canvas); }
 .cand__desc { margin: 2px 0 0; overflow-wrap: anywhere; }
-.cand__meta { margin: 3px 0 0; }
-.cand__tag { display: inline-block; margin-right: 4px; padding: 0 6px; border-radius: var(--radius-pill); background: var(--color-canvas-soft); font-size: 11px; }
-.danger { color: var(--color-error, #b42318); }
+.cand__meta { margin: 4px 0 0; }
+.cand__tag { display: inline-block; margin-right: 4px; padding: 1px 8px; border-radius: var(--radius-pill); background: var(--color-canvas-soft); font-size: 11px; }
+.danger { color: var(--color-danger); }
 .left { margin-right: auto; }
-.revs { margin: 4px 0 12px; }
-.revs ul { display: grid; gap: 2px; max-height: 200px; overflow-y: auto; margin: 6px 0 0; padding: 0; list-style: none; }
-.rev { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: var(--radius-md); }
-.rev:hover { background: var(--color-hover-wash); }
+.revs { margin: 8px 0 14px; }
+.revs ul { display: grid; gap: 4px; max-height: 200px; overflow-y: auto; margin: 8px 0 0; padding: 0; list-style: none; }
+.rev {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .07)); border-radius: 12px; background: var(--color-card);
+}
 .rev__note { flex: 1; min-width: 0; color: var(--color-ink); font-size: 13px; overflow-wrap: anywhere; }
-@media (max-width: 600px) {
+@media (max-width: 640px) {
+  .cards { grid-template-columns: 1fr; gap: 10px; }
+  .row { padding: 12px 14px; border-radius: 16px; }
   .row__meta { display: none; }
 }
 </style>

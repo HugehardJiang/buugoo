@@ -131,23 +131,26 @@ onMounted(load)
 </template>
 
 <style scoped>
-.now h2 { margin: 0 0 6px; font-size: 28px; }
-.now .eyebrow { margin-bottom: 4px; }
-.cause { margin: 0 0 16px; font-size: 15px; }
+.panel { border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .06)); border-radius: var(--radius-xxl); }
+.panel h2 { font-family: var(--font-sans); font-size: 20px; font-weight: 500; letter-spacing: -.02em; }
+.now h2 { margin: 0 0 6px; font-size: 26px; font-weight: 500; letter-spacing: -.025em; }
+.now .eyebrow { margin-bottom: 6px; }
+.cause { margin: 0 0 18px; font-size: 15px; line-height: 1.65; }
 .plain { margin: 0; }
-.relation { margin: -4px 0 14px; font-size: 16px; }
-.bars { display: grid; gap: 10px; margin: 8px 0 14px; }
-.bar { display: grid; grid-template-columns: 56px 1fr 36px; align-items: center; gap: 12px; font-size: 14px; color: var(--color-text-secondary); }
-.bar.is-strong { color: var(--color-ink); }
-.bar__value { text-align: right; font-variant-numeric: tabular-nums; color: var(--color-muted); font-size: 12px; }
+.relation { margin: -2px 0 16px; font-size: 15.5px; color: var(--color-text-secondary); }
+.bars { display: grid; gap: 12px; margin: 10px 0 16px; }
+.bar { display: grid; grid-template-columns: 58px 1fr 40px; align-items: center; gap: 14px; font-size: 14px; color: var(--color-text-secondary); }
+.bar.is-strong { color: var(--color-ink); font-weight: 500; }
+.bar .workspace-progress { height: 6px; }
+.bar__value { text-align: right; font-variant-numeric: tabular-nums; color: var(--color-muted); font-size: 12.5px; }
 .tone-anger > i, .tone-impatience > i { background: var(--color-danger); }
 .tone-sadness > i, .tone-worry > i { background: var(--color-info); }
 .tone-longing > i, .tone-surprise > i { background: var(--color-warning); }
 .mood > i { position: absolute; top: 0; }
-.events { display: grid; gap: 0; margin: 0 0 12px; padding: 0; list-style: none; }
-.event { padding: 12px 0; border-top: 1px solid var(--color-divider); }
-.event p { margin: 2px 0 0; }
-.event__cause { color: var(--color-ink); font-size: 15px; }
-.actions { display: flex; justify-content: flex-end; }
+.events { display: grid; gap: 0; margin: 4px 0 14px; padding: 0; list-style: none; }
+.event { padding: 14px 0; border-top: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); }
+.event p { margin: 3px 0 0; }
+.event__cause { color: var(--color-ink); font-size: 15px; line-height: 1.6; }
+.actions { display: flex; justify-content: flex-end; margin-top: 6px; }
 .panel .caption { margin: 0; }
 </style>

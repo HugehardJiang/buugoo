@@ -230,39 +230,45 @@ function soon(t: Todo) {
 </template>
 
 <style scoped>
+.panel { border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .06)); border-radius: var(--radius-xxl); }
 .head { display: flex; align-items: baseline; gap: 10px; }
-h2 { margin: 0 0 6px; }
-.intro { margin: 0 0 14px; }
-.quick { display: flex; gap: 8px; flex-wrap: wrap; }
-.quick__title { flex: 1 1 220px; min-width: 0; }
-.quick__date { flex: 0 0 150px; }
-.quick__time { flex: 0 0 110px; }
-.quick .btn { min-height: 40px; padding: 0 16px; }
-.todo-list { display: grid; margin: 12px 0 0; padding: 0; list-style: none; }
-.todo { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; border-top: 1px solid var(--color-divider); transition: opacity .2s ease; }
-.check {
-  flex-shrink: 0; display: grid; place-items: center; width: 20px; height: 20px; margin-top: 1px; border: 1.5px solid var(--color-hairline-strong);
-  border-radius: 6px; background: var(--color-canvas); transition: background-color .18s ease, border-color .18s ease;
+h2 { margin: 0 0 6px; font-family: var(--font-sans); font-size: 20px; font-weight: 500; letter-spacing: -.02em; }
+.intro { margin: 0 0 16px; line-height: 1.65; }
+.quick { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.quick__title { flex: 1 1 200px; min-width: 0; }
+.quick__date { flex: 0 0 148px; }
+.quick__time { flex: 0 0 108px; }
+.quick .btn { min-height: 40px; padding: 0 18px; }
+.todo-list { display: grid; margin: 14px 0 0; padding: 0; list-style: none; }
+.todo {
+  display: flex; align-items: flex-start; gap: 12px; padding: 11px 0;
+  border-top: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08));
+  transition: opacity .2s ease;
 }
-.check:hover { border-color: var(--color-accent); }
+.check {
+  flex-shrink: 0; display: grid; place-items: center; width: 20px; height: 20px; margin-top: 1px;
+  border: 1.5px solid rgba(20, 20, 19, .24); border-radius: 50%; background: var(--color-canvas);
+  transition: background-color .18s ease, border-color .18s ease, transform .18s var(--ease-editorial);
+}
+.check:hover { border-color: var(--color-accent); transform: scale(1.06); }
 .check.is-on, .check[aria-checked='true'] { border-color: var(--color-accent); background: var(--color-accent); }
-.check svg { width: 14px; height: 14px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.todo__main { flex: 1; min-width: 0; display: grid; gap: 2px; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; }
-.todo__title { color: var(--color-ink); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.check svg { width: 13px; height: 13px; fill: none; stroke: #fff; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.todo__main { flex: 1; min-width: 0; display: grid; gap: 3px; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; }
+.todo__title { color: var(--color-ink); font-size: 14.5px; line-height: 1.5; overflow-wrap: anywhere; }
 .todo__meta { display: flex; gap: 8px; min-width: 0; }
 .due { flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.due.is-soon { color: var(--color-accent-active); }
-.due.is-overdue { color: var(--color-danger); }
+.due.is-soon { color: var(--color-accent-active); font-weight: 500; }
+.due.is-overdue { color: var(--color-danger); font-weight: 500; }
 .note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .is-done .todo__title { color: var(--color-text-secondary); text-decoration: line-through; }
-.empty { margin: 12px 0 0; }
-.done { margin-top: 12px; }
+.empty { margin: 16px 0 0; }
+.done { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .06)); }
 .done__head { display: flex; justify-content: space-between; }
 .link { padding: 0; text-decoration: underline; text-underline-offset: 3px; }
-.btn-sm { min-height: 28px; padding: 0 10px; }
+.btn-sm { min-height: 30px; padding: 0 12px; }
 .inline { display: flex; gap: 8px; align-items: center; }
 .inline .text-input { flex: 1; min-width: 0; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .delete { margin-right: auto; }
 @media (max-width: 560px) {
   .quick__date { flex: 1 1 140px; }

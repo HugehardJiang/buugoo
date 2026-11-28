@@ -100,7 +100,7 @@ onMounted(() => {
     </header>
 
     <div class="page">
-      <div class="page__inner">
+      <div class="page__inner memories-wrap">
         <div class="type-switch tabs" role="tablist" aria-label="大脑皮层">
           <button type="button" role="tab" :aria-selected="tab === 'emotion'" :class="{ 'is-active': tab === 'emotion' }" @click="tab = 'emotion'">心情</button>
           <button type="button" role="tab" :aria-selected="tab === 'memory'" :class="{ 'is-active': tab === 'memory' }" @click="tab = 'memory'">记忆 · {{ total }}</button>
@@ -155,22 +155,30 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.memories-wrap { max-width: 1080px; }
 .head-actions { display: flex; align-items: center; gap: 8px; }
 @media (max-width: 767px) { .head-actions .chip-meta { display: none; } }
-.tabs { max-width: 280px; margin-bottom: 20px; }
-.intro { margin: 0 0 20px; font-size: 15px; line-height: 1.7; }
-.filters { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; margin-bottom: 20px; }
+.tabs { max-width: 280px; margin-bottom: 22px; }
+.intro { margin: 0 0 20px; font-size: 14.5px; line-height: 1.7; }
+.filters { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; margin-bottom: 20px; align-items: center; }
+.filters .search { border-radius: var(--radius-pill); padding-left: 16px; padding-right: 16px; }
 .filters .type-switch { min-width: 220px; }
-@media (max-width: 767px) {
+@media (max-width: 820px) {
   .filters { grid-template-columns: 1fr; }
   .filters .type-switch { min-width: 0; }
 }
-.records { overflow: hidden; }
-.record { padding: var(--surface-inset-md); }
-.record + .record { border-top: 1px solid var(--color-divider); }
-.content { margin: 0 0 10px; font-size: 16px; line-height: 1.65; }
+.records {
+  overflow: hidden; border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .06)); border-radius: var(--radius-xxl);
+}
+.record { padding: 20px 24px; transition: background-color var(--motion-fast) ease; }
+.record:hover { background: rgba(20, 20, 19, .02); }
+.record + .record { border-top: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); }
+.content { margin: 0 0 12px; font-size: 15.5px; line-height: 1.7; overflow-wrap: anywhere; }
 .facts { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .spacer { flex: 1; }
-.empty { margin: 0; padding: 40px var(--surface-inset-md); text-align: center; }
-.pager { display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 20px; }
+.empty { margin: 0; padding: 48px var(--surface-inset-md); text-align: center; }
+.pager { display: flex; justify-content: center; align-items: center; gap: 14px; margin-top: 22px; }
+@media (max-width: 767px) {
+  .record { padding: 16px 18px; }
+}
 </style>

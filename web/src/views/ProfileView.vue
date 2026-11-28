@@ -113,7 +113,7 @@ function percent(used: number, limit: number) {
     </header>
 
     <div class="page">
-      <div class="page__inner">
+      <div class="page__inner profile-wrap">
         <section class="panel panel--inset hero">
           <div class="hero__avatar">
             <Avatar :seed="session.user?.avatar_seed ?? ''" :size="96" :label="`${shownName}的头像`" />
@@ -201,27 +201,48 @@ function percent(used: number, limit: number) {
 </template>
 
 <style scoped>
+.profile-wrap { max-width: 1080px; }
+.profile-wrap :deep(.panel) {
+  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .06)); border-radius: var(--radius-xxl);
+}
+.profile-wrap :deep(.panel > h2),
+.profile-wrap :deep(.panel .usage__head h2) {
+  font-family: var(--font-sans); font-size: 20px; font-weight: 500; letter-spacing: -.02em;
+}
 .panel p { margin: 0; }
-.hero { display: flex; gap: 28px; align-items: flex-start; }
+.hero { display: flex; gap: 32px; align-items: flex-start; }
 .hero__avatar { display: flex; flex-direction: column; align-items: center; gap: 10px; flex-shrink: 0; }
 .hero__avatar .caption { font-size: 12px; }
 .hero__info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-.hero__name { font-family: var(--font-display); font-size: 28px; color: var(--color-ink); line-height: 1.2; overflow-wrap: anywhere; }
+.hero__name {
+  font-family: var(--font-sans); font-size: 26px; font-weight: 500; letter-spacing: -.025em;
+  color: var(--color-ink); line-height: 1.25; overflow-wrap: anywhere;
+}
 .hero__info .badge-pill { margin-left: 8px; }
-.nick { margin-top: 12px; }
+.nick { margin-top: 14px; max-width: 480px; }
 .nick__row { display: flex; gap: 8px; margin-top: 6px; }
 .nick__row .text-input { flex: 1; min-width: 0; }
-.metrics { display: grid; margin: 0 0 12px; }
-.metric { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; padding: 14px 0; border-top: 1px solid var(--color-divider); font-size: 14px; }
+.metrics {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;
+  margin: 14px 0 14px;
+}
+.metric {
+  display: grid; grid-template-columns: 1fr auto; gap: 10px 14px; padding: 16px 18px;
+  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); border-radius: 16px;
+  background: var(--color-canvas); font-size: 14px;
+}
 .metric dt { color: var(--color-text-secondary); }
 .metric dd { margin: 0; font-weight: 500; font-variant-numeric: tabular-nums; }
-.metric .workspace-progress { grid-column: 1 / -1; }
+.metric .workspace-progress { grid-column: 1 / -1; height: 5px; }
 .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
-.diag { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--color-divider); }
-@media (max-width: 560px) {
-  .hero { flex-direction: column; align-items: center; text-align: center; }
+.diag {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 18px; padding-top: 16px;
+  border-top: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08));
+}
+@media (max-width: 600px) {
+  .hero { flex-direction: column; align-items: center; text-align: center; gap: 20px; }
   .hero__info { width: 100%; align-items: center; }
-  .nick { width: 100%; text-align: left; }
+  .nick { width: 100%; max-width: none; text-align: left; }
   .diag { flex-direction: column; align-items: flex-start; }
 }
 </style>

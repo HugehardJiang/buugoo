@@ -222,44 +222,55 @@ function finishEdit() {
 </template>
 
 <style scoped>
-.memo { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 24px; max-width: 1100px; margin: 0 auto; align-items: start; }
-.memo__list { position: sticky; top: 0; display: grid; gap: 10px; }
-.intro { margin: 0; }
+.memo { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 28px; max-width: 1240px; margin: 0 auto; align-items: start; }
+.memo__list { position: sticky; top: 0; display: grid; gap: 12px; min-width: 0; }
+.intro { margin: 0; line-height: 1.65; }
 .list-tools, .new { display: flex; gap: 8px; align-items: center; }
-.list-tools .text-input, .new .text-input { flex: 1; min-width: 0; min-height: 34px; }
-.skel { height: 120px; border-radius: var(--radius-md); }
+.list-tools .text-input, .new .text-input { flex: 1; min-width: 0; min-height: 36px; border-radius: var(--radius-pill); padding: 6px 14px; }
+.skel { height: 120px; border-radius: var(--radius-xl); }
 .empty { margin: 8px 0 0; }
-.pages { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.pages { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .page-item {
-  display: grid; gap: 2px; width: 100%; padding: 10px 12px; border-radius: var(--radius-md); text-align: left;
-  transition: background-color .15s ease;
+  display: grid; gap: 3px; width: 100%; padding: 12px 14px; border: 1px solid transparent; border-radius: 16px; text-align: left;
+  transition: background-color var(--motion-fast) var(--ease-editorial), border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
 }
-.page-item:hover { background: var(--color-hover-wash); }
-.page-item.is-active { background: var(--color-surface); box-shadow: 0 1px 3px rgba(20, 20, 19, .08), 0 0 0 1px rgba(20, 20, 19, .04); }
+.page-item:hover { background: var(--color-card); border-color: var(--color-hairline-subtle, rgba(20, 20, 19, .06)); }
+.page-item.is-active {
+  background: var(--color-surface); border-color: var(--color-hairline-subtle, rgba(20, 20, 19, .1));
+  box-shadow: var(--shadow-raised);
+}
 .page-item__title { color: var(--color-ink); font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
 .page-item__preview { color: var(--color-text-secondary); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .page-item__meta { color: var(--color-muted); font-size: 12px; }
-.memo__body { min-width: 0; }
-.memo__placeholder { display: grid; place-items: center; min-height: 240px; border: 1px dashed var(--color-divider); border-radius: var(--radius-lg); }
-.body-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.memo__body {
+  min-width: 0; border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .06)); border-radius: var(--radius-xxl);
+}
+.memo__placeholder {
+  display: grid; place-items: center; min-height: 300px;
+  border: 1px dashed var(--color-hairline-strong); border-radius: var(--radius-xxl); background: var(--color-card);
+}
+.body-head {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 18px; padding-bottom: 14px;
+  border-bottom: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08));
+}
 .back { display: none; }
-.title { flex: 1; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.title { flex: 1; min-width: 0; margin: 0; font-size: 21px; font-weight: 500; letter-spacing: -.02em; overflow-wrap: anywhere; word-break: normal; }
 .title-input { flex: 1; min-width: 0; font-size: 18px; font-weight: 500; }
 .status { white-space: nowrap; }
-.editor { width: 100%; min-height: 55vh; font-family: var(--font-mono); font-size: 14px; line-height: 1.7; }
-.md { font-size: 15px; line-height: 1.75; overflow-wrap: anywhere; }
-.md :deep(h1), .md :deep(h2), .md :deep(h3) { margin: 16px 0 8px; font-size: 17px; }
-.md :deep(p) { margin: 0 0 10px; }
-.md :deep(ul), .md :deep(ol) { margin: 0 0 10px; padding-left: 22px; }
-.md :deep(pre) { overflow-x: auto; padding: 10px; border-radius: var(--radius-md); background: var(--color-canvas-soft); }
-.foot { margin: 16px 0 0; }
-@media (max-width: 800px) {
+.editor { width: 100%; min-height: 58vh; border-radius: 16px; font-family: var(--font-mono); font-size: 14px; line-height: 1.75; }
+.md { font-size: 15px; line-height: 1.8; overflow-wrap: anywhere; }
+.md :deep(h1), .md :deep(h2), .md :deep(h3) { margin: 18px 0 8px; font-size: 17px; font-weight: 500; letter-spacing: -.015em; }
+.md :deep(p) { margin: 0 0 12px; }
+.md :deep(ul), .md :deep(ol) { margin: 0 0 12px; padding-left: 22px; }
+.md :deep(pre) { overflow-x: auto; padding: 12px 14px; border-radius: var(--radius-lg); background: var(--color-canvas); border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); }
+.foot { margin: 20px 0 0; padding-top: 12px; border-top: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); }
+@media (max-width: 820px) {
   .memo { grid-template-columns: minmax(0, 1fr); }
   .memo__list { position: static; }
   .memo.has-page .memo__list, .memo:not(.has-page) .memo__body, .memo__placeholder { display: none; }
   .back { display: inline-flex; margin-left: -8px; }
   /* 手机上：第一行是「全部 / 保存状态 / 按钮」，标题单独占第二行，不和按钮挤在一起被拆得一字一行。 */
-  .body-head { flex-wrap: wrap; row-gap: 6px; }
+  .body-head { flex-wrap: wrap; row-gap: 8px; }
   .body-head .status { margin-left: auto; }
   .body-head .btn { white-space: nowrap; }
   .title, .title-input { order: 10; flex: 1 0 100%; }
