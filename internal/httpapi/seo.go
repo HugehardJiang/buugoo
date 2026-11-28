@@ -304,14 +304,13 @@ func (s *server) renderSEOHTML(c echo.Context, rawIndex []byte) (int, []byte) {
 }
 
 func (s *server) renderHomeSEO(ctx context.Context, rawIndex []byte, origin, siteName string) []byte {
-	heading := s.seoHomeHeading(siteName)
+	heading, desc, customImg := s.seoHomeMeta(ctx, siteName)
 	title := heading
 	if !strings.Contains(title, siteName) {
 		title = heading + " - " + siteName
 	}
-	desc := s.seoHomeDescription(siteName)
 	canonical := joinOrigin(origin, s.homePath())
-	image := seoDefaultImage(origin)
+	image := resolveSEOImage(origin, customImg)
 
 	var head strings.Builder
 	writeMetaTag(&head, "name", "description", desc)
@@ -686,6 +685,35 @@ func (s *server) seoHomeDescription(siteName string) string {
 		}
 	}
 	return siteName + "是有记忆、有情绪、能主动关心你的 AI 朋友，支持自托管、长期记忆与多端随处可聊。"
+}
+
+// seoHomeMeta 优先使用管理员在首页 CMS 中自定义的标题、副标题与背景图，未自定义时沿用原有默认逻辑。
+func (s *server) seoHomeMeta(ctx context.Context, siteName string) (heading, desc, image string) {
+	heading = s.seoHomeHeading(siteName)
+	desc = s.seoHomeDescription(siteName)
+	if s.CMS == nil {
+		return heading, desc, ""
+	}
+	var fallbackTitle, fallbackTagline string
+	if s.Config != nil {
+		fallbackTitle = s.Config.Home.Title
+		fallbackTagline = s.Config.Home.Tagline
+	}
+	cfg, isDefault, err := s.CMS.GetHomeConfig(ctx, siteName, fallbackTitle, fallbackTagline)
+	if err != nil || isDefault {
+		return heading, desc, ""
+	}
+	if customTitle := flattenSingleLine(cfg.Hero.Title); customTitle != "" {
+		heading = customTitle
+	}
+	if customSubtitle := flattenSingleLine(cfg.Hero.Subtitle); customSubtitle != "" {
+		desc = customSubtitle
+	}
+	return heading, desc, strings.TrimSpace(cfg.Hero.BgImageURL)
+}
+
+func flattenSingleLine(raw string) string {
+	return strings.Join(strings.Fields(raw), " ")
 }
 
 // injectSEO 将动态标题、头部标签与 noscript 内容注入 SPA HTML，避免重复 title/description 并防止 $ 替换误解析。

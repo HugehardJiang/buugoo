@@ -20,6 +20,7 @@ func (s *server) routeCMS(api, console *echo.Group) {
 	pub := api.Group("/cms")
 	pub.GET("/posts", s.publicCMSPosts)
 	pub.GET("/posts/:slug", s.publicCMSPost)
+	pub.GET("/home", s.publicCMSHome)
 
 	m := console.Group("/cms", s.requireStrongConsole)
 	m.GET("/posts", s.consoleCMSPosts)
@@ -27,6 +28,9 @@ func (s *server) routeCMS(api, console *echo.Group) {
 	m.PUT("/posts/:id", s.consoleUpdateCMSPost)
 	m.DELETE("/posts/:id", s.consoleDeleteCMSPost)
 	m.POST("/seed", s.consoleSeedCMSPosts)
+	m.GET("/home", s.consoleGetCMSHome)
+	m.PUT("/home", s.consoleSaveCMSHome)
+	m.DELETE("/home", s.consoleResetCMSHome)
 }
 
 func (s *server) publicCMSPosts(c echo.Context) error {
@@ -197,4 +201,52 @@ func (s *server) consoleSeedCMSPosts(c echo.Context) error {
 	}
 	s.audit(c, "管理后台载入了示例文章", "created", created)
 	return c.JSON(http.StatusOK, map[string]any{"created": created})
+}
+
+func (s *server) homeFallbacks() (siteName, fallbackTitle, fallbackTagline string) {
+	siteName = s.seoSiteName()
+	if s.Config != nil {
+		fallbackTitle = s.Config.Home.Title
+		fallbackTagline = s.Config.Home.Tagline
+	}
+	return siteName, fallbackTitle, fallbackTagline
+}
+
+func (s *server) publicCMSHome(c echo.Context) error {
+	siteName, fallbackTitle, fallbackTagline := s.homeFallbacks()
+	cfg, isDefault, err := s.CMS.GetHomeConfig(c.Request().Context(), siteName, fallbackTitle, fallbackTagline)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"config":     cfg,
+		"is_default": isDefault,
+	})
+}
+
+func (s *server) consoleGetCMSHome(c echo.Context) error {
+	return s.publicCMSHome(c)
+}
+
+func (s *server) consoleSaveCMSHome(c echo.Context) error {
+	var payload cms.HomeConfig
+	if err := bind(c, &payload); err != nil {
+		return err
+	}
+	saved, err := s.CMS.SaveHomeConfig(c.Request().Context(), payload)
+	if err != nil {
+		return err
+	}
+	s.audit(c, "管理后台修改了官网首页配置")
+	return c.JSON(http.StatusOK, map[string]any{"config": saved})
+}
+
+func (s *server) consoleResetCMSHome(c echo.Context) error {
+	siteName, fallbackTitle, fallbackTagline := s.homeFallbacks()
+	cfg, err := s.CMS.ResetHomeConfig(c.Request().Context(), siteName, fallbackTitle, fallbackTagline)
+	if err != nil {
+		return err
+	}
+	s.audit(c, "管理后台恢复了官网首页默认配置")
+	return c.JSON(http.StatusOK, map[string]any{"config": cfg})
 }

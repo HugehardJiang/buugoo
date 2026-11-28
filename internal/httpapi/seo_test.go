@@ -353,3 +353,68 @@ func TestSEOHtmlInjectionXSSAnd404(t *testing.T) {
 		}
 	}
 }
+
+func TestSEOHomeSyncsCustomCMSConfig(t *testing.T) {
+	h, svc := setupSEOTestServer(t, config.ModeMulti)
+	ctx := context.Background()
+
+	// 未自定义首页配置前，保持原有兜底标题与描述
+	for _, p := range []string{"/", "/welcome"} {
+		rec := doSEOReq(h, p, "buugoo.example.com", "https", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s 状态码错误: %d", p, rec.Code)
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, `<title>布谷官网测试标题</title>`) ||
+			!strings.Contains(body, `name="description" content="有记忆、有情绪的长期陪伴体验"`) {
+			t.Fatalf("%s 未自定义前应使用原兜底文案:\n%s", p, body)
+		}
+	}
+
+	// 保存自定义首页配置（含换行与背景图），验证 / 与 /welcome 的 SSR Title、Description、OG、JSON-LD 全部同步且去除换行符
+	cfg := cms.DefaultHomeConfig("布谷", "", "")
+	cfg.Hero.Title = "星辰伙伴\n记住每一段认真聊过的话"
+	cfg.Hero.Subtitle = "自定义官网副标题\n支持多端同步与长期记忆"
+	cfg.Hero.BgImageURL = "/covers/custom-hero.png"
+	if _, err := svc.SaveHomeConfig(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	wantTitle := "星辰伙伴 记住每一段认真聊过的话 - 布谷"
+	wantHeading := "星辰伙伴 记住每一段认真聊过的话"
+	wantDesc := "自定义官网副标题 支持多端同步与长期记忆"
+
+	for _, p := range []string{"/", "/welcome"} {
+		rec := doSEOReq(h, p, "buugoo.example.com", "https", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("自定义后 %s 状态码错误: %d", p, rec.Code)
+		}
+		body := rec.Body.String()
+		for _, want := range []string{
+			`<title>` + wantTitle + `</title>`,
+			`<meta name="description" content="` + wantDesc + `" />`,
+			`<meta property="og:title" content="` + wantTitle + `" />`,
+			`<meta property="og:description" content="` + wantDesc + `" />`,
+			`<meta property="og:image" content="https://buugoo.example.com/covers/custom-hero.png" />`,
+			`<meta name="twitter:title" content="` + wantTitle + `" />`,
+			`"description":"` + wantDesc + `"`,
+			`<noscript><main><h1>` + wantHeading + `</h1>`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Fatalf("%s 自定义后缺少 %q", p, want)
+			}
+		}
+	}
+
+	// 重置首页配置后，恢复原有兜底标题与描述
+	if _, err := svc.ResetHomeConfig(ctx, "布谷", "布谷官网测试标题", "有记忆、有情绪的长期陪伴体验"); err != nil {
+		t.Fatal(err)
+	}
+	rec := doSEOReq(h, "/welcome", "buugoo.example.com", "https", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("重置后 /welcome 状态码错误: %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `<title>布谷官网测试标题</title>`) {
+		t.Fatalf("重置后 /welcome 应恢复原有兜底标题")
+	}
+}
