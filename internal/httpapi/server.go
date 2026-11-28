@@ -10,6 +10,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/apiserve"
 	"github.com/HugehardJiang/buugoo/internal/bgtask"
 	"github.com/HugehardJiang/buugoo/internal/billing"
+	"github.com/HugehardJiang/buugoo/internal/cms"
 	"github.com/HugehardJiang/buugoo/internal/cosplay"
 	"github.com/HugehardJiang/buugoo/internal/dbmove"
 	"github.com/HugehardJiang/buugoo/internal/mcp"
@@ -71,6 +72,8 @@ type Deps struct {
 	Characters *cosplay.Service
 	// Notices 为空时不提供强制弹窗通知。
 	Notices *notice.Service
+	// CMS 为空时不提供官网文章内容管理接口。
+	CMS *cms.Service
 	// Tasks 为空时不提供后台长任务。
 	Tasks *bgtask.Service
 	// APIKeys、APISettings 为空时不提供 API 接入（/v1/...）。
@@ -279,6 +282,7 @@ func New(d Deps) http.Handler {
 	s.routeExtensions(e, api, priv, console)
 	s.routeBilling(api, priv, console)
 	s.routeNotices(priv, console)
+	s.routeCMS(api, console)
 	s.routeTasks(priv)
 	s.routeAPI(e, priv, console)
 	if s.Characters != nil {
@@ -477,6 +481,7 @@ func toAPIError(err error) *apiError {
 	var memoErr *memo.UserError
 	var cosErr *cosplay.UserError
 	var noticeErr *notice.UserError
+	var cmsErr *cms.UserError
 	var apiErr *apiserve.UserError
 	var taskErr *bgtask.UserError
 	switch {
@@ -492,6 +497,12 @@ func toAPIError(err error) *apiError {
 		return &apiError{Status: http.StatusBadRequest, Code: "invalid_input", Message: noticeErr.Msg}
 	case errors.Is(err, notice.ErrNotFound):
 		return &apiError{Status: http.StatusNotFound, Code: "not_found", Message: err.Error()}
+	case errors.As(err, &cmsErr):
+		return &apiError{Status: http.StatusBadRequest, Code: "invalid_input", Message: cmsErr.Msg}
+	case errors.Is(err, cms.ErrNotFound):
+		return &apiError{Status: http.StatusNotFound, Code: "not_found", Message: err.Error()}
+	case errors.Is(err, cms.ErrConflict):
+		return &apiError{Status: http.StatusConflict, Code: "conflict", Message: err.Error()}
 	case errors.As(err, &cosErr):
 		return &apiError{Status: http.StatusBadRequest, Code: "invalid_input", Message: cosErr.Msg}
 	case errors.Is(err, cosplay.ErrNotFound):

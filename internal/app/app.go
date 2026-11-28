@@ -21,6 +21,7 @@ import (
 	"github.com/HugehardJiang/buugoo/internal/buildinfo"
 	"github.com/HugehardJiang/buugoo/internal/channels"
 	"github.com/HugehardJiang/buugoo/internal/chat"
+	"github.com/HugehardJiang/buugoo/internal/cms"
 	"github.com/HugehardJiang/buugoo/internal/config"
 	"github.com/HugehardJiang/buugoo/internal/cosplay"
 	"github.com/HugehardJiang/buugoo/internal/dbmove"
@@ -190,6 +191,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 	memoSvc := memo.New(db.Gorm())
 	characterSvc := cosplay.New(db.Gorm(), cfg.Chat.CharacterMaxRunes)
 	noticeSvc := notice.New(db.Gorm())
+	cmsSvc := cms.New(db.Gorm())
 	apiKeys, apiSettings := apiserve.NewKeys(db.Gorm()), apiserve.NewSettingsStore(db.Meta())
 	toolsProv.memos = memoSvc
 	todoSvc := todo.New(db.Gorm(), loc)
@@ -293,7 +295,7 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger, db *gormst
 		Config: cfg, Store: db, Auth: authSvc, Chat: chatSvc, Memories: memory.NewManager(db.Memories(), vs), Compactor: compactor,
 		Quota: limiter, Models: modelSvc, Reembed: memory.NewReembedder(db.Memories(), emb, vs, log),
 		Uploads: uploadSvc, Emotion: emo, Persona: personas, Channels: hub, Logger: log,
-		Skills: skillSvc, Plugins: pluginSvc, Memos: memoSvc, Characters: characterSvc, Notices: noticeSvc, Tasks: taskSvc, APIKeys: apiKeys, APISettings: apiSettings, Todos: todoSvc, Billing: billingSvc, Accounts: accountSvc,
+		Skills: skillSvc, Plugins: pluginSvc, Memos: memoSvc, Characters: characterSvc, Notices: noticeSvc, CMS: cmsSvc, Tasks: taskSvc, APIKeys: apiKeys, APISettings: apiSettings, Todos: todoSvc, Billing: billingSvc, Accounts: accountSvc,
 		Agent: agent.New(agent.Deps{DB: db.Gorm(), Users: db.Users(), Reminders: toolsProv.reminders, Models: modelSvc,
 			Quota: limiter, Skills: skillSvc, Plugins: pluginSvc, Config: cfg, Box: box, Logger: log,
 			Runner: func(ctx context.Context, u *store.User) tools.Runner { return toolsProv.python(ctx, u) }}),
