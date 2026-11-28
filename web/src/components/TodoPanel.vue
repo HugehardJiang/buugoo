@@ -230,7 +230,7 @@ function soon(t: Todo) {
 </template>
 
 <style scoped>
-.panel { border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .06)); border-radius: var(--radius-xxl); }
+.panel { border: 0; border-radius: var(--radius-xxl); }
 .head { display: flex; align-items: baseline; gap: 10px; }
 h2 { margin: 0 0 6px; font-family: var(--font-sans); font-size: 20px; font-weight: 500; letter-spacing: -.02em; }
 .intro { margin: 0 0 16px; line-height: 1.65; }
@@ -247,8 +247,8 @@ h2 { margin: 0 0 6px; font-family: var(--font-sans); font-size: 20px; font-weigh
 }
 .check {
   flex-shrink: 0; display: grid; place-items: center; width: 20px; height: 20px; margin-top: 1px;
-  border: 1.5px solid rgba(20, 20, 19, .24); border-radius: 50%; background: var(--color-canvas);
-  transition: background-color .18s ease, border-color .18s ease, transform .18s var(--ease-editorial);
+  border: 2px solid var(--md-outline-variant); border-radius: 50%; background: var(--md-surface-container-lowest);
+  transition: background-color .18s ease, border-color .18s ease, transform .18s var(--md-ease);
 }
 .check:hover { border-color: var(--color-accent); transform: scale(1.06); }
 .check.is-on, .check[aria-checked='true'] { border-color: var(--color-accent); background: var(--color-accent); }

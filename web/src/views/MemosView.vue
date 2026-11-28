@@ -4,6 +4,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api, ApiError, type MemoPage, type MemoPageInfo } from '../api'
 import Modal from '../components/Modal.vue'
+import TopBlur from '../components/TopBlur.vue'
 import { shortWhen } from '../format'
 import { renderMarkdown } from '../markdown'
 import Icon from '../Icon.vue'
@@ -153,6 +154,7 @@ function finishEdit() {
 <template>
   <main class="main">
     <header class="topbar">
+      <TopBlur />
       <div class="topbar__titles">
         <h1>备忘录</h1>
       </div>
@@ -223,31 +225,43 @@ function finishEdit() {
 
 <style scoped>
 .memo { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 28px; max-width: 1240px; margin: 0 auto; align-items: start; }
-.memo__list { position: sticky; top: 0; display: grid; gap: 12px; min-width: 0; }
+.memo__list { position: sticky; top: 72px; display: grid; gap: 12px; min-width: 0; }
 .intro { margin: 0; line-height: 1.65; }
 .list-tools, .new { display: flex; gap: 8px; align-items: center; }
-.list-tools .text-input, .new .text-input { flex: 1; min-width: 0; min-height: 36px; border-radius: var(--radius-pill); padding: 6px 14px; }
+.list-tools .text-input, .new .text-input {
+  flex: 1; min-width: 0; min-height: 40px; border: 0; border-radius: 9999px; padding: 6px 16px;
+  background: var(--md-surface-container-high);
+  transition: background-color var(--motion-fast) var(--md-ease), box-shadow var(--motion-fast) var(--md-ease);
+}
+.list-tools .text-input:focus, .new .text-input:focus {
+  background: var(--md-surface-container-lowest); box-shadow: var(--md-elev-1);
+}
 .skel { height: 120px; border-radius: var(--radius-xl); }
 .empty { margin: 8px 0 0; }
 .pages { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .page-item {
-  display: grid; gap: 3px; width: 100%; padding: 12px 14px; border: 1px solid transparent; border-radius: 16px; text-align: left;
-  transition: background-color var(--motion-fast) var(--ease-editorial), border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
+  display: grid; gap: 3px; width: 100%; padding: 12px 16px; border: 0; border-radius: 18px; text-align: left;
+  transition: background-color var(--motion-fast) var(--md-ease), box-shadow var(--motion-fast) var(--md-ease);
 }
-.page-item:hover { background: var(--color-card); border-color: var(--color-hairline-subtle, rgba(20, 20, 19, .06)); }
+.page-item:hover { background: var(--md-surface-container-low); }
 .page-item.is-active {
-  background: var(--color-surface); border-color: var(--color-hairline-subtle, rgba(20, 20, 19, .1));
-  box-shadow: var(--shadow-raised);
+  background: var(--md-primary-container); color: var(--md-on-primary-container); box-shadow: none;
 }
 .page-item__title { color: var(--color-ink); font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
 .page-item__preview { color: var(--color-text-secondary); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .page-item__meta { color: var(--color-muted); font-size: 12px; }
+.page-item.is-active .page-item__title,
+.page-item.is-active .page-item__preview,
+.page-item.is-active .page-item__meta { color: var(--md-on-primary-container); }
+.page-item.is-active .page-item__title { font-weight: 600; }
+.page-item.is-active .page-item__preview,
+.page-item.is-active .page-item__meta { opacity: .82; }
 .memo__body {
-  min-width: 0; border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .06)); border-radius: var(--radius-xxl);
+  min-width: 0; border: 0; border-radius: var(--radius-xxl);
 }
 .memo__placeholder {
   display: grid; place-items: center; min-height: 300px;
-  border: 1px dashed var(--color-hairline-strong); border-radius: var(--radius-xxl); background: var(--color-card);
+  border: 0; border-radius: var(--radius-xxl); background: var(--md-surface-container-low);
 }
 .body-head {
   display: flex; align-items: center; gap: 10px; margin-bottom: 18px; padding-bottom: 14px;
@@ -262,7 +276,7 @@ function finishEdit() {
 .md :deep(h1), .md :deep(h2), .md :deep(h3) { margin: 18px 0 8px; font-size: 17px; font-weight: 500; letter-spacing: -.015em; }
 .md :deep(p) { margin: 0 0 12px; }
 .md :deep(ul), .md :deep(ol) { margin: 0 0 12px; padding-left: 22px; }
-.md :deep(pre) { overflow-x: auto; padding: 12px 14px; border-radius: var(--radius-lg); background: var(--color-canvas); border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); }
+.md :deep(pre) { overflow-x: auto; padding: 12px 14px; border-radius: var(--radius-lg); background: var(--md-surface-container-lowest); border: 0; }
 .foot { margin: 20px 0 0; padding-top: 12px; border-top: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); }
 @media (max-width: 820px) {
   .memo { grid-template-columns: minmax(0, 1fr); }

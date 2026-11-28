@@ -171,12 +171,12 @@ onBeforeUnmount(() => clearTimeout(timer))
 .intro { margin: 0 0 14px; font-size: 14px; line-height: 1.65; }
 .source {
   display: inline-block; margin: 0 0 18px; padding: 6px 14px;
-  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); border-radius: var(--radius-pill);
-  background: var(--color-card); overflow-wrap: anywhere;
+  border: 0; border-radius: 9999px;
+  background: var(--md-surface-container-low); overflow-wrap: anywhere;
 }
 .reembed {
   display: grid; gap: 12px; margin-bottom: 22px; padding: 18px 20px;
-  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); border-radius: 18px; background: var(--color-card);
+  border: 0; border-radius: 20px; background: var(--md-surface-container-low);
 }
 .reembed p { margin: 0; }
 .reembed__text { font-size: 14px; line-height: 1.65; }

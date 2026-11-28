@@ -104,22 +104,24 @@ function isOn(id: number | null) {
 .util-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
 .util-opt {
   display: flex; align-items: center; gap: 12px; min-width: 0; padding: 14px 16px;
-  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); border-radius: 16px;
-  background: var(--color-surface); color: var(--color-ink); text-align: left;
-  transition: border-color var(--motion-fast) ease, background-color var(--motion-fast) ease, box-shadow var(--motion-fast) var(--ease-editorial), transform var(--motion-fast) var(--ease-editorial);
+  border: 0; border-radius: 18px;
+  background: var(--md-surface-container-low); color: var(--color-ink); text-align: left;
+  transition: background-color var(--motion-fast) var(--md-ease), box-shadow var(--motion-fast) var(--md-ease), transform var(--motion-fast) var(--md-ease);
 }
-.util-opt:hover:not(:disabled) { border-color: rgba(20, 20, 19, .18); box-shadow: var(--shadow-float); transform: translateY(-1px); }
+.util-opt:hover:not(:disabled) { background: var(--md-surface-container); box-shadow: var(--md-elev-1); transform: translateY(-1px); }
 .util-opt.is-on {
-  border-color: var(--color-accent); background: var(--color-success-tint);
-  box-shadow: 0 0 0 3px rgba(91, 122, 74, .12);
+  background: var(--md-primary-container); color: var(--md-on-primary-container);
+  box-shadow: var(--md-elev-1);
 }
 .util-opt:disabled { cursor: default; }
 .util-opt__main { display: grid; flex: 1; min-width: 0; gap: 3px; }
 .util-opt__main strong { display: flex; align-items: center; gap: 6px; overflow: hidden; font-size: 14px; font-weight: 500; white-space: nowrap; text-overflow: ellipsis; }
+.util-opt.is-on .util-opt__main strong { font-weight: 600; }
 .util-opt__main small { overflow: hidden; color: var(--color-muted); font-size: 12px; white-space: nowrap; text-overflow: ellipsis; }
+.util-opt.is-on .util-opt__main small { color: var(--md-on-primary-container); opacity: .78; }
 .util-src {
-  flex-shrink: 0; padding: 1px 7px; border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .14));
-  border-radius: var(--radius-pill); color: var(--color-muted); font-size: 10.5px; font-weight: 500; line-height: 15px;
+  flex-shrink: 0; padding: 1px 8px; border: 0;
+  border-radius: 9999px; background: var(--md-surface-container-lowest); color: var(--color-text-secondary); font-size: 10.5px; font-weight: 500; line-height: 15px;
 }
 .util-opt__radio {
   flex-shrink: 0; width: 18px; height: 18px; border: 1.5px solid rgba(20, 20, 19, .2); border-radius: 50%;

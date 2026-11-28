@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { api, ApiError, type Memory } from '../api'
 import EmotionPanel from '../components/EmotionPanel.vue'
+import TopBlur from '../components/TopBlur.vue'
 import { dateTime } from '../format'
 import { memoriesUnlocked, setMemoriesUnlocked } from '../memoryLock'
 import { session } from '../session'
@@ -91,6 +92,7 @@ onMounted(() => {
 <template>
   <main class="main">
     <header class="topbar">
+      <TopBlur />
       <div class="topbar__titles">
         <h1>{{ name }}的大脑皮层</h1>
       </div>
@@ -161,17 +163,22 @@ onMounted(() => {
 .tabs { max-width: 280px; margin-bottom: 22px; }
 .intro { margin: 0 0 20px; font-size: 14.5px; line-height: 1.7; }
 .filters { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; margin-bottom: 20px; align-items: center; }
-.filters .search { border-radius: var(--radius-pill); padding-left: 16px; padding-right: 16px; }
+.filters .search {
+  border: 0; border-radius: 9999px; padding-left: 16px; padding-right: 16px;
+  background: var(--md-surface-container-high);
+  transition: background-color var(--motion-fast) var(--md-ease), box-shadow var(--motion-fast) var(--md-ease);
+}
+.filters .search:focus { background: var(--md-surface-container-lowest); box-shadow: var(--md-elev-1); }
 .filters .type-switch { min-width: 220px; }
 @media (max-width: 820px) {
   .filters { grid-template-columns: 1fr; }
   .filters .type-switch { min-width: 0; }
 }
 .records {
-  overflow: hidden; border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .06)); border-radius: var(--radius-xxl);
+  overflow: hidden; border: 0; border-radius: var(--radius-xxl);
 }
 .record { padding: 20px 24px; transition: background-color var(--motion-fast) ease; }
-.record:hover { background: rgba(20, 20, 19, .02); }
+.record:hover { background: var(--md-state-hover); }
 .record + .record { border-top: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); }
 .content { margin: 0 0 12px; font-size: 15.5px; line-height: 1.7; overflow-wrap: anywhere; }
 .facts { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }

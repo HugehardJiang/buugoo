@@ -2,12 +2,14 @@
 // 提醒与待办：待办清单；提醒、定时任务与主动关心（服务器开了提醒时）。
 import ProactivePanel from '../components/ProactivePanel.vue'
 import TodoPanel from '../components/TodoPanel.vue'
+import TopBlur from '../components/TopBlur.vue'
 import { session } from '../session'
 </script>
 
 <template>
   <main class="main">
     <header class="topbar">
+      <TopBlur />
       <div class="topbar__titles">
         <h1>{{ session.meta?.reminders ? '提醒与待办' : '待办' }}</h1>
       </div>

@@ -7,6 +7,7 @@ import { api, ApiError, type FileItem, type Usage } from '../api'
 import { blobURL, download, forget } from '../blobs'
 import Icon from '../Icon.vue'
 import Modal from '../components/Modal.vue'
+import TopBlur from '../components/TopBlur.vue'
 import { dateTime, formatSize } from '../format'
 import { openLightbox } from '../lightbox'
 import { session } from '../session'
@@ -167,6 +168,7 @@ onMounted(() => load())
 <template>
   <main class="main">
     <header class="topbar">
+      <TopBlur />
       <div class="topbar__titles">
         <h1>文件</h1>
       </div>
@@ -321,7 +323,7 @@ onMounted(() => load())
 
 <style scoped>
 .wide { max-width: 1240px; }
-.usage { margin-bottom: 22px; border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .06)); border-radius: var(--radius-xxl); }
+.usage { margin-bottom: 22px; border: 0; border-radius: var(--radius-xxl); }
 .usage__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .usage__label { margin: 0 0 4px; color: var(--color-muted); font-size: 12px; font-weight: 500; letter-spacing: .06em; }
 .usage__value { margin: 0; font-size: 24px; font-family: var(--font-sans); font-weight: 500; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
@@ -330,7 +332,7 @@ onMounted(() => load())
 .usage__bar i { transition: width 600ms var(--ease-editorial), background-color 300ms ease; }
 .is-warn .usage__bar i { background: var(--color-warning); }
 .is-full .usage__bar i { background: var(--color-danger); }
-.is-full { border-color: rgba(181, 51, 51, .28); }
+.is-full { background: var(--color-danger-tint); }
 .usage__ws { margin: -2px 0 0; }
 .usage__note { margin: 10px 0 0; font-size: 13px; line-height: 1.65; }
 .is-warn .usage__note { color: var(--color-warning); }
@@ -343,12 +345,12 @@ onMounted(() => load())
 .count { white-space: nowrap; }
 
 .selectbar {
-  position: sticky; top: -20px; z-index: 5; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-height: 52px;
-  margin: 0 0 18px; padding: 8px 12px 8px 18px; border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); border-radius: 18px;
-  background: rgba(250, 249, 245, .86); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
-  transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
+  position: sticky; top: 72px; z-index: 5; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-height: 52px;
+  margin: 0 0 18px; padding: 8px 12px 8px 18px; border: 0; border-radius: 20px;
+  background: rgba(242, 240, 232, .88); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  transition: background-color var(--motion-fast) var(--md-ease), box-shadow var(--motion-fast) var(--md-ease);
 }
-.selectbar.is-active { border-color: rgba(20, 20, 19, .14); background: rgba(255, 255, 255, .94); box-shadow: var(--shadow-float); }
+.selectbar.is-active { background: rgba(255, 255, 255, .94); box-shadow: var(--md-elev-2); }
 .selectall { display: inline-flex; align-items: center; gap: 8px; color: var(--color-ink); font-size: 14px; font-weight: 500; cursor: pointer; user-select: none; }
 .selectall input { width: 16px; height: 16px; }
 .selectbar__info { color: var(--color-text-secondary); font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -356,17 +358,17 @@ onMounted(() => load())
 .grid { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; }
 .card {
   position: relative; display: flex; flex-direction: column; overflow: hidden;
-  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); border-radius: 18px; background: var(--color-surface);
-  transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) var(--ease-editorial), transform var(--motion-fast) var(--ease-editorial);
+  border: 0; border-radius: 20px; background: var(--md-surface-container-low);
+  transition: background-color var(--motion-fast) var(--md-ease), box-shadow var(--motion-fast) var(--md-ease), transform var(--motion-fast) var(--md-ease);
 }
-.card:hover { border-color: rgba(20, 20, 19, .16); box-shadow: var(--shadow-float); transform: translateY(-2px); }
-.card.is-selected { border-color: var(--color-accent); box-shadow: 0 0 0 3px rgba(91, 122, 74, .14); }
+.card:hover { background: var(--md-surface-container); box-shadow: var(--md-elev-1); transform: translateY(-2px); }
+.card.is-selected { background: var(--md-primary-container); box-shadow: var(--md-elev-1); }
 .card--skel { padding-bottom: 12px; }
 .card--skel .line { height: 12px; margin: 12px 12px 0; }
 .card--skel .line.short { width: 50%; }
 .card__thumb {
   display: flex; aspect-ratio: 4 / 3; align-items: center; justify-content: center; overflow: hidden; padding: 0;
-  background: var(--color-card); cursor: zoom-in;
+  background: var(--md-surface-container); cursor: zoom-in;
 }
 .card__thumb.is-doc { cursor: pointer; }
 .card__thumb.is-loading { background: linear-gradient(90deg, var(--color-canvas-soft) 0%, var(--color-surface-hover) 40%, var(--color-canvas-soft) 80%); background-size: 200% 100%; animation: shimmer 1.3s infinite linear; }
@@ -391,21 +393,21 @@ onMounted(() => load())
 .card__name { margin: 0; overflow: hidden; color: var(--color-ink); font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .card__meta { display: flex; align-items: center; gap: 6px; min-width: 0; margin: 0; color: var(--color-muted); font-size: 12px; white-space: nowrap; }
 .card__date { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.tag { flex-shrink: 0; padding: 1px 8px; border-radius: var(--radius-pill); background: var(--color-canvas-soft); color: var(--color-text-secondary); font-size: 11px; font-weight: 500; }
-.tag--gen { background: var(--color-accent-tint); color: var(--color-accent-active); }
+.tag { flex-shrink: 0; padding: 1px 8px; border-radius: 9999px; background: var(--md-surface-container-lowest); color: var(--color-text-secondary); font-size: 11px; font-weight: 500; }
+.tag--gen { background: var(--md-primary-container); color: var(--md-on-primary-container); }
 .conv-link { min-width: 0; overflow: hidden; padding: 0; color: var(--color-muted); font-size: 12px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .conv-link:hover { color: var(--color-accent-active); text-decoration: underline; text-underline-offset: 2px; }
 .more { margin-top: 24px; text-align: center; }
 .empty { padding: 64px 16px; text-align: center; }
 .empty__icon {
   display: inline-flex; width: 58px; height: 58px; align-items: center; justify-content: center; margin-bottom: 16px;
-  border-radius: 50%; background: var(--color-card); color: var(--color-muted); border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .06));
+  border-radius: 50%; background: var(--md-surface-container-low); color: var(--color-muted); border: 0;
 }
 .empty h2 { margin-bottom: 8px; font-size: 22px; font-weight: 500; letter-spacing: -.02em; }
 .empty p { max-width: 400px; margin: 0 auto; font-size: 14px; line-height: 1.65; }
 @media (hover: none) { .box { opacity: 1 !important; transform: none !important; } }
 @media (max-width: 767px) {
-  .selectbar { top: -16px; padding: 8px 10px 8px 14px; border-radius: 16px; }
+  .selectbar { top: 68px; padding: 8px 10px 8px 14px; border-radius: 18px; }
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .filter { width: 210px; }
   .usage__head .btn { width: 100%; }

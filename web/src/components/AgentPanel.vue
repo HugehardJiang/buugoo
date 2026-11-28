@@ -280,47 +280,50 @@ function steps(m: AgentMessage): string {
 .link-btn { padding: 0; color: var(--color-accent-active); text-align: left; text-decoration: underline; text-underline-offset: 3px; }
 .login { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: -2px 0 14px; }
 .login .text-input { width: 210px; min-height: 36px; }
-.select { width: auto; max-width: 280px; min-height: 36px; padding-top: 0; padding-bottom: 0; border-radius: var(--radius-pill); padding-left: 14px; padding-right: 28px; }
-.admin { border-color: transparent; background: var(--color-accent-tint); color: var(--color-accent-active); }
+.select {
+  width: auto; max-width: 280px; min-height: 38px; padding-top: 0; padding-bottom: 0; border: 0;
+  border-radius: 9999px; padding-left: 16px; padding-right: 28px; background: var(--md-surface-container-high);
+}
+.admin { border: 0; background: var(--md-primary-container); color: var(--md-on-primary-container); }
 .log {
   display: flex; flex-direction: column; gap: 12px; height: min(54vh, 500px); overflow-y: auto; padding: 18px;
-  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); border-radius: 20px; background: var(--color-card);
+  border: 0; border-radius: 22px; background: var(--md-surface-container-low);
 }
 .empty { margin: auto 0; }
 /* 还没聊的时候不占那么高，只放几个示例 */
 .log.is-empty { height: auto; min-height: 0; padding: 18px 20px; }
 .examples { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .example {
-  padding: 7px 14px; border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .1)); border-radius: var(--radius-pill);
-  background: var(--color-surface); color: var(--color-text-secondary); font-size: 13px; text-align: left; overflow-wrap: anywhere;
-  transition: border-color var(--motion-fast) ease, color var(--motion-fast) ease, box-shadow var(--motion-fast) ease, transform var(--motion-fast) var(--ease-editorial);
+  padding: 8px 16px; border: 0; border-radius: 9999px;
+  background: var(--md-surface-container-lowest); color: var(--color-text-secondary); font-size: 13px; text-align: left; overflow-wrap: anywhere;
+  transition: background-color var(--motion-fast) var(--md-ease), color var(--motion-fast) ease, box-shadow var(--motion-fast) var(--md-ease), transform var(--motion-fast) var(--md-ease);
 }
-.example:hover { border-color: rgba(20, 20, 19, .22); color: var(--color-ink); box-shadow: var(--shadow-raised); transform: translateY(-1px); }
-.msg { max-width: 86%; padding: 11px 15px; border-radius: 16px; font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
+.example:hover { background: var(--md-primary-container); color: var(--md-on-primary-container); box-shadow: var(--md-elev-1); transform: translateY(-1px); }
+.msg { max-width: 86%; padding: 11px 15px; border-radius: 18px; font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
 .msg--user { align-self: flex-end; border-bottom-right-radius: 6px; background: var(--color-ink); color: #fff; white-space: pre-wrap; }
 .msg--bot {
   align-self: flex-start; border-bottom-left-radius: 6px;
-  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); background: var(--color-surface);
+  border: 0; background: var(--md-surface-container-lowest);
 }
 .md :deep(p) { margin: 0 0 6px; }
 .md :deep(p:last-child) { margin-bottom: 0; }
 .md :deep(ul), .md :deep(ol) { margin: 4px 0; padding-left: 20px; }
 .steps { margin: 0 0 6px; }
 .action {
-  margin-top: 10px; padding: 12px 14px; border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .1));
-  border-radius: 14px; background: var(--color-card);
+  margin-top: 10px; padding: 14px 16px; border: 0;
+  border-radius: 16px; background: var(--md-surface-container-low);
 }
-.action.is-done { border-color: rgba(74, 122, 76, .28); background: var(--color-success-tint); }
-.action.is-failed { border-color: rgba(181, 51, 51, .28); background: var(--color-danger-tint); }
+.action.is-done { background: var(--md-primary-container); }
+.action.is-failed { background: var(--color-danger-tint); }
 .action.is-canceled { opacity: .62; }
 .action__summary { margin: 0; white-space: pre-wrap; font-size: 13.5px; font-weight: 500; color: var(--color-ink); }
 .action__detail { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 13px; color: var(--color-text-secondary); }
 .action__detail.is-code {
-  max-height: 240px; overflow: auto; padding: 10px 12px; border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08));
-  border-radius: 10px; background: var(--color-canvas-soft); font-family: var(--font-mono); font-size: 12px;
+  max-height: 240px; overflow: auto; padding: 10px 12px; border: 0;
+  border-radius: 12px; background: var(--md-surface-container-lowest); font-family: var(--font-mono); font-size: 12px;
 }
 .action__option { margin-top: 8px; font-size: 13px; }
-.badge-pill--sys { margin-right: 6px; border-color: transparent; background: var(--color-warning); color: #fff; }
+.badge-pill--sys { margin-right: 6px; border: 0; background: var(--color-warning); color: #fff; }
 .action__btns { display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px; }
 .action__state { display: flex; align-items: center; gap: 5px; margin: 8px 0 0; font-weight: 500; }
 .is-done .action__state { color: var(--color-success); }

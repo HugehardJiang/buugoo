@@ -12,6 +12,7 @@ import ApiPanel from '../components/ApiPanel.vue'
 import Modal from '../components/Modal.vue'
 import ModelsPanel from '../components/ModelsPanel.vue'
 import PersonaPanel from '../components/PersonaPanel.vue'
+import TopBlur from '../components/TopBlur.vue'
 import { dateTime } from '../format'
 import Icon from '../Icon.vue'
 import { memoriesUnlocked, setMemoriesUnlocked } from '../memoryLock'
@@ -150,6 +151,7 @@ function pick(id: string) {
 <template>
   <main class="main">
     <header class="topbar">
+      <TopBlur />
       <div class="topbar__titles">
         <h1>设置</h1>
       </div>
@@ -281,32 +283,33 @@ function pick(id: string) {
 </template>
 
 <style scoped>
-/* 左侧分类导航、右侧内容区：宽屏舒展留白 + DeepMind 现代克制层级 */
-.settings-page { padding: 20px 32px 64px; }
+/* 左侧分类导航、右侧内容区：宽屏舒展留白 + M3 胶囊指示器与无框表面 */
+.settings-page { padding: 80px 32px 64px; }
 .settings { display: grid; grid-template-columns: 216px minmax(0, 1fr); gap: 36px; max-width: 1240px; margin: 0 auto; align-items: start; }
-.settings__nav { position: sticky; top: 0; align-self: start; display: grid; gap: 2px; min-width: 0; }
+.settings__nav { position: sticky; top: 72px; align-self: start; display: grid; gap: 4px; min-width: 0; }
 .settings__search {
-  display: flex; align-items: center; gap: 8px; height: 36px; margin-bottom: 14px; padding: 0 13px;
-  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .1)); border-radius: var(--radius-pill);
-  background: var(--color-surface); color: var(--color-muted);
-  transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
+  display: flex; align-items: center; gap: 8px; height: 40px; margin-bottom: 14px; padding: 0 16px;
+  border: 0; border-radius: 9999px;
+  background: var(--md-surface-container-high); color: var(--color-muted);
+  transition: background-color var(--motion-fast) var(--md-ease), box-shadow var(--motion-fast) var(--md-ease), color var(--motion-fast) ease;
 }
-.settings__search:focus-within { border-color: var(--color-accent); box-shadow: 0 0 0 3px rgba(91, 122, 74, .12); color: var(--color-ink); }
+.settings__search:focus-within { background: var(--md-surface-container-lowest); box-shadow: var(--md-elev-1); color: var(--color-ink); }
 .settings__search input { flex: 1; width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--color-ink); font-size: 13.5px; }
 .settings__search input::placeholder { color: var(--color-tertiary); }
-.settings__group { margin: 14px 12px 4px; color: var(--color-muted); font-size: 12px; font-weight: 500; letter-spacing: .04em; }
+.settings__group { margin: 14px 16px 4px; color: var(--color-muted); font-size: 12px; font-weight: 500; letter-spacing: .04em; }
 .settings__group:first-of-type { margin-top: 0; }
 .settings__tab {
-  position: relative; display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 12px; border-radius: var(--radius-lg);
+  position: relative; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 16px;
+  border: 0; border-radius: 9999px; box-shadow: none;
   color: var(--color-text-secondary); font-size: 14px; font-weight: 450; text-align: left;
-  transition: background-color var(--motion-fast) var(--ease-editorial), color var(--motion-fast) ease;
+  transition: background-color var(--motion-fast) var(--md-ease), color var(--motion-fast) ease;
 }
 .settings__tab :deep(svg) { flex-shrink: 0; color: var(--color-muted); transition: color var(--motion-fast) ease; }
-.settings__tab:hover { background: var(--color-hover-wash); color: var(--color-ink); }
+.settings__tab:hover { background: var(--md-state-hover); color: var(--color-ink); }
 .settings__tab:hover :deep(svg) { color: var(--color-ink); }
-.settings__tab.is-active { background: var(--color-card); color: var(--color-ink); font-weight: 500; box-shadow: inset 0 0 0 1px var(--color-hairline-subtle, rgba(20, 20, 19, .08)); }
-.settings__tab.is-active :deep(svg) { color: var(--color-accent); }
-.settings__none { margin: 6px 12px; }
+.settings__tab.is-active { background: var(--md-primary-container); color: var(--md-on-primary-container); font-weight: 600; box-shadow: none; }
+.settings__tab.is-active :deep(svg) { color: var(--md-on-primary-container); }
+.settings__none { margin: 6px 16px; }
 
 /* 右侧内容：直接铺在暖米画布上，现代无衬线标题 + 极细分割线 */
 .settings__content { min-width: 0; padding-bottom: 32px; }
@@ -328,16 +331,16 @@ function pick(id: string) {
 .settings__content :deep(.field) { margin-bottom: 14px; }
 
 @media (max-width: 860px) {
-  .settings-page { padding: 14px var(--mobile-gutter) 40px; }
+  .settings-page { padding: 74px var(--mobile-gutter) 40px; }
   .settings { grid-template-columns: minmax(0, 1fr); gap: 18px; }
   .settings__nav { position: static; display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 6px; scrollbar-width: none; }
   .settings__nav::-webkit-scrollbar { display: none; }
   .settings__search, .settings__group { display: none; }
   .settings__tab {
-    flex-shrink: 0; height: 34px; padding: 0 14px; border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .1));
-    border-radius: var(--radius-pill); background: var(--color-surface); font-size: 13.5px; white-space: nowrap;
+    flex-shrink: 0; height: 36px; padding: 0 16px; border: 0;
+    border-radius: 9999px; background: var(--md-surface-container-low); font-size: 13.5px; white-space: nowrap; box-shadow: none;
   }
-  .settings__tab.is-active { background: var(--color-ink); border-color: var(--color-ink); color: #fff; box-shadow: none; }
+  .settings__tab.is-active { background: var(--md-primary-container); color: var(--md-on-primary-container); font-weight: 600; box-shadow: none; }
   .settings__tab :deep(svg) { display: none; }
 }
 .panel p { margin: 0; }
@@ -347,7 +350,7 @@ function pick(id: string) {
 @media (max-width: 767px) { .invite-form { grid-template-columns: 1fr 1fr; } .invite-form .note { grid-column: 1 / -1; } }
 .invites { margin-top: 22px; border-top: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); }
 .invite { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 14px 0; border-bottom: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); }
-.invite .code { padding: 3px 10px; border-radius: var(--radius-pill); background: var(--color-card); font-size: 13px; letter-spacing: .06em; }
+.invite .code { padding: 3px 10px; border-radius: var(--radius-pill); background: var(--md-surface-container-low); font-size: 13px; letter-spacing: .06em; }
 .spacer { flex: 1; }
 .version { text-align: center; margin-top: 32px; letter-spacing: .06em; }
 .compact {

@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { api, ApiError, type Quota } from '../api'
 import Avatar from '../components/Avatar.vue'
 import MemberPanel from '../components/MemberPanel.vue'
+import TopBlur from '../components/TopBlur.vue'
 import { copyDiagnostics } from '../diag'
 import { dateTime, mtok } from '../format'
 import { applySession, logout, session } from '../session'
@@ -107,6 +108,7 @@ function percent(used: number, limit: number) {
 <template>
   <main class="main">
     <header class="topbar">
+      <TopBlur />
       <div class="topbar__titles">
         <h1>个人中心</h1>
       </div>
@@ -203,7 +205,7 @@ function percent(used: number, limit: number) {
 <style scoped>
 .profile-wrap { max-width: 1080px; }
 .profile-wrap :deep(.panel) {
-  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .06)); border-radius: var(--radius-xxl);
+  border: 0; border-radius: var(--radius-xxl);
 }
 .profile-wrap :deep(.panel > h2),
 .profile-wrap :deep(.panel .usage__head h2) {
@@ -228,8 +230,8 @@ function percent(used: number, limit: number) {
 }
 .metric {
   display: grid; grid-template-columns: 1fr auto; gap: 10px 14px; padding: 16px 18px;
-  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); border-radius: 16px;
-  background: var(--color-canvas); font-size: 14px;
+  border: 0; border-radius: 18px;
+  background: var(--md-surface-container-lowest); font-size: 14px;
 }
 .metric dt { color: var(--color-text-secondary); }
 .metric dd { margin: 0; font-weight: 500; font-variant-numeric: tabular-nums; }

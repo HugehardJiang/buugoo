@@ -261,22 +261,13 @@ async function remove(r: Reminder) {
 </template>
 
 <style scoped>
-.panel { border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .06)); border-radius: var(--radius-xxl); }
+.panel { border: 0; border-radius: var(--radius-xxl); }
 .title { margin: 0 0 16px; font-family: var(--font-sans); font-size: 20px; font-weight: 500; letter-spacing: -.02em; }
 .row { display: flex; align-items: flex-start; gap: 16px; padding-bottom: 18px; }
 .row__text { flex: 1; min-width: 0; }
 .row__title { margin: 0 0 4px; color: var(--color-ink); font-size: 14.5px; font-weight: 500; }
 .caption { margin: 0; line-height: 1.6; }
-.switch {
-  position: relative; flex-shrink: 0; width: 44px; height: 26px; margin-top: 2px; border-radius: var(--radius-pill); background: rgba(20, 20, 19, .16);
-  transition: background-color 220ms var(--ease-editorial);
-}
-.switch.is-on { background: var(--color-accent); }
-.switch__knob {
-  position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff;
-  box-shadow: 0 1px 3px rgba(20, 20, 19, .22); transition: transform 260ms var(--ease-editorial);
-}
-.switch.is-on .switch__knob { transform: translateX(18px); }
+.switch { margin-top: 2px; }
 .reminders { padding-top: 18px; border-top: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); }
 .new { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 6px; }
 .reminder-list { display: grid; margin: 14px 0 0; padding: 0; list-style: none; }
@@ -289,7 +280,7 @@ async function remove(r: Reminder) {
 .reminder__main { flex: 1; min-width: 0; }
 .reminder__text { margin: 0 0 4px; color: var(--color-ink); line-height: 1.55; overflow-wrap: anywhere; }
 .reminder__text .badge-pill { margin-right: 6px; vertical-align: 1px; }
-.badge-pill--task { border-color: transparent; background: var(--color-accent-tint); color: var(--color-accent-active); }
+.badge-pill--task { border: 0; background: var(--md-primary-container); color: var(--md-on-primary-container); }
 .reminder__when { font-variant-numeric: tabular-nums; }
 .reminder__actions { display: flex; flex-shrink: 0; gap: 2px; }
 .btn-sm { min-height: 30px; padding: 0 12px; }

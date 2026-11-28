@@ -1,11 +1,13 @@
 <script setup lang="ts">
 // 聊天软件：扫码连接自己的微信，用绑定码绑定 QQ、Telegram。
 import ChannelsPanel from '../components/ChannelsPanel.vue'
+import TopBlur from '../components/TopBlur.vue'
 </script>
 
 <template>
   <main class="main">
     <header class="topbar">
+      <TopBlur />
       <div class="topbar__titles">
         <h1>聊天软件</h1>
       </div>
@@ -21,7 +23,7 @@ import ChannelsPanel from '../components/ChannelsPanel.vue'
 <style scoped>
 .channels-wrap { max-width: 1040px; }
 .channels-wrap :deep(.panel) {
-  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .06));
+  border: 0;
   border-radius: var(--radius-xxl);
 }
 .channels-wrap :deep(h2) {

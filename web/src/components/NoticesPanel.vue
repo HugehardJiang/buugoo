@@ -45,12 +45,12 @@ onMounted(async () => {
 .skel { height: 84px; border-radius: 18px; }
 .list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
 .item {
-  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); border-radius: 18px;
-  background: var(--color-surface); overflow: hidden;
-  transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) var(--ease-editorial);
+  border: 0; border-radius: 20px;
+  background: var(--md-surface-container-low); overflow: hidden;
+  transition: background-color var(--motion-fast) var(--md-ease), box-shadow var(--motion-fast) var(--md-ease);
 }
-.item:hover { border-color: rgba(20, 20, 19, .16); }
-.item.is-open { border-color: rgba(20, 20, 19, .14); box-shadow: var(--shadow-raised); }
+.item:hover { background: var(--md-surface-container); }
+.item.is-open { background: var(--md-surface-container-low); box-shadow: var(--md-elev-1); }
 .item__head { display: flex; align-items: center; gap: 12px; width: 100%; padding: 15px 18px; text-align: left; }
 .item__title { flex: 1; min-width: 0; color: var(--color-ink); font-size: 14.5px; font-weight: 500; overflow-wrap: anywhere; }
 .item__date { flex-shrink: 0; font-variant-numeric: tabular-nums; }

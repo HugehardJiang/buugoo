@@ -131,7 +131,7 @@ onMounted(load)
 </template>
 
 <style scoped>
-.panel { border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .06)); border-radius: var(--radius-xxl); }
+.panel { border: 0; border-radius: var(--radius-xxl); }
 .panel h2 { font-family: var(--font-sans); font-size: 20px; font-weight: 500; letter-spacing: -.02em; }
 .now h2 { margin: 0 0 6px; font-size: 26px; font-weight: 500; letter-spacing: -.025em; }
 .now .eyebrow { margin-bottom: 6px; }

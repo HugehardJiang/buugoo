@@ -185,8 +185,8 @@ const monthRows = computed(() => {
 .usage__head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
 .usage__head h2 { margin: 0; font-family: var(--font-sans); font-size: 20px; font-weight: 500; letter-spacing: -.02em; }
 .usage__plan {
-  display: inline-flex; align-items: center; padding: 2px 11px; border-radius: var(--radius-pill);
-  background: var(--color-accent-tint); color: var(--color-accent-active); font-size: 12.5px; font-weight: 500;
+  display: inline-flex; align-items: center; padding: 2px 12px; border-radius: 9999px;
+  background: var(--md-primary-container); color: var(--md-on-primary-container); font-size: 12.5px; font-weight: 500;
 }
 .usage__summary {
   margin: 0 0 8px; padding-bottom: 16px;
@@ -199,7 +199,7 @@ const monthRows = computed(() => {
 .row__label { display: grid; gap: 3px; min-width: 0; }
 .row__label span { color: var(--color-ink); font-size: 14.5px; font-weight: 500; }
 .row__label small { color: var(--color-muted); font-size: 12.5px; }
-.bar { height: 7px; overflow: hidden; border-radius: var(--radius-pill); background: rgba(20, 20, 19, .08); }
+.bar { height: 7px; overflow: hidden; border-radius: var(--radius-pill); background: var(--md-surface-container-high); }
 .bar i { display: block; height: 100%; border-radius: inherit; background: var(--color-accent); transition: width .5s var(--ease-editorial); }
 .bar i.is-high { background: var(--color-warning); }
 .row__pct { color: var(--color-text-secondary); font-size: 13.5px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
@@ -218,10 +218,10 @@ const monthRows = computed(() => {
 .plan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 12px; margin: 10px 0 12px; }
 .plan {
   display: flex; flex-direction: column; gap: 8px; padding: 18px 20px;
-  border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); border-radius: 18px; background: var(--color-canvas);
-  transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) var(--ease-editorial), transform var(--motion-fast) var(--ease-editorial);
+  border: 0; border-radius: 20px; background: var(--md-surface-container-lowest);
+  transition: box-shadow var(--motion-fast) var(--md-ease), transform var(--motion-fast) var(--md-ease);
 }
-.plan:hover { border-color: rgba(20, 20, 19, .18); box-shadow: var(--shadow-float); transform: translateY(-2px); }
+.plan:hover { box-shadow: var(--md-elev-1); transform: translateY(-2px); }
 .plan__head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .plan h3 { margin: 0; font-size: 16px; font-weight: 500; letter-spacing: -.015em; }
 .price { color: var(--color-accent-active); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }

@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { api, ApiError, type BgTask } from '../api'
 import ToolSteps from '../components/ToolSteps.vue'
+import TopBlur from '../components/TopBlur.vue'
 import { shortWhen } from '../format'
 import { renderMarkdown } from '../markdown'
 import { session } from '../session'
@@ -90,6 +91,7 @@ const resume = () => act(() => api.resumeBgTask(cur().id), '接着做了')
 <template>
   <main class="main">
     <header class="topbar">
+      <TopBlur />
       <div class="topbar__titles">
         <h1>后台任务</h1>
       </div>
@@ -168,36 +170,38 @@ const resume = () => act(() => api.resumeBgTask(cur().id), '接着做了')
 
 <style scoped>
 .bg { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 28px; max-width: 1240px; margin: 0 auto; align-items: start; }
-.bg__list { position: sticky; top: 0; display: grid; gap: 12px; min-width: 0; }
+.bg__list { position: sticky; top: 72px; display: grid; gap: 12px; min-width: 0; }
 .intro, .empty { margin: 0; line-height: 1.65; }
 .skel { height: 120px; border-radius: var(--radius-xl); }
 .items { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .item {
-  display: grid; gap: 6px; width: 100%; padding: 12px 14px; border: 1px solid transparent; border-radius: 16px; text-align: left;
-  transition: background-color var(--motion-fast) var(--ease-editorial), border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
+  display: grid; gap: 6px; width: 100%; padding: 12px 16px; border: 0; border-radius: 18px; text-align: left;
+  transition: background-color var(--motion-fast) var(--md-ease), box-shadow var(--motion-fast) var(--md-ease);
 }
-.item:hover { background: var(--color-card); border-color: var(--color-hairline-subtle, rgba(20, 20, 19, .06)); }
+.item:hover { background: var(--md-surface-container-low); }
 .item.is-active {
-  background: var(--color-surface); border-color: var(--color-hairline-subtle, rgba(20, 20, 19, .1));
-  box-shadow: var(--shadow-raised);
+  background: var(--md-primary-container); color: var(--md-on-primary-container); box-shadow: none;
 }
 .item__title { color: var(--color-ink); font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
 .item__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; color: var(--color-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.item.is-active .item__title { color: var(--md-on-primary-container); font-weight: 600; }
+.item.is-active .item__meta { color: var(--md-on-primary-container); opacity: .86; }
 .badge {
-  display: inline-flex; align-items: center; padding: 2px 9px; border-radius: var(--radius-pill);
-  background: var(--color-canvas-soft); color: var(--color-text-secondary); font-size: 12px; font-weight: 500; white-space: nowrap;
+  display: inline-flex; align-items: center; padding: 2px 10px; border: 0; border-radius: 9999px;
+  background: var(--md-surface-container); color: var(--color-text-secondary); font-size: 12px; font-weight: 500; white-space: nowrap;
 }
-.badge.is-running, .badge.is-queued, .badge.is-pending { background: var(--color-accent-tint); color: var(--color-accent-active); }
+.badge.is-running, .badge.is-queued, .badge.is-pending { background: var(--md-primary-container); color: var(--md-on-primary-container); }
+.item.is-active .badge { background: var(--md-surface-container-lowest); color: var(--md-on-primary-container); }
 .badge.is-failed { background: var(--color-danger-tint); color: var(--color-danger); }
-.bar { display: block; height: 4px; border-radius: var(--radius-pill); background: var(--color-divider); overflow: hidden; }
-.bar span { display: block; height: 100%; border-radius: inherit; background: var(--color-accent); transition: width .6s var(--ease-editorial); }
+.bar { display: block; height: 4px; border-radius: var(--radius-pill); background: var(--md-surface-container-high); overflow: hidden; }
+.bar span { display: block; height: 100%; border-radius: inherit; background: var(--color-accent); transition: width .6s var(--md-ease); }
 .bar--big { height: 6px; margin-bottom: 14px; }
 .bg__body {
-  min-width: 0; border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .06)); border-radius: var(--radius-xxl);
+  min-width: 0; border: 0; border-radius: var(--radius-xxl);
 }
 .bg__placeholder {
   display: grid; place-items: center; min-height: 300px;
-  border: 1px dashed var(--color-hairline-strong); border-radius: var(--radius-xxl); background: var(--color-card);
+  border: 0; border-radius: var(--radius-xxl); background: var(--md-surface-container-low);
 }
 .body-head {
   display: flex; align-items: center; gap: 10px; margin-bottom: 16px; padding-bottom: 14px;
@@ -207,8 +211,8 @@ const resume = () => act(() => api.resumeBgTask(cur().id), '接着做了')
 .title { flex: 1; min-width: 0; margin: 0; font-size: 21px; font-weight: 500; letter-spacing: -.02em; overflow-wrap: anywhere; word-break: normal; }
 .facts {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px 16px;
-  margin: 0 0 16px; padding: 14px 16px; border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .07));
-  border-radius: 16px; background: var(--color-canvas);
+  margin: 0 0 16px; padding: 14px 16px; border: 0;
+  border-radius: 18px; background: var(--md-surface-container-lowest);
 }
 .facts div { display: grid; gap: 3px; min-width: 0; }
 .facts dt { color: var(--color-muted); font-size: 12px; }
@@ -222,7 +226,7 @@ const resume = () => act(() => api.resumeBgTask(cur().id), '接着做了')
 .md :deep(ul), .md :deep(ol) { margin: 0 0 10px; padding-left: 22px; }
 .md :deep(table) { display: block; overflow-x: auto; border-collapse: collapse; }
 .md :deep(th), .md :deep(td) { padding: 6px 10px; border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .12)); }
-.md :deep(pre) { overflow-x: auto; padding: 12px 14px; border-radius: var(--radius-lg); background: var(--color-canvas); border: 1px solid var(--color-hairline-subtle, rgba(20, 20, 19, .08)); }
+.md :deep(pre) { overflow-x: auto; padding: 12px 14px; border-radius: var(--radius-lg); background: var(--md-surface-container-lowest); border: 0; }
 @media (max-width: 840px) {
   .bg { grid-template-columns: minmax(0, 1fr); }
   .bg__list { position: static; }
