@@ -466,6 +466,15 @@ onBeforeUnmount(() => {
   color: var(--color-ink);
 }
 
+.site h1,
+.site h2,
+.site h3,
+.site h4 {
+  word-break: normal;
+  overflow-wrap: anywhere;
+  text-wrap: wrap;
+}
+
 .wrap {
   width: 100%;
   max-width: 1280px;
@@ -480,7 +489,6 @@ onBeforeUnmount(() => {
   top: 0;
   z-index: 30;
   height: 64px;
-  isolation: isolate;
   border-bottom: 0;
 }
 .dm-header__blur {
@@ -489,7 +497,7 @@ onBeforeUnmount(() => {
   left: 0;
   right: 0;
   height: 80px;
-  z-index: -1;
+  z-index: 0;
   pointer-events: none;
 }
 .dm-header__blur::after {
@@ -515,41 +523,42 @@ onBeforeUnmount(() => {
   inset: 0;
   pointer-events: none;
   background: transparent;
-  backdrop-filter: blur(var(--hb-blur));
   -webkit-backdrop-filter: blur(var(--hb-blur));
-  mask-repeat: no-repeat;
-  mask-size: 100% 100%;
+  backdrop-filter: blur(var(--hb-blur));
   -webkit-mask-repeat: no-repeat;
   -webkit-mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+  mask-size: 100% 100%;
 }
 .dm-header__blur-layer--1 {
   --hb-blur: 4px;
-  mask-image: linear-gradient(to bottom, transparent 0%, transparent 40%, #000 60%, #000 80%, transparent 100%);
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, transparent 40%, #000 60%, #000 80%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, transparent 40%, #000 60%, #000 80%, transparent 100%);
 }
 .dm-header__blur-layer--2 {
   --hb-blur: 6px;
-  mask-image: linear-gradient(to bottom, transparent 0%, transparent 20%, #000 40%, #000 60%, transparent 80%, transparent 100%);
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, transparent 20%, #000 40%, #000 60%, transparent 80%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, transparent 20%, #000 40%, #000 60%, transparent 80%, transparent 100%);
 }
 .dm-header__blur-layer--3 {
   --hb-blur: 10px;
-  mask-image: linear-gradient(to bottom, transparent 0%, #000 20%, #000 40%, transparent 60%, transparent 100%);
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 20%, #000 40%, transparent 60%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 20%, #000 40%, transparent 60%, transparent 100%);
 }
 .dm-header__blur-layer--4 {
   --hb-blur: 18px;
-  mask-image: linear-gradient(to bottom, #000 0%, #000 20%, transparent 40%, transparent 100%);
   -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 20%, transparent 40%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 20%, transparent 40%, transparent 100%);
 }
 .dm-header__blur-layer--5 {
   --hb-blur: 34px;
-  mask-image: linear-gradient(to bottom, #000 0%, transparent 20%, transparent 100%);
   -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 20%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, transparent 20%, transparent 100%);
 }
 
 .dm-header__inner {
   position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -573,8 +582,8 @@ onBeforeUnmount(() => {
   border-radius: 9999px;
   background: rgba(255, 255, 255, 0.4);
   border: 1px solid rgba(20, 20, 19, 0.09);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 .dm-brand {
   display: inline-flex;
@@ -622,10 +631,11 @@ onBeforeUnmount(() => {
   top: 64px;
   left: 0;
   right: 0;
+  z-index: 2;
   padding: 14px 20px 20px;
   background: rgba(250, 249, 245, 0.95);
-  backdrop-filter: blur(22px);
   -webkit-backdrop-filter: blur(22px);
+  backdrop-filter: blur(22px);
   border-bottom: 1px solid rgba(20, 20, 19, 0.08);
 }
 .dm-drawer__nav {
@@ -1054,6 +1064,7 @@ onBeforeUnmount(() => {
   padding: 5px 11px;
   border-radius: 9999px;
   background: rgba(255, 255, 255, 0.14);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
 }
 .cover-art--obsidian {
