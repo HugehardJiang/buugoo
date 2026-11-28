@@ -129,7 +129,7 @@ async function compact() {
 
 <style scoped>
 .meter {
-  display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px 0 9px;
+  display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 12px 0 8px;
   border: 0; border-radius: 9999px; background: rgba(235, 232, 222, .86);
   -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
   color: var(--color-ink); font-size: 12.5px; font-weight: 500; font-variant-numeric: tabular-nums;

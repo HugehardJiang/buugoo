@@ -149,28 +149,41 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
       aria-label="主导航"
     >
       <div class="side__head">
-        <button
-          v-if="wideScreen"
-          type="button"
-          class="side__icon-btn"
-          :title="sidebarCollapsed ? '展开侧栏' : '收起侧栏'"
-          :aria-label="sidebarCollapsed ? '展开侧栏' : '收起侧栏'"
-          @click="sidebarCollapsed = !sidebarCollapsed"
-        >
-          <Icon name="sidebar" :size="18" />
-        </button>
-        <RouterLink v-if="!sidebarCollapsed || !wideScreen" to="/" class="side__brand">
-          <img src="/logo.png" alt="" width="22" height="22" class="side__logo" />
+        <RouterLink v-if="!collapsed" to="/" class="side__brand">
+          <img src="/logo.png" alt="" width="20" height="20" class="side__logo" />
           <span>{{ name }}</span>
         </RouterLink>
-        <button v-if="!wideScreen" type="button" class="side__icon-btn side__close" aria-label="关闭导航" @click="navOpen = false"><Icon name="x" :size="18" /></button>
+        <div class="side__head-actions">
+          <button
+            v-if="!collapsed"
+            type="button"
+            class="side__icon-btn"
+            :class="{ 'is-active': searching }"
+            title="搜索对话"
+            aria-label="搜索对话"
+            @click="toggleSearch"
+          >
+            <Icon name="search" :size="17" />
+          </button>
+          <button
+            v-if="wideScreen"
+            type="button"
+            class="side__icon-btn"
+            :title="sidebarCollapsed ? '展开侧栏' : '收起侧栏'"
+            :aria-label="sidebarCollapsed ? '展开侧栏' : '收起侧栏'"
+            @click="sidebarCollapsed = !sidebarCollapsed"
+          >
+            <Icon name="sidebar" :size="17" />
+          </button>
+          <button v-if="!wideScreen" type="button" class="side__icon-btn" aria-label="关闭导航" @click="navOpen = false"><Icon name="x" :size="17" /></button>
+        </div>
       </div>
       <nav class="side__nav">
-        <button type="button" class="side__fab" title="新对话" @click="newChat">
-          <span class="side__fab-ico"><Icon name="plus" :size="18" /></span><span class="side__label">新对话</span>
+        <button type="button" class="side__item side__item--new" title="新对话" @click="newChat">
+          <span class="side__ico"><Icon name="edit" :size="17" /></span><span class="side__label">新对话</span>
         </button>
-        <button type="button" class="side__item" :class="{ 'is-active': searching }" title="搜索对话" @click="toggleSearch">
-          <span class="side__ico"><Icon name="search" :size="18" /></span><span class="side__label">搜索</span>
+        <button v-if="collapsed" type="button" class="side__item" :class="{ 'is-active': searching }" title="搜索对话" @click="toggleSearch">
+          <span class="side__ico"><Icon name="search" :size="17" /></span><span class="side__label">搜索</span>
         </button>
         <RouterLink
           v-for="it in sideItems"
@@ -181,7 +194,7 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
           :title="it.label"
         >
           <span class="side__ico">
-            <Icon :name="it.icon" :size="18" />
+            <Icon :name="it.icon" :size="17" />
             <span v-if="it.route === 'channels'" class="app-rail__dot" :class="{ 'is-on': linked > 0 }" />
           </span>
           <span class="side__label">{{ it.label }}</span>
@@ -245,14 +258,14 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
       </div>
       <div class="side__foot">
         <RouterLink to="/profile" class="side__me" :class="{ 'is-active': route.name === 'profile' }" title="个人中心">
-          <Avatar :seed="session.user?.avatar_seed ?? ''" :size="30" label="" />
+          <Avatar :seed="session.user?.avatar_seed ?? ''" :size="28" label="" />
           <span v-if="!collapsed" class="side__me-text">
             <strong>{{ userName }}</strong>
             <small>{{ userNote }}</small>
           </span>
         </RouterLink>
         <RouterLink v-if="!collapsed" to="/settings" class="side__icon-btn" :class="{ 'is-active': route.name === 'settings' }" title="设置" aria-label="设置">
-          <Icon name="settings" :size="18" />
+          <Icon name="settings" :size="17" />
         </RouterLink>
       </div>
     </aside>
@@ -271,63 +284,52 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
 </template>
 
 <style scoped>
-/* 桌面端侧栏：Material Design 3 Navigation Drawer（无右边框，表面层级区隔 + 胶囊选中指示器） */
+/* 桌面端侧栏：参考 Gemini 高密度 M3 Navigation Drawer（紧凑行高 + 右置搜索与折叠） */
 .side {
-  display: flex; width: 284px; flex: 0 0 284px; flex-direction: column; min-height: 0;
+  display: flex; width: 262px; flex: 0 0 262px; flex-direction: column; min-height: 0;
   border-right: 0; background: var(--md-surface-container-low);
   transition: width .24s var(--md-ease), flex-basis .24s var(--md-ease);
 }
-.side.is-collapsed { width: 72px; flex-basis: 72px; }
+.side.is-collapsed { width: 64px; flex-basis: 64px; }
 .side__head {
-  display: flex; align-items: center; gap: 8px; height: 64px; padding: 0 14px;
+  display: flex; align-items: center; gap: 6px; height: 52px; padding: 0 10px 0 14px;
   border-bottom: 0;
 }
+.side__head-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.side.is-collapsed .side__head-actions { margin-left: 0; }
 .side__brand {
-  display: inline-flex; align-items: center; gap: 9px; min-width: 0;
-  color: var(--color-ink); font-family: var(--font-sans); font-size: 17.5px; font-weight: 500; letter-spacing: -.02em;
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0;
+  color: var(--color-ink); font-family: var(--font-sans); font-size: 16.5px; font-weight: 500; letter-spacing: -.02em;
 }
 .side__brand span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.side__logo { width: 22px; height: 22px; flex: 0 0 22px; object-fit: contain; }
+.side__logo { width: 20px; height: 20px; flex: 0 0 20px; object-fit: contain; }
 .side__icon-btn {
-  display: inline-grid; flex-shrink: 0; place-items: center; width: 38px; height: 38px; border-radius: 9999px;
+  display: inline-grid; flex-shrink: 0; place-items: center; width: 34px; height: 34px; border-radius: 9999px;
   color: var(--color-text-secondary); transition: background-color .16s ease, color .16s ease;
 }
 .side__icon-btn:hover, .side__icon-btn.is-active { background: var(--md-state-hover); color: var(--color-ink); }
-.side__nav { display: flex; flex-direction: column; gap: 3px; padding: 4px 12px 10px; }
+.side__nav { display: flex; flex-direction: column; gap: 1px; padding: 2px 10px 6px; }
 
-/* M3 Extended FAB：新对话主入口 */
-.side__fab {
-  display: inline-flex; align-self: flex-start; align-items: center; gap: 10px;
-  height: 48px; margin: 2px 0 10px; padding: 0 22px 0 16px; border-radius: 16px;
-  background: var(--md-primary-container); color: var(--md-on-primary-container);
-  font-size: 14.5px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; overflow: hidden;
-  box-shadow: var(--md-elev-1);
-  transition: background-color .18s var(--md-ease), box-shadow .18s var(--md-ease), transform .18s var(--md-ease);
-}
-.side__fab:hover { background: #cfe0c1; box-shadow: var(--md-elev-2); transform: translateY(-1px); }
-.side__fab:active { transform: scale(.98); }
-.side__fab-ico { display: inline-grid; place-items: center; width: 20px; height: 20px; flex: 0 0 20px; }
-
-/* M3 Active Indicator Pill：主导航项 */
+/* M3 Active Indicator Pill：紧凑高密度主导航项 + 新对话 */
 .side__item {
-  display: flex; align-items: center; gap: 12px; width: 100%; height: 42px; padding: 0 16px; border-radius: 9999px;
-  color: var(--color-text-secondary); font-size: 14.5px; font-weight: 500; text-align: left; white-space: nowrap; overflow: hidden;
+  display: flex; align-items: center; gap: 11px; width: 100%; height: 35px; padding: 0 12px; border-radius: 9999px;
+  color: var(--color-text-secondary); font-size: 13.5px; font-weight: 500; text-align: left; white-space: nowrap; overflow: hidden;
   transition: background-color .16s var(--md-ease), color .16s ease;
 }
+.side__item--new { color: var(--color-ink); font-weight: 500; }
 .side__item:hover { background: var(--md-state-hover); color: var(--color-ink); }
 .side__item.is-active {
   background: var(--md-primary-container); color: var(--md-on-primary-container); font-weight: 600;
   box-shadow: none;
 }
-.side__ico { position: relative; display: inline-grid; flex: 0 0 20px; place-items: center; width: 20px; height: 20px; color: inherit; }
+.side__ico { position: relative; display: inline-grid; flex: 0 0 18px; place-items: center; width: 18px; height: 18px; color: inherit; }
 .side.is-collapsed .side__head { justify-content: center; padding: 0; }
-.side.is-collapsed .side__nav { align-items: center; padding: 4px 12px 10px; }
-.side.is-collapsed .side__fab { align-self: center; justify-content: center; width: 44px; height: 44px; padding: 0; border-radius: 14px; }
-.side.is-collapsed .side__item { justify-content: center; width: 48px; padding: 0; }
+.side.is-collapsed .side__nav { align-items: center; padding: 2px 8px 6px; }
+.side.is-collapsed .side__item { justify-content: center; width: 42px; height: 38px; padding: 0; }
 .side.is-collapsed .side__label { display: none; }
 
 .side__recents {
-  display: flex; flex: 1; min-height: 0; flex-direction: column; padding: 10px 12px 0;
+  display: flex; flex: 1; min-height: 0; flex-direction: column; padding: 6px 10px 0;
   border-top: 0;
 }
 .side__search-wrap {
@@ -338,29 +340,29 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
 .side__search-inner { min-height: 0; overflow: hidden; }
 /* M3 填充胶囊搜索框 */
 .side__search {
-  display: flex; align-items: center; gap: 8px; height: 42px; margin: 2px 0 12px; padding: 0 16px;
+  display: flex; align-items: center; gap: 8px; height: 36px; margin: 2px 0 8px; padding: 0 12px;
   border: 0; border-radius: 9999px; background: var(--md-surface-container-high); color: var(--color-muted);
   transition: box-shadow .18s var(--md-ease), background-color .18s ease, color .18s ease;
 }
 .side__search:focus-within {
   background: var(--md-surface-container-lowest); color: var(--color-ink); box-shadow: var(--md-elev-1), 0 0 0 2px rgba(91, 122, 74, .22);
 }
-.side__search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--color-ink); font-size: 13.5px; }
+.side__search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--color-ink); font-size: 13px; }
 .side__search input::placeholder { color: var(--color-tertiary); }
 .side__search input::-webkit-search-cancel-button { display: none; }
 .side__sec {
-  display: inline-flex; align-self: flex-start; align-items: center; gap: 5px; height: 28px; margin: 0 0 4px; padding: 0 14px;
-  border-radius: 9999px; color: var(--color-muted); font-size: 12px; font-weight: 600; letter-spacing: .02em;
+  display: inline-flex; align-self: flex-start; align-items: center; gap: 4px; height: 24px; margin: 4px 0 2px; padding: 0 12px;
+  border-radius: 9999px; color: var(--color-muted); font-size: 12px; font-weight: 500; letter-spacing: .01em;
   transition: color .16s ease, background-color .16s ease;
 }
 .side__sec:hover { color: var(--color-ink); background: var(--md-state-hover); }
 .side__caret { transform: rotate(90deg); transition: transform .2s var(--md-ease); }
 .side__caret.is-closed { transform: rotate(0deg); }
-.side__scroll { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 12px; }
-.side__group { display: grid; gap: 2px; margin-bottom: 12px; }
+.side__scroll { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 10px; }
+.side__group { display: grid; gap: 1px; margin-bottom: 8px; }
 .side__conv {
-  display: block; width: 100%; height: 38px; padding: 0 14px; overflow: hidden; border-radius: 9999px; color: var(--color-ink);
-  font-size: 14px; line-height: 38px; text-align: left; white-space: nowrap; text-overflow: ellipsis;
+  display: block; width: 100%; height: 32px; padding: 0 12px; overflow: hidden; border-radius: 9999px; color: var(--color-ink);
+  font-size: 13.5px; line-height: 32px; text-align: left; white-space: nowrap; text-overflow: ellipsis;
   transition: background-color .16s var(--md-ease), color .16s ease;
 }
 .side__conv:hover { background: var(--md-state-hover); }
@@ -369,20 +371,20 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
   box-shadow: none;
 }
 .side__tag {
-  display: inline-block; margin-right: 6px; padding: 0 7px; border-radius: 9999px;
-  background: var(--md-secondary-container); color: var(--md-on-secondary-container); font-size: 11px; font-style: normal; line-height: 17px; vertical-align: 1px;
+  display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 9999px;
+  background: var(--md-secondary-container); color: var(--md-on-secondary-container); font-size: 10.5px; font-style: normal; line-height: 16px; vertical-align: 1px;
 }
 .side__mask { margin-right: 5px; vertical-align: -2px; color: var(--color-accent-active); }
 .side__tag--qq { background: #dbeafe; color: #1d4ed8; }
 .side__tag--telegram { background: #e0f2fe; color: #0369a1; }
-.side__empty { margin: 4px 14px; color: var(--color-muted); font-size: 13px; }
+.side__empty { margin: 4px 12px; color: var(--color-muted); font-size: 12.5px; }
 .side__foot {
-  display: flex; align-items: center; gap: 6px; padding: 10px 12px 14px;
+  display: flex; align-items: center; gap: 6px; padding: 8px 10px 10px;
   border-top: 0;
 }
 .side.is-collapsed .side__foot { justify-content: center; }
 .side__me {
-  display: flex; flex: 1; min-width: 0; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 9999px;
+  display: flex; flex: 1; min-width: 0; align-items: center; gap: 9px; padding: 5px 8px; border-radius: 9999px;
   transition: background-color .16s var(--md-ease);
 }
 .side__me:hover { background: var(--md-state-hover); }
@@ -390,15 +392,15 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
   background: var(--md-primary-container); color: var(--md-on-primary-container);
   box-shadow: none;
 }
-.side.is-collapsed .side__me { flex: 0 0 auto; padding: 6px; }
-.side__me-text { display: grid; min-width: 0; line-height: 1.28; }
-.side__me-text strong { overflow: hidden; color: var(--color-ink); font-size: 13.5px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.side.is-collapsed .side__me { flex: 0 0 auto; padding: 5px; }
+.side__me-text { display: grid; min-width: 0; line-height: 1.25; }
+.side__me-text strong { overflow: hidden; color: var(--color-ink); font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .side__me.is-active .side__me-text strong { color: var(--md-on-primary-container); font-weight: 600; }
-.side__me-text small { overflow: hidden; color: var(--color-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.side__me-text small { overflow: hidden; color: var(--color-muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 手机和窄屏：M3 Modal Navigation Drawer（右侧大圆角，无框悬浮圆钮打开） */
 .nav-toggle {
-  position: fixed; top: 10px; left: 12px; z-index: 20; display: inline-grid; place-items: center; width: 40px; height: 40px;
+  position: fixed; top: 9px; left: 10px; z-index: 20; display: inline-grid; place-items: center; width: 36px; height: 36px;
   border-radius: 9999px; border: 0; background: rgba(235, 232, 222, .9);
   -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); color: var(--color-ink);
   box-shadow: var(--md-elev-1);
@@ -407,14 +409,14 @@ const userNote = computed(() => (session.user?.is_admin ? '管理员' : session.
 .nav-toggle:hover { background: var(--md-surface-container-high); box-shadow: var(--md-elev-2); }
 .nav-toggle:active { background: var(--md-state-pressed); }
 .side.is-drawer {
-  position: fixed; top: 0; bottom: 0; left: 0; z-index: 40; width: min(304px, 84vw); flex: none;
+  position: fixed; top: 0; bottom: 0; left: 0; z-index: 40; width: min(296px, 84vw); flex: none;
   border-right: 0; border-radius: 0 28px 28px 0; box-shadow: none;
   padding-bottom: env(safe-area-inset-bottom);
   transform: translateX(-102%); transition: transform .28s var(--md-ease), box-shadow .28s ease;
 }
 .side.is-drawer.is-open { transform: none; box-shadow: var(--md-elev-3); }
-.side__close { margin-left: auto; }
-.side.is-drawer .side__item, .side.is-drawer .side__conv { height: 44px; line-height: 44px; font-size: 15.5px; }
+.side.is-drawer .side__item { height: 40px; font-size: 14.5px; }
+.side.is-drawer .side__conv { height: 38px; line-height: 38px; font-size: 14.5px; }
 .side-backdrop {
   position: fixed; inset: 0; z-index: 39; background: var(--color-backdrop);
   -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);

@@ -345,7 +345,7 @@ onMounted(() => load())
 .count { white-space: nowrap; }
 
 .selectbar {
-  position: sticky; top: 72px; z-index: 5; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-height: 52px;
+  position: sticky; top: 64px; z-index: 5; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-height: 46px;
   margin: 0 0 18px; padding: 8px 12px 8px 18px; border: 0; border-radius: 20px;
   background: rgba(242, 240, 232, .88); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
   transition: background-color var(--motion-fast) var(--md-ease), box-shadow var(--motion-fast) var(--md-ease);
@@ -407,7 +407,7 @@ onMounted(() => load())
 .empty p { max-width: 400px; margin: 0 auto; font-size: 14px; line-height: 1.65; }
 @media (hover: none) { .box { opacity: 1 !important; transform: none !important; } }
 @media (max-width: 767px) {
-  .selectbar { top: 68px; padding: 8px 10px 8px 14px; border-radius: 18px; }
+  .selectbar { top: 60px; padding: 8px 10px 8px 14px; border-radius: 18px; }
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .filter { width: 210px; }
   .usage__head .btn { width: 100%; }

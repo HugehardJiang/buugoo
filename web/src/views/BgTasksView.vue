@@ -170,7 +170,7 @@ const resume = () => act(() => api.resumeBgTask(cur().id), '接着做了')
 
 <style scoped>
 .bg { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 28px; max-width: 1240px; margin: 0 auto; align-items: start; }
-.bg__list { position: sticky; top: 72px; display: grid; gap: 12px; min-width: 0; }
+.bg__list { position: sticky; top: 64px; display: grid; gap: 10px; min-width: 0; }
 .intro, .empty { margin: 0; line-height: 1.65; }
 .skel { height: 120px; border-radius: var(--radius-xl); }
 .items { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }

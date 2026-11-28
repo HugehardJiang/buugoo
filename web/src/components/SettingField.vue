@@ -160,9 +160,9 @@ const hasSaved = computed(() => f.value.saved !== undefined && f.value.saved !==
 .sf {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 420px);
-  gap: 10px 36px;
+  gap: 8px 32px;
   align-items: start;
-  padding: 16px 0;
+  padding: 12px 0;
   border-top: 1px solid rgba(20, 20, 19, .08);
 }
 .sf:first-child {

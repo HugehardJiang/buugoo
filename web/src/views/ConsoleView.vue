@@ -509,7 +509,7 @@ onMounted(() => {
 
 <style scoped>
 .console-page {
-  padding: 80px 32px 64px;
+  padding: 68px 28px 48px;
 }
 .console-wrap {
   width: 100%;
@@ -556,15 +556,15 @@ onMounted(() => {
 }
 .toc {
   position: sticky;
-  top: 76px;
+  top: 64px;
   display: grid;
-  gap: 3px;
+  gap: 1px;
   padding-bottom: 24px;
 }
 .toc__search {
-  min-height: 40px;
-  margin-bottom: 10px;
-  padding: 0 16px;
+  min-height: 36px;
+  margin-bottom: 8px;
+  padding: 0 14px;
   border-radius: 9999px;
   border: 0;
   background: var(--md-surface-container-high);
@@ -581,7 +581,7 @@ onMounted(() => {
   box-shadow: var(--md-elev-1), 0 0 0 2px rgba(91, 122, 74, .22);
 }
 .toc__title {
-  margin: 14px 12px 4px;
+  margin: 10px 12px 3px;
   color: var(--color-muted);
   font-size: 11.5px;
   font-weight: 600;
@@ -594,8 +594,8 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 40px;
-  padding: 0 16px;
+  min-height: 34px;
+  padding: 0 14px;
   border: 0;
   border-radius: 9999px;
   color: var(--color-text-secondary);
@@ -792,7 +792,7 @@ onMounted(() => {
 }
 @media (max-width: 900px) {
   .console-page {
-    padding: 80px 20px 48px;
+    padding: 68px 20px 36px;
   }
   .console {
     grid-template-columns: minmax(0, 1fr);
@@ -841,7 +841,7 @@ onMounted(() => {
 }
 @media (max-width: 767px) {
   .console-page {
-    padding: 74px var(--mobile-gutter) 40px;
+    padding: 66px var(--mobile-gutter) 32px;
   }
   .login {
     margin-top: 4vh;

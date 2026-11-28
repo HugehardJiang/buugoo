@@ -225,7 +225,7 @@ function finishEdit() {
 
 <style scoped>
 .memo { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 28px; max-width: 1240px; margin: 0 auto; align-items: start; }
-.memo__list { position: sticky; top: 72px; display: grid; gap: 12px; min-width: 0; }
+.memo__list { position: sticky; top: 64px; display: grid; gap: 10px; min-width: 0; }
 .intro { margin: 0; line-height: 1.65; }
 .list-tools, .new { display: flex; gap: 8px; align-items: center; }
 .list-tools .text-input, .new .text-input {
