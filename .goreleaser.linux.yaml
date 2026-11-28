@@ -1,0 +1,58 @@
+# GoReleaser 快速发版配置（仅 Linux systemd 产物）：默认由 tag 推送触发。
+# 需要全平台与 Docker 镜像时，在 GitHub Actions 手动触发 Release 并选择 full 模式。
+version: 2
+
+project_name: buugoo
+
+before:
+  hooks:
+    # 构建前端并复制到 internal/web/dist，供 go:embed 打包。
+    - make web
+
+builds:
+  - id: buugoo
+    main: ./cmd/buugoo
+    binary: buugoo
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/HugehardJiang/buugoo/internal/buildinfo.Version=v{{ .Version }}
+      - -X github.com/HugehardJiang/buugoo/internal/buildinfo.Commit={{ .ShortCommit }}
+      - -X github.com/HugehardJiang/buugoo/internal/buildinfo.Date={{ .Date }}
+    targets:
+      - linux_amd64
+      - linux_arm64
+
+archives:
+  - id: default
+    # 安装脚本与 buugoo update 依赖这个命名，修改时需同步 scripts/install.sh 与 internal/selfupdate。
+    name_template: "buugoo_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+release:
+  github:
+    owner: HugehardJiang
+    name: buugoo
+  mode: replace
+  # 仅附带 Linux 安装与卸载脚本。
+  extra_files:
+    - glob: scripts/install.sh
+    - glob: scripts/uninstall.sh
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^style:"

@@ -5,12 +5,12 @@
 ## 分支与发布约定
 
 - 远端默认分支为 `claude/upbeat-ptolemy-tmpxut`；未经用户明确要求，不要主动执行 `git push` 或触发发布工作流。
-- 一旦用户要求「推送到 GitHub / 发版 / 上线」，则由助手**全程负责到底**：
-  1. 提交并推送代码到 `claude/upbeat-ptolemy-tmpxut`；
-  2. 通过 GitHub API 定时跟进该提交的 `CI` 工作流（使用 `schedule` 定时器轮询，严禁 shell `sleep`），确认全部任务变绿（若失败则立刻排查修复）；
-  3. 按语义化版本号规则确定新版本号（修 bug 为 `Z + 1`，新功能或页面改动为 `Y + 1` 且 `Z` 归零），在 CI 全绿的提交上打附注 tag `vX.Y.Z` 并推送到远端触发 `release.yml`；
-  4. 继续定时跟进 `Release` 工作流直至全部成功，并核验 GitHub Release 页面上的发布产物（如 `checksums.txt`、`buugoo_*_linux_amd64.tar.gz`、`install.sh`）齐全；
-  5. 全部就绪后主动告知用户现在可以在服务器执行一键更新（`sudo buugoo update` / 宝塔 / Docker）。
+- 默认采用 **Linux systemd 快速发版** 模式，一旦用户要求「推送到 GitHub / 发版 / 上线」，则由助手**全程负责到底**：
+  1. 本地通过 `powershell -ExecutionPolicy Bypass -File .\scripts\dev.ps1 all` 验证后，提交代码并直接按语义化版本号规则打附注 tag `vX.Y.Z`（修 bug 为 `Z + 1`，新功能或页面改动为 `Y + 1` 且 `Z` 归零），将分支与 tag 一并推送到远端（`git push origin claude/upbeat-ptolemy-tmpxut vX.Y.Z`），**不再阻塞等待 `CI` 全部跑完再打 tag**（CI 在后台异步运行，若后续报错则在下一补丁版修复）；
+  2. `release.yml` 收到 tag 推送后仅使用 `.goreleaser.linux.yaml` 构建 Linux `amd64/arm64` 二进制、`checksums.txt` 与 Linux 安装/卸载脚本，自动跳过 macOS/Windows 编译以及 Docker/沙箱镜像构建；
+  3. 通过 GitHub API 使用 `schedule` 定时器每 30 秒跟进 `Release` 工作流直至 `goreleaser` 成功，并核验 GitHub Release 页面上的产物（`buugoo_*_linux_amd64.tar.gz`、`buugoo_*_linux_arm64.tar.gz`、`checksums.txt`、`install.sh`、`uninstall.sh`）齐全；
+  4. 核验无误后立刻通知用户在服务器执行一键更新（`sudo buugoo update`）；
+  5. 其余平台（macOS/Windows）及 Docker/沙箱镜像仅在用户明确要求「同步其他版本」时，再通过 `workflow_dispatch`（`mode: full`）按需同步。
 
 ## 中文与文案规范
 
