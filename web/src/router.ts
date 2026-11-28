@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import { setUnauthorizedHandler } from './api'
+import { resetPrivateSeo } from './seo'
 import { bootstrap, logout, needsLogin, session } from './session'
 
 export const router = createRouter({
@@ -17,6 +18,8 @@ export const router = createRouter({
     { path: '/settings', name: 'settings', component: () => import('./views/SettingsView.vue') },
     { path: '/console', name: 'console', component: () => import('./views/ConsoleView.vue') },
     { path: '/welcome', name: 'welcome', component: () => import('./views/WelcomeView.vue') },
+    { path: '/posts', name: 'posts', component: () => import('./views/PostsView.vue') },
+    { path: '/posts/:slug', name: 'post-detail', component: () => import('./views/PostDetailView.vue') },
     { path: '/login', name: 'login', component: () => import('./views/LoginView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
@@ -33,7 +36,13 @@ const stopLoading = () => {
   clearTimeout(loadingTimer)
   routeLoading.value = false
 }
-router.afterEach(stopLoading)
+const PUBLIC_SEO_ROUTES = new Set(['welcome', 'posts', 'post-detail'])
+router.afterEach((to) => {
+  stopLoading()
+  if (!PUBLIC_SEO_ROUTES.has(String(to.name ?? ''))) {
+    resetPrivateSeo(session.meta?.name || '布谷')
+  }
+})
 router.onError(stopLoading)
 
 router.beforeEach(async (to) => {
@@ -47,6 +56,7 @@ router.beforeEach(async (to) => {
   }
   // 管理后台用管理员密码单独验证，不需要先登录用户账号。
   const multi = session.meta?.mode === 'multi'
+  if (to.name === 'posts' || to.name === 'post-detail') return true
   if (to.name === 'welcome') return multi && needsLogin() ? true : { name: 'chat' }
   if (to.name !== 'login' && to.name !== 'console' && needsLogin()) {
     // 多用户版直接打开首页时先看介绍主页，其他页面直接去登录（登录后回到原来的页面）。

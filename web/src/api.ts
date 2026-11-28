@@ -712,6 +712,31 @@ export interface AgentState {
   model?: { id: number; name: string; tools: boolean }
 }
 
+export type CmsCoverTheme = 'obsidian' | 'aurora' | 'cobalt' | 'sage' | 'sand'
+
+export interface CmsPostSummary {
+  id: number
+  slug: string
+  category: string
+  tags: string[]
+  title: string
+  summary: string
+  author: string
+  cover_url: string
+  cover_theme: string
+  status: 'draft' | 'published' | 'archived'
+  featured: boolean
+  pinned: boolean
+  sort_order: number
+  published_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CmsPostDetail extends CmsPostSummary {
+  content: string
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -1018,6 +1043,18 @@ export const api = {
   usage: () => request<Usage>('GET', '/files/usage'),
   deleteFiles: (input: { ids: number[] } | { older_than_days: number }) =>
     request<{ deleted: number; usage: Usage }>('POST', '/files/delete', input),
+  cmsPosts: (params: { category?: string; tag?: string; q?: string; featured?: boolean; limit?: number } = {}) => {
+    const qs = new URLSearchParams()
+    if (params.category) qs.set('category', params.category)
+    if (params.tag) qs.set('tag', params.tag)
+    if (params.q) qs.set('q', params.q)
+    if (params.featured) qs.set('featured', 'true')
+    if (params.limit !== undefined && params.limit > 0) qs.set('limit', String(params.limit))
+    const query = qs.toString()
+    return request<{ posts: CmsPostSummary[]; categories: string[]; tags: string[] }>('GET', `/cms/posts${query ? `?${query}` : ''}`)
+  },
+  cmsPost: (slug: string) =>
+    request<{ post: CmsPostDetail; related: CmsPostSummary[] }>('GET', `/cms/posts/${encodeURIComponent(slug)}`),
 }
 
 export interface ChatHandlers {

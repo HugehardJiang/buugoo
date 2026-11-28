@@ -18,7 +18,14 @@ const NoticeGate = defineAsyncComponent(() => import('./components/NoticeGate.vu
 const route = useRoute()
 const router = useRouter()
 const inWorkspace = computed(
-  () => route.name !== 'login' && route.name !== 'welcome' && session.loaded && !!session.meta && !(route.name === 'console' && needsLogin()),
+  () =>
+    route.name !== 'login' &&
+    route.name !== 'welcome' &&
+    route.name !== 'posts' &&
+    route.name !== 'post-detail' &&
+    session.loaded &&
+    !!session.meta &&
+    !(route.name === 'console' && needsLogin()),
 )
 const name = computed(() => session.meta?.name ?? '布谷')
 
