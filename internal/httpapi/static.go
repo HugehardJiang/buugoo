@@ -24,10 +24,16 @@ const notBuiltPage = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><m
 <p style="margin:0;color:#5e5d59">这个可执行文件没有内嵌 Web 界面。请使用正式发布版本，或在源码目录运行 <code>make web build</code> 后重新启动。也可以用 <code>buugoo chat</code> 在终端里聊天。</p>
 </main></body></html>`
 
-// mountWeb 挂载内嵌的前端：静态资源直接返回，其余路径回退到 index.html（前端路由）。
+// 测试时可替换为自定义静态文件系统，生产环境始终指向内嵌的前端构建产物。
+var (
+	loadWebFS  = web.FS
+	isWebBuilt = web.Built
+)
+
+// mountWeb 挂载内嵌的前端：静态资源直接返回，其余路径回退到带动态 SEO 注入的 index.html。
 func (s *server) mountWeb(e *echo.Echo) {
-	fsys := web.FS()
-	built := web.Built()
+	fsys := loadWebFS()
+	built := isWebBuilt()
 	fileServer := http.FileServer(http.FS(fsys))
 	e.GET("/*", func(c echo.Context) error {
 		if !built {
@@ -51,12 +57,37 @@ func (s *server) mountWeb(e *echo.Echo) {
 		if err != nil {
 			return err
 		}
+		status, rendered := s.renderSEOHTML(c, index)
 		c.Response().Header().Set("Cache-Control", "no-cache")
-		if serveGzip(c, fsys, "index.html") {
-			return nil
-		}
-		return c.HTMLBlob(http.StatusOK, index)
+		return serveDynamicHTML(c, status, rendered)
 	})
+}
+
+// serveDynamicHTML 返回动态注入后的 HTML，在客户端支持 gzip 时实时压缩。
+func serveDynamicHTML(c echo.Context, status int, body []byte) error {
+	h := c.Response().Header()
+	h.Add("Vary", "Accept-Encoding")
+	const ctype = "text/html; charset=utf-8"
+
+	if strings.Contains(c.Request().Header.Get("Accept-Encoding"), "gzip") && len(body) >= 256 {
+		var buf bytes.Buffer
+		w, _ := gzip.NewWriterLevel(&buf, gzip.DefaultCompression)
+		_, _ = w.Write(body)
+		_ = w.Close()
+		if buf.Len() < len(body) {
+			h.Set("Content-Type", ctype)
+			h.Set("Content-Encoding", "gzip")
+			if c.Request().Method == http.MethodHead {
+				return c.NoContent(status)
+			}
+			return c.Blob(status, ctype, buf.Bytes())
+		}
+	}
+	if c.Request().Method == http.MethodHead {
+		h.Set("Content-Type", ctype)
+		return c.NoContent(status)
+	}
+	return c.HTMLBlob(status, body)
 }
 
 // 静态文件压缩：JS、CSS 这类文本文件压缩后小 3～4 倍（没有经过宝塔、nginx 等反向代理时尤其明显）。

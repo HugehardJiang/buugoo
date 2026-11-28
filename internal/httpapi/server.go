@@ -326,6 +326,7 @@ func New(d Deps) http.Handler {
 
 	// 未匹配的 /api 路径返回 JSON 404，其余交给前端。
 	api.Any("/*", func(echo.Context) error { return echo.ErrNotFound })
+	s.routeSEO(e)
 	s.mountWeb(e)
 	return e
 }

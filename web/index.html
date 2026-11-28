@@ -3,9 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="布谷是有记忆、有情绪、能主动关心你的 AI 朋友，支持自托管与多端随处可聊。" />
     <meta name="theme-color" content="#faf9f5" />
     <link rel="icon" href="/favicon.png" type="image/png" />
     <link rel="apple-touch-icon" href="/icon-512.png" />
+    <link rel="alternate" type="application/rss+xml" title="布谷文章订阅" href="/rss.xml" />
     <title>布谷</title>
     <style>
       /* 加载画面：网页脚本还没下载完时显示（直接写在页面里，不用等脚本）。水墨布谷鸟一笔一笔画出来，
@@ -24,6 +26,7 @@
       @keyframes boot-dot { 0%, 100% { opacity: .18; } 35% { opacity: 1; } }
       @media (prefers-reduced-motion: reduce) { .boot, .boot__paint, .boot__name { animation: none; opacity: 1; } .boot__paint { transform: none; } }
     </style>
+    <!--buugoo:seo-head-->
   </head>
   <body>
     <div id="app">
@@ -58,6 +61,7 @@
         </div>
       </div>
     </div>
+    <!--buugoo:seo-noscript-->
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
